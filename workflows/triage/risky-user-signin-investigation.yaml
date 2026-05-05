@@ -1,0 +1,978 @@
+# =============================================================================
+# Workflow: M365 Risky User Sign-in Investigation
+# Category: security/response
+# Trigger: Alert-driven (Entra ID High Risk Sign-in detection rules)
+#
+# PURPOSE:
+# Automates full investigation of a risky user sign-in alert:
+#   Phase 1 — AI triage & context gathering
+#   Phase 2 — Lateral hunt across all available data sources
+#   Phase 3 — AI synthesis with investigation dashboard tables
+#   Phase 4 — Saved searches for analyst verification
+#   Phase 5 — Case creation with full report + hunt queries
+#
+# CUSTOMER DATA SOURCES:
+#   - azure.signinlogs              (risky sign-in event details)
+#   - entityanalytics_entra_id.user (user entity enrichment)
+#   - azure.auditlogs               (Entra ID admin/config changes)
+#   - azure.graphactivitylogs        (Graph API activity — mail, files)
+#   - crowdstrike.alert              (EDR alerts for user's host)
+#   - windows.powershell_operational (PowerShell execution)
+#   - system.security                (Windows logon events)
+#
+# PREREQUISITES:
+#   - Elastic 9.3+ with Workflows enabled (Tech Preview)
+#   - AI agent configured (security.agent_1 or custom)
+#   - Pre-built Entra ID risky sign-in detection rules enabled
+#   - Data view for logs-* created (for saved searches)
+# =============================================================================
+
+name: "🔐 M365 Risky User Sign-in Investigation"
+description: >
+  Investigates Entra ID risky sign-in alerts using AI-driven triage,
+  lateral hunting across Azure, CrowdStrike, and Windows logs,
+  then creates a case with investigation dashboard, saved searches,
+  and hunt queries for analyst verification.
+enabled: true
+tags:
+  - security
+  - identity
+  - risky-signin
+  - entra-id
+  - triage
+  - SOC
+
+# =============================================================================
+# CONSTANTS — Update these for your environment
+# =============================================================================
+consts:
+  # Kibana base URL (no trailing slash)
+  kibana_base_url: "https://YOUR-DEPLOYMENT.kb.REGION.PROVIDER.elastic-cloud.com"
+  # Data view ID for saved search creation (Stack Management → Data Views)
+  logs_data_view_id: "YOUR-LOGS-DATA-VIEW-ID"
+  # AI Agent ID — using security agent with ES|QL tools
+  agent_id: "security.agent_1"
+  # Lookback windows
+  hunt_window_hours: 24
+  signin_history_days: 7
+  saved_search_lookback: "now-30d"
+  # Slack webhook for notifications (optional — uncomment notify step)
+  slack_webhook: "YOUR_SLACK_WEBHOOK_URL"
+
+# =============================================================================
+# TRIGGERS
+# =============================================================================
+triggers:
+  - type: alert
+  - type: manual
+
+# =============================================================================
+# INPUTS — For manual trigger, accept a UPN to investigate
+# =============================================================================
+inputs:
+  - name: user_principal_name
+    type: string
+    required: false
+    description: "User principal name to investigate (for manual runs)"
+
+# =============================================================================
+# STEPS
+# =============================================================================
+steps:
+
+  # ================================================================
+  # PHASE 1: CONTEXT GATHERING
+  # Pull all relevant data before AI triage so the agent has
+  # everything it needs in a single prompt.
+  # ================================================================
+
+  # ── 1a: Risky sign-in event details ──────────────────────────────
+  - name: get_risky_signin_details
+    type: elasticsearch.esql.query
+    with:
+      format: json
+      query: |
+        FROM logs-azure.signinlogs-*
+        | WHERE @timestamp > NOW() - {{ consts.hunt_window_hours }} hours
+        | WHERE azure.signinlogs.properties.risk_level_during_signin IN ("high", "medium")
+            OR azure.signinlogs.properties.risk_state IN ("confirmedCompromised", "atRisk")
+        {%- if inputs.user_principal_name != blank -%}
+        | WHERE azure.signinlogs.properties.user_principal_name == "{{ inputs.user_principal_name }}"
+        {%- elsif event.alerts[0].user.name != blank -%}
+        | WHERE azure.signinlogs.properties.user_principal_name == "{{ event.alerts[0].user.name }}"
+        {%- endif -%}
+        | SORT @timestamp DESC
+        | LIMIT 10
+        | KEEP @timestamp,
+              azure.signinlogs.properties.user_principal_name,
+              azure.signinlogs.properties.user_display_name,
+              azure.signinlogs.properties.ip_address,
+              azure.signinlogs.properties.location.city,
+              azure.signinlogs.properties.location.country_or_region,
+              azure.signinlogs.properties.risk_level_during_signin,
+              azure.signinlogs.properties.risk_level_aggregated,
+              azure.signinlogs.properties.risk_state,
+              azure.signinlogs.properties.risk_detail,
+              azure.signinlogs.properties.app_display_name,
+              azure.signinlogs.properties.client_app_used,
+              azure.signinlogs.properties.device_detail.browser,
+              azure.signinlogs.properties.device_detail.operating_system,
+              azure.signinlogs.properties.conditional_access_status,
+              azure.signinlogs.properties.mfa_detail.auth_method,
+              event.outcome
+
+  # ── 1b: User entity enrichment from Entra ID ────────────────────
+  - name: get_user_entity
+    type: elasticsearch.esql.query
+    with:
+      format: json
+      query: |
+        FROM logs-entityanalytics_entra_id.user-*
+        | WHERE user.id IS NOT NULL
+        {%- assign upn = steps.get_risky_signin_details.output.values[0][1] | default: inputs.user_principal_name -%}
+        {%- if upn != blank -%}
+        | WHERE user.email == "{{ upn }}"
+        {%- endif -%}
+        | SORT @timestamp DESC
+        | LIMIT 1
+        | KEEP user.email,
+              user.name,
+              user.id,
+              asset.category,
+              entityanalytics_entra_id.user.job_title,
+              entityanalytics_entra_id.user.department,
+              entityanalytics_entra_id.user.office_location,
+              entityanalytics_entra_id.user.account_enabled,
+              entityanalytics_entra_id.user.mail
+
+  # ── 1c: Sign-in statistics (7-day baseline) ─────────────────────
+  - name: get_signin_stats
+    type: elasticsearch.esql.query
+    with:
+      format: json
+      query: |
+        FROM logs-azure.signinlogs-*
+        | WHERE @timestamp > NOW() - {{ consts.signin_history_days }} days
+        {%- assign upn = steps.get_risky_signin_details.output.values[0][1] | default: inputs.user_principal_name -%}
+        {%- if upn != blank -%}
+        | WHERE azure.signinlogs.properties.user_principal_name == "{{ upn }}"
+        {%- endif -%}
+        | STATS
+            total_signins = COUNT(*),
+            failed_signins = COUNT_IF(event.outcome == "failure"),
+            risky_signins = COUNT_IF(azure.signinlogs.properties.risk_level_during_signin IN ("high", "medium")),
+            unique_ips = COUNT_DISTINCT(azure.signinlogs.properties.ip_address),
+            unique_apps = COUNT_DISTINCT(azure.signinlogs.properties.app_display_name),
+            unique_countries = COUNT_DISTINCT(azure.signinlogs.properties.location.country_or_region)
+
+  # ── 1d: Azure audit log activity ─────────────────────────────────
+  - name: get_audit_activity
+    type: elasticsearch.esql.query
+    with:
+      format: json
+      query: |
+        FROM logs-azure.auditlogs-*
+        | WHERE @timestamp > NOW() - {{ consts.hunt_window_hours }} hours
+        {%- assign upn = steps.get_risky_signin_details.output.values[0][1] | default: inputs.user_principal_name -%}
+        {%- if upn != blank -%}
+        | WHERE azure.auditlogs.properties.initiated_by.user.userPrincipalName == "{{ upn }}"
+        {%- endif -%}
+        | SORT @timestamp DESC
+        | LIMIT 25
+        | KEEP @timestamp,
+              azure.auditlogs.properties.activity_display_name,
+              azure.auditlogs.properties.result,
+              event.action
+
+  # ── 1e: CrowdStrike EDR alerts ──────────────────────────────────
+  - name: get_crowdstrike_alerts
+    type: elasticsearch.esql.query
+    with:
+      format: json
+      query: |
+        FROM logs-crowdstrike.alert-*
+        | WHERE @timestamp > NOW() - {{ consts.hunt_window_hours }} hours
+        {%- assign user_display = steps.get_risky_signin_details.output.values[0][2] -%}
+        {%- if user_display != blank -%}
+        | WHERE crowdstrike.alert.assigned_to_name == "{{ user_display }}"
+            OR user.name == "{{ user_display }}"
+        {%- endif -%}
+        | SORT @timestamp DESC
+        | LIMIT 10
+        | KEEP @timestamp,
+              crowdstrike.alert.tactic,
+              crowdstrike.alert.technique,
+              crowdstrike.alert.severity_name,
+              crowdstrike.alert.description,
+              host.name
+
+  # ── 1f: PowerShell activity ──────────────────────────────────────
+  - name: get_powershell_activity
+    type: elasticsearch.esql.query
+    with:
+      format: json
+      query: |
+        FROM logs-windows.powershell_operational-*
+        | WHERE @timestamp > NOW() - {{ consts.hunt_window_hours }} hours
+        {%- assign user_display = steps.get_risky_signin_details.output.values[0][2] -%}
+        {%- if user_display != blank -%}
+        | WHERE user.name == "{{ user_display }}"
+        {%- endif -%}
+        | SORT @timestamp DESC
+        | LIMIT 15
+        | KEEP @timestamp,
+              powershell.command.value,
+              powershell.file.script_block_text,
+              host.name,
+              user.name
+
+  # ── 1g: Graph API activity summary ──────────────────────────────
+  #    Key for answering "is this user spamming people?"
+  - name: get_graph_activity
+    type: elasticsearch.esql.query
+    with:
+      format: json
+      query: |
+        FROM logs-azure.graphactivitylogs-*
+        | WHERE @timestamp > NOW() - {{ consts.hunt_window_hours }} hours
+        {%- assign upn = steps.get_risky_signin_details.output.values[0][1] | default: inputs.user_principal_name -%}
+        {%- if upn != blank -%}
+        | WHERE azure.graphactivitylogs.properties.user_id IS NOT NULL
+        {%- endif -%}
+        | STATS
+            total_graph_calls = COUNT(*),
+            mail_ops = COUNT_IF(url.path LIKE "/*/messages*" OR url.path LIKE "/*/sendMail*"),
+            file_ops = COUNT_IF(url.path LIKE "/*/drive*" OR url.path LIKE "/*/files*"),
+            user_ops = COUNT_IF(url.path LIKE "/*/users*"),
+            unique_resources = COUNT_DISTINCT(url.path)
+
+  # ── 1h: Windows logon events (system.security) ──────────────────
+  - name: get_windows_logon_events
+    type: elasticsearch.esql.query
+    with:
+      format: json
+      query: |
+        FROM logs-system.security-*
+        | WHERE @timestamp > NOW() - {{ consts.hunt_window_hours }} hours
+        | WHERE event.code IN ("4624", "4625", "4648")
+        {%- assign user_display = steps.get_risky_signin_details.output.values[0][2] -%}
+        {%- if user_display != blank -%}
+        | WHERE winlog.event_data.TargetUserName == "{{ user_display }}"
+        {%- endif -%}
+        | STATS
+            successful_logons = COUNT_IF(event.code == "4624"),
+            failed_logons = COUNT_IF(event.code == "4625"),
+            explicit_cred_logons = COUNT_IF(event.code == "4648"),
+            unique_logon_hosts = COUNT_DISTINCT(host.name),
+            unique_source_ips = COUNT_DISTINCT(source.ip)
+
+  # ================================================================
+  # PHASE 2: AI TRIAGE
+  # Feed all gathered context to the AI agent for analysis.
+  # ================================================================
+  - name: ai_triage
+    type: ai.agent
+    with:
+      agent_id: "{{ consts.agent_id }}"
+      message: |
+        You are a senior SOC analyst performing triage on a Microsoft Entra ID
+        risky user sign-in alert. Analyze ALL the investigation data below and
+        produce a structured triage report.
+
+        ═══════════════════════════════════════════════
+        RISKY SIGN-IN EVENTS (last {{ consts.hunt_window_hours }}h)
+        ═══════════════════════════════════════════════
+        {{ steps.get_risky_signin_details.output | json }}
+
+        ═══════════════════════════════════════════════
+        USER ENTITY PROFILE (Entra ID)
+        ═══════════════════════════════════════════════
+        {{ steps.get_user_entity.output | json }}
+
+        ═══════════════════════════════════════════════
+        SIGN-IN STATISTICS (last {{ consts.signin_history_days }} days)
+        ═══════════════════════════════════════════════
+        {{ steps.get_signin_stats.output | json }}
+
+        ═══════════════════════════════════════════════
+        AZURE AUDIT LOG ACTIVITY (last {{ consts.hunt_window_hours }}h)
+        ═══════════════════════════════════════════════
+        {{ steps.get_audit_activity.output | json }}
+
+        ═══════════════════════════════════════════════
+        CROWDSTRIKE EDR ALERTS (last {{ consts.hunt_window_hours }}h)
+        ═══════════════════════════════════════════════
+        {{ steps.get_crowdstrike_alerts.output | json }}
+
+        ═══════════════════════════════════════════════
+        POWERSHELL ACTIVITY (last {{ consts.hunt_window_hours }}h)
+        ═══════════════════════════════════════════════
+        {{ steps.get_powershell_activity.output | json }}
+
+        ═══════════════════════════════════════════════
+        GRAPH API ACTIVITY SUMMARY (last {{ consts.hunt_window_hours }}h)
+        ═══════════════════════════════════════════════
+        {{ steps.get_graph_activity.output | json }}
+
+        ═══════════════════════════════════════════════
+        WINDOWS LOGON EVENTS (last {{ consts.hunt_window_hours }}h)
+        ═══════════════════════════════════════════════
+        {{ steps.get_windows_logon_events.output | json }}
+
+        ───────────────────────────────────────────────
+        Produce a triage report with these sections:
+
+        ## Alert Summary
+        One paragraph: who, what, when, where, risk level, outcome.
+
+        ## User Context
+        Role, department, account status. Is this a high-value target?
+
+        ## Risk Indicators (Positive — supports compromise)
+        Bullet each finding that increases suspicion:
+        - Sign-in anomalies (location, device, app, MFA status)
+        - Volume of risky or failed sign-ins
+        - Suspicious audit log changes (password resets, MFA changes, role assignments)
+        - CrowdStrike EDR alerts on their endpoint
+        - Unusual PowerShell execution
+        - Graph API abuse (mass mail sends, bulk file access)
+        - Windows logon anomalies (explicit credential use, multiple hosts)
+
+        ## Risk Indicators (Negative — supports benign)
+        Bullet findings that reduce suspicion.
+
+        ## Is the User Spamming People?
+        Based on Graph API mail_ops count, assess whether the account may be
+        sending phishing or spam. If mail_ops > 0, flag for review.
+
+        ## Severity Assessment
+        CRITICAL / HIGH / MEDIUM / LOW — justify based on all evidence.
+
+        ## Recommended Next Steps
+        5 specific, actionable steps. Consider: password reset, MFA re-registration,
+        conditional access review, session revocation via Entra ID, manager notification,
+        CrowdStrike host containment, deeper forensic investigation.
+
+        ## IOC List
+        Extract ALL indicators found across the data:
+        IPs, hostnames, user agents, app names, locations.
+        One per line, with type label.
+    on-failure:
+      retry:
+        max-attempts: 2
+
+  # ================================================================
+  # PHASE 3: INVESTIGATION DASHBOARD TABLES
+  # AI formats structured tables from the raw data for the case.
+  # ================================================================
+  - name: ai_build_dashboard
+    type: ai.agent
+    with:
+      agent_id: "{{ consts.agent_id }}"
+      message: |
+        Build investigation dashboard tables for this risky sign-in case.
+        Respond ONLY with formatted markdown tables — no prose.
+
+        Use this data:
+
+        TRIAGE REPORT:
+        {{ steps.ai_triage.output }}
+
+        SIGN-IN EVENTS:
+        {{ steps.get_risky_signin_details.output | json }}
+
+        SIGN-IN STATS:
+        {{ steps.get_signin_stats.output | json }}
+
+        AUDIT ACTIVITY:
+        {{ steps.get_audit_activity.output | json }}
+
+        CROWDSTRIKE ALERTS:
+        {{ steps.get_crowdstrike_alerts.output | json }}
+
+        GRAPH API:
+        {{ steps.get_graph_activity.output | json }}
+
+        WINDOWS LOGONS:
+        {{ steps.get_windows_logon_events.output | json }}
+
+        Build these tables:
+
+        ## 🔐 Risky Sign-in Events
+        | Timestamp | Risk Level | Risk State | Source IP | Location | App | MFA Method | Outcome |
+
+        ## 📊 Sign-in Baseline ({{ consts.signin_history_days }}-day)
+        | Metric | Value | Assessment |
+        (Include: total sign-ins, failed, risky, unique IPs, unique apps, unique countries)
+
+        ## 🔍 Entra ID Audit Activity
+        | Timestamp | Action | Result | Risk Level |
+        (Flag password resets, MFA changes, role assignments, app consent as HIGH risk)
+
+        ## 🛡️ CrowdStrike EDR Alerts
+        | Timestamp | Severity | Tactic | Technique | Description | Host |
+
+        ## 📧 Graph API Activity Summary
+        | Operation Type | Count | Risk Assessment |
+        (Flag mail_ops > 10 as HIGH, > 0 as MEDIUM)
+
+        ## 🖥️ Windows Logon Summary
+        | Metric | Value | Assessment |
+        (Include: successful, failed, explicit credential, unique hosts, unique source IPs)
+
+        ## 🎯 Extracted IOCs
+        | IOC Type | Value | Source | Context |
+    on-failure:
+      retry:
+        max-attempts: 2
+
+  # ================================================================
+  # PHASE 4: HUNT QUERIES
+  # AI generates ES|QL hunt queries the analyst can run to dig deeper.
+  # ================================================================
+  - name: ai_generate_hunt_queries
+    type: ai.agent
+    with:
+      agent_id: "{{ consts.agent_id }}"
+      message: |
+        Generate hunt queries for this risky sign-in investigation.
+        These queries are for an analyst to copy-paste into Discover or the ES|QL editor.
+
+        Context:
+        {{ steps.ai_triage.output }}
+
+        USER: {{ steps.get_risky_signin_details.output.values[0][1] | default: "UNKNOWN" }}
+        SOURCE IP: {{ steps.get_risky_signin_details.output.values[0][3] | default: "UNKNOWN" }}
+
+        Generate ES|QL queries for each of these hunts. For each query, include:
+        - A title describing what it hunts for
+        - The complete ES|QL query ready to paste
+        - What to look for in the results
+
+        REQUIRED HUNT QUERIES:
+
+        1. **Impossible Travel** — Same user signing in from multiple countries
+           within a short time window. Query azure.signinlogs for this user,
+           group by location and timestamp to find geographic anomalies.
+
+        2. **MFA Fatigue / Bombing** — Repeated MFA prompts followed by a success.
+           Query azure.signinlogs for failed MFA attempts followed by a successful one.
+
+        3. **Inbox Rule Manipulation** — New inbox forwarding or deletion rules
+           created via Graph API or audit logs. Check azure.auditlogs for
+           "Set-Mailbox*" or "New-InboxRule" actions.
+
+        4. **OAuth App Consent Abuse** — Suspicious app consent grants.
+           Check azure.auditlogs for "Consent to application" actions.
+
+        5. **Lateral Movement from Source IP** — Other users signing in from
+           the same suspicious source IP. Query azure.signinlogs for the IP
+           across ALL users.
+
+        6. **Privilege Escalation** — Role assignments, group membership changes
+           for this user. Check azure.auditlogs.
+
+        7. **Email Exfiltration Indicators** — High-volume mail sends or
+           mail forwarding via Graph API. Query azure.graphactivitylogs
+           for sendMail or message-related operations.
+
+        8. **CrowdStrike Correlation** — Any EDR detections on hosts
+           this user has logged into. Cross-reference host.name from
+           sign-in data with crowdstrike.alert.
+
+        Format each query as:
+        ### [Number]. [Title]
+        **What to look for:** [description]
+        ```esql
+        [complete query]
+        ```
+    on-failure:
+      retry:
+        max-attempts: 2
+
+  # ================================================================
+  # PHASE 5: CREATE THE INVESTIGATION CASE
+  # ================================================================
+  - name: create_investigation_case
+    type: kibana.createCaseDefaultSpace
+    with:
+      title: |
+        {%- assign upn = steps.get_risky_signin_details.output.values[0][1] | default: inputs.user_principal_name | default: "Unknown User" -%}
+        {%- assign risk = steps.get_risky_signin_details.output.values[0][6] | default: "unknown" -%}
+        🔐 Risky Sign-in: {{ upn }} [{{ risk | upcase }}]
+      description: |
+        **Automated Risky Sign-in Investigation**
+
+        Triggered by Entra ID risky sign-in detection rule.
+        AI triage, investigation dashboard, hunt queries, and saved searches
+        will be posted as comments below.
+
+        **⚠️ HUMAN REVIEW REQUIRED — Verify findings before taking containment action.**
+
+        ---
+
+        **User:** {{ steps.get_risky_signin_details.output.values[0][1] | default: "N/A" }}
+        **Risk Level:** {{ steps.get_risky_signin_details.output.values[0][6] | default: "N/A" }}
+        **Risk State:** {{ steps.get_risky_signin_details.output.values[0][8] | default: "N/A" }}
+        **Source IP:** {{ steps.get_risky_signin_details.output.values[0][3] | default: "N/A" }}
+        **Location:** {{ steps.get_risky_signin_details.output.values[0][4] | default: "N/A" }}, {{ steps.get_risky_signin_details.output.values[0][5] | default: "N/A" }}
+      tags:
+        - risky_signin
+        - entra_id
+        - automated_triage
+        - SOC_Investigation
+      severity: high
+      owner: securitySolution
+      connector:
+        id: none
+        name: none
+        type: .none
+        fields: null
+      settings:
+        syncAlerts: true
+
+  # ── 5b: Post AI Triage Report ────────────────────────────────────
+  - name: post_triage_to_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_investigation_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # 🤖 Phase 1: AI Triage Report
+
+          {{ steps.ai_triage.output }}
+
+          ---
+          📎 [Open AI Assistant]({{ consts.kibana_base_url }}/app/security/ai-assistant) to continue this investigation.
+
+  # ── 5c: Post Investigation Dashboard ─────────────────────────────
+  - name: post_dashboard_to_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_investigation_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # 📊 Phase 2: Investigation Dashboard
+
+          {{ steps.ai_build_dashboard.output }}
+
+  # ── 5d: Post Hunt Queries ────────────────────────────────────────
+  - name: post_hunt_queries_to_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_investigation_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # 🔍 Phase 3: Hunt Queries
+
+          Copy-paste these ES|QL queries into Discover to dig deeper.
+
+          {{ steps.ai_generate_hunt_queries.output }}
+
+  # ================================================================
+  # PHASE 6: SAVED SEARCHES FOR ANALYST VERIFICATION
+  # Each saved search backs up a key finding so the analyst can
+  # click through and verify the raw evidence in Discover.
+  # ================================================================
+
+  # ── 6a: Risky sign-ins for this user ─────────────────────────────
+  - name: create_ss_risky_signins
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/saved_objects/search
+      headers:
+        kbn-xsrf: "true"
+      body:
+        attributes:
+          title: |
+            {%- assign upn = steps.get_risky_signin_details.output.values[0][1] | default: inputs.user_principal_name -%}
+            🔐 Risky Sign-ins: {{ upn }}
+          description: >
+            All risky sign-in events for this user.
+            Auto-generated by Risky Sign-in Investigation workflow.
+          kibanaSavedObjectMeta:
+            searchSourceJSON: |
+              {
+                "query": {
+                  "query": "event.dataset:azure.signinlogs AND azure.signinlogs.properties.user_principal_name:\"{{ steps.get_risky_signin_details.output.values[0][1] }}\" AND (azure.signinlogs.properties.risk_level_during_signin:(high OR medium) OR azure.signinlogs.properties.risk_state:(confirmedCompromised OR atRisk))",
+                  "language": "kuery"
+                },
+                "filter": [
+                  {
+                    "meta": { "alias": "Investigation Lookback" },
+                    "range": { "@timestamp": { "gte": "{{ consts.saved_search_lookback }}" } }
+                  }
+                ],
+                "indexRefName": "kibanaSavedObjectMeta.searchSourceJSON.index"
+              }
+          columns:
+            - "@timestamp"
+            - azure.signinlogs.properties.user_principal_name
+            - azure.signinlogs.properties.ip_address
+            - azure.signinlogs.properties.location.city
+            - azure.signinlogs.properties.location.country_or_region
+            - azure.signinlogs.properties.risk_level_during_signin
+            - azure.signinlogs.properties.risk_state
+            - azure.signinlogs.properties.app_display_name
+            - azure.signinlogs.properties.mfa_detail.auth_method
+            - event.outcome
+          sort:
+            - - "@timestamp"
+              - desc
+        references:
+          - name: "kibanaSavedObjectMeta.searchSourceJSON.index"
+            type: index-pattern
+            id: "{{ consts.logs_data_view_id }}"
+
+  # ── 6b: Failed sign-ins for this user ────────────────────────────
+  - name: create_ss_failed_signins
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/saved_objects/search
+      headers:
+        kbn-xsrf: "true"
+      body:
+        attributes:
+          title: |
+            {%- assign upn = steps.get_risky_signin_details.output.values[0][1] | default: inputs.user_principal_name -%}
+            🔴 Failed Sign-ins: {{ upn }}
+          description: >
+            All failed sign-in attempts for this user.
+            Auto-generated by Risky Sign-in Investigation workflow.
+          kibanaSavedObjectMeta:
+            searchSourceJSON: |
+              {
+                "query": {
+                  "query": "event.dataset:azure.signinlogs AND azure.signinlogs.properties.user_principal_name:\"{{ steps.get_risky_signin_details.output.values[0][1] }}\" AND event.outcome:failure",
+                  "language": "kuery"
+                },
+                "filter": [
+                  {
+                    "meta": { "alias": "Investigation Lookback" },
+                    "range": { "@timestamp": { "gte": "{{ consts.saved_search_lookback }}" } }
+                  }
+                ],
+                "indexRefName": "kibanaSavedObjectMeta.searchSourceJSON.index"
+              }
+          columns:
+            - "@timestamp"
+            - azure.signinlogs.properties.user_principal_name
+            - azure.signinlogs.properties.ip_address
+            - azure.signinlogs.properties.location.city
+            - azure.signinlogs.properties.location.country_or_region
+            - azure.signinlogs.properties.app_display_name
+            - azure.signinlogs.properties.status.error_code
+            - azure.signinlogs.properties.status.failure_reason
+          sort:
+            - - "@timestamp"
+              - desc
+        references:
+          - name: "kibanaSavedObjectMeta.searchSourceJSON.index"
+            type: index-pattern
+            id: "{{ consts.logs_data_view_id }}"
+
+  # ── 6c: Audit log changes by this user ───────────────────────────
+  - name: create_ss_audit_activity
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/saved_objects/search
+      headers:
+        kbn-xsrf: "true"
+      body:
+        attributes:
+          title: |
+            {%- assign upn = steps.get_risky_signin_details.output.values[0][1] | default: inputs.user_principal_name -%}
+            📋 Entra ID Audit Activity: {{ upn }}
+          description: >
+            All Entra ID audit log events initiated by this user.
+            Auto-generated by Risky Sign-in Investigation workflow.
+          kibanaSavedObjectMeta:
+            searchSourceJSON: |
+              {
+                "query": {
+                  "query": "event.dataset:azure.auditlogs AND azure.auditlogs.properties.initiated_by.user.userPrincipalName:\"{{ steps.get_risky_signin_details.output.values[0][1] }}\"",
+                  "language": "kuery"
+                },
+                "filter": [
+                  {
+                    "meta": { "alias": "Investigation Lookback" },
+                    "range": { "@timestamp": { "gte": "{{ consts.saved_search_lookback }}" } }
+                  }
+                ],
+                "indexRefName": "kibanaSavedObjectMeta.searchSourceJSON.index"
+              }
+          columns:
+            - "@timestamp"
+            - azure.auditlogs.properties.activity_display_name
+            - azure.auditlogs.properties.result
+            - azure.auditlogs.properties.target_resources.display_name
+            - event.action
+          sort:
+            - - "@timestamp"
+              - desc
+        references:
+          - name: "kibanaSavedObjectMeta.searchSourceJSON.index"
+            type: index-pattern
+            id: "{{ consts.logs_data_view_id }}"
+
+  # ── 6d: Lateral movement — same source IP, other users ──────────
+  - name: create_ss_lateral_ip
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/saved_objects/search
+      headers:
+        kbn-xsrf: "true"
+      body:
+        attributes:
+          title: |
+            {%- assign src_ip = steps.get_risky_signin_details.output.values[0][3] | default: "UNKNOWN" -%}
+            🌐 Lateral Movement — Source IP: {{ src_ip }}
+          description: >
+            All sign-in events from the suspicious source IP across ALL users.
+            Auto-generated by Risky Sign-in Investigation workflow.
+          kibanaSavedObjectMeta:
+            searchSourceJSON: |
+              {
+                "query": {
+                  "query": "event.dataset:azure.signinlogs AND azure.signinlogs.properties.ip_address:\"{{ steps.get_risky_signin_details.output.values[0][3] }}\"",
+                  "language": "kuery"
+                },
+                "filter": [
+                  {
+                    "meta": { "alias": "Investigation Lookback" },
+                    "range": { "@timestamp": { "gte": "{{ consts.saved_search_lookback }}" } }
+                  }
+                ],
+                "indexRefName": "kibanaSavedObjectMeta.searchSourceJSON.index"
+              }
+          columns:
+            - "@timestamp"
+            - azure.signinlogs.properties.user_principal_name
+            - azure.signinlogs.properties.ip_address
+            - azure.signinlogs.properties.location.city
+            - azure.signinlogs.properties.location.country_or_region
+            - azure.signinlogs.properties.risk_level_during_signin
+            - azure.signinlogs.properties.app_display_name
+            - event.outcome
+          sort:
+            - - "@timestamp"
+              - desc
+        references:
+          - name: "kibanaSavedObjectMeta.searchSourceJSON.index"
+            type: index-pattern
+            id: "{{ consts.logs_data_view_id }}"
+
+  # ── 6e: CrowdStrike alerts for user's hosts ─────────────────────
+  - name: create_ss_crowdstrike
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/saved_objects/search
+      headers:
+        kbn-xsrf: "true"
+      body:
+        attributes:
+          title: |
+            {%- assign user_display = steps.get_risky_signin_details.output.values[0][2] | default: "UNKNOWN" -%}
+            🛡️ CrowdStrike Alerts: {{ user_display }}
+          description: >
+            CrowdStrike EDR alerts associated with this user.
+            Auto-generated by Risky Sign-in Investigation workflow.
+          kibanaSavedObjectMeta:
+            searchSourceJSON: |
+              {
+                "query": {
+                  "query": "event.dataset:crowdstrike.alert AND (user.name:\"{{ steps.get_risky_signin_details.output.values[0][2] }}\" OR crowdstrike.alert.assigned_to_name:\"{{ steps.get_risky_signin_details.output.values[0][2] }}\")",
+                  "language": "kuery"
+                },
+                "filter": [
+                  {
+                    "meta": { "alias": "Investigation Lookback" },
+                    "range": { "@timestamp": { "gte": "{{ consts.saved_search_lookback }}" } }
+                  }
+                ],
+                "indexRefName": "kibanaSavedObjectMeta.searchSourceJSON.index"
+              }
+          columns:
+            - "@timestamp"
+            - crowdstrike.alert.severity_name
+            - crowdstrike.alert.tactic
+            - crowdstrike.alert.technique
+            - crowdstrike.alert.description
+            - host.name
+          sort:
+            - - "@timestamp"
+              - desc
+        references:
+          - name: "kibanaSavedObjectMeta.searchSourceJSON.index"
+            type: index-pattern
+            id: "{{ consts.logs_data_view_id }}"
+
+  # ── 6f: Graph API mail operations ────────────────────────────────
+  - name: create_ss_graph_mail
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/saved_objects/search
+      headers:
+        kbn-xsrf: "true"
+      body:
+        attributes:
+          title: |
+            {%- assign upn = steps.get_risky_signin_details.output.values[0][1] | default: inputs.user_principal_name -%}
+            📧 Graph API Mail Operations: {{ upn }}
+          description: >
+            Graph API mail-related operations — checking for spam/phishing activity.
+            Auto-generated by Risky Sign-in Investigation workflow.
+          kibanaSavedObjectMeta:
+            searchSourceJSON: |
+              {
+                "query": {
+                  "query": "event.dataset:azure.graphactivitylogs AND (url.path:*messages* OR url.path:*sendMail*)",
+                  "language": "kuery"
+                },
+                "filter": [
+                  {
+                    "meta": { "alias": "Investigation Lookback" },
+                    "range": { "@timestamp": { "gte": "{{ consts.saved_search_lookback }}" } }
+                  }
+                ],
+                "indexRefName": "kibanaSavedObjectMeta.searchSourceJSON.index"
+              }
+          columns:
+            - "@timestamp"
+            - url.path
+            - http.request.method
+            - http.response.status_code
+          sort:
+            - - "@timestamp"
+              - desc
+        references:
+          - name: "kibanaSavedObjectMeta.searchSourceJSON.index"
+            type: index-pattern
+            id: "{{ consts.logs_data_view_id }}"
+
+  # ── 6g: Post all saved search links to case ─────────────────────
+  - name: post_saved_searches_to_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_investigation_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # 🔎 Phase 4: Saved Searches — Analyst Verification
+
+          Click any link to open the raw evidence in Discover.
+          All searches are pre-filtered to the investigation lookback window.
+
+          | Evidence | Saved Search |
+          |----------|-------------|
+          | Risky sign-ins | [Open in Discover]({{ consts.kibana_base_url }}/app/discover#/view/{{ steps.create_ss_risky_signins.output.id }}) |
+          | Failed sign-ins | [Open in Discover]({{ consts.kibana_base_url }}/app/discover#/view/{{ steps.create_ss_failed_signins.output.id }}) |
+          | Entra ID audit activity | [Open in Discover]({{ consts.kibana_base_url }}/app/discover#/view/{{ steps.create_ss_audit_activity.output.id }}) |
+          | Lateral movement (source IP) | [Open in Discover]({{ consts.kibana_base_url }}/app/discover#/view/{{ steps.create_ss_lateral_ip.output.id }}) |
+          | CrowdStrike EDR alerts | [Open in Discover]({{ consts.kibana_base_url }}/app/discover#/view/{{ steps.create_ss_crowdstrike.output.id }}) |
+          | Graph API mail operations | [Open in Discover]({{ consts.kibana_base_url }}/app/discover#/view/{{ steps.create_ss_graph_mail.output.id }}) |
+
+          ---
+          📂 All saved searches are also available in Discover under the prefix **🔐** or **🔴** or **🛡️** etc.
+
+  # ================================================================
+  # PHASE 7: FINAL AI SYNTHESIS
+  # ================================================================
+  - name: ai_final_synthesis
+    type: ai.agent
+    with:
+      agent_id: "{{ consts.agent_id }}"
+      message: |
+        Final synthesis for this risky sign-in investigation. Using ALL data below,
+        provide a closing assessment.
+
+        TRIAGE REPORT:
+        {{ steps.ai_triage.output }}
+
+        DASHBOARD:
+        {{ steps.ai_build_dashboard.output }}
+
+        Produce:
+
+        1. **Final Verdict** — Is this user compromised? Confidence: High/Medium/Low.
+        2. **Blast Radius** — What systems, data, or other users are at risk?
+        3. **Response Actions** — Prioritized:
+           - 🔴 Immediate (session revoke, password reset, MFA re-register, block IP)
+           - 🟡 Short-term (review conditional access policies, check inbox rules, hunt other users from same IP)
+           - 🟢 Long-term (tighten CA policies, add risk-based MFA, enable sign-in risk policy in Entra ID Protection)
+        4. **Gaps** — What data sources are missing? What should we hunt for next?
+        5. **Severity Recommendation** — Should this case stay HIGH or escalate to CRITICAL?
+    on-failure:
+      retry:
+        max-attempts: 2
+
+  - name: post_synthesis_to_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_investigation_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # 🧠 Phase 5: Final Synthesis & Recommendations
+
+          {{ steps.ai_final_synthesis.output }}
+
+          ---
+          📎 [Open AI Assistant]({{ consts.kibana_base_url }}/app/security/ai-assistant) to continue this investigation.
+
+  # ── Final log ────────────────────────────────────────────────────
+  - name: log_complete
+    type: console
+    with:
+      message: |
+        ✅ Risky sign-in investigation complete.
+        Case ID: {{ steps.create_investigation_case.output.id }}
+        User: {{ steps.get_risky_signin_details.output.values[0][1] | default: "N/A" }}
+        Saved searches created: 6
+        View case: {{ consts.kibana_base_url }}/app/security/cases/{{ steps.create_investigation_case.output.id }}
+
+  # ================================================================
+  # (OPTIONAL) SLACK NOTIFICATION — Uncomment to enable
+  # ================================================================
+  # - name: notify_slack
+  #   type: http
+  #   with:
+  #     url: "{{ consts.slack_webhook }}"
+  #     method: POST
+  #     body:
+  #       text: |
+  #         🔐 *Risky Sign-in Investigation Complete*
+  #         *User:* {{ steps.get_risky_signin_details.output.values[0][1] | default: "Unknown" }}
+  #         *Risk:* {{ steps.get_risky_signin_details.output.values[0][6] | default: "Unknown" }}
+  #         *Case:* {{ consts.kibana_base_url }}/app/security/cases/{{ steps.create_investigation_case.output.id }}
+  #         *Saved Searches:* 6 evidence links in case
+  #         Review the AI triage and verify findings before taking action.

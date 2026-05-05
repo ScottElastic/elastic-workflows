@@ -1,0 +1,279 @@
+{
+  "title": "Threat Intelligence Findings Overview",
+  "time_range": { "from": "now-30d", "to": "now" },
+  "panels": [
+    {
+      "type": "lens",
+      "uid": "metric-total-threats",
+      "grid": { "x": 0, "y": 0, "w": 8, "h": 5 },
+      "config": {
+        "attributes": {
+          "title": "",
+          "type": "metric",
+          "dataset": {
+            "type": "esql",
+            "query": "FROM threat-intel-findings | STATS `Total Threats` = COUNT_DISTINCT(threat.name.keyword)"
+          },
+          "metrics": [{ "type": "primary", "operation": "value", "column": "Total Threats" }]
+        }
+      }
+    },
+    {
+      "type": "lens",
+      "uid": "metric-active-ioc-hits",
+      "grid": { "x": 8, "y": 0, "w": 8, "h": 5 },
+      "config": {
+        "attributes": {
+          "title": "",
+          "type": "metric",
+          "dataset": {
+            "type": "esql",
+            "query": "FROM threat-intel-findings | WHERE ioc.matched == true | STATS `Active IOC Hits` = COUNT_DISTINCT(threat.name.keyword)"
+          },
+          "metrics": [{ "type": "primary", "operation": "value", "column": "Active IOC Hits" }]
+        }
+      }
+    },
+    {
+      "type": "lens",
+      "uid": "metric-critical-exposures",
+      "grid": { "x": 16, "y": 0, "w": 8, "h": 5 },
+      "config": {
+        "attributes": {
+          "title": "",
+          "type": "metric",
+          "dataset": {
+            "type": "esql",
+            "query": "FROM threat-intel-findings | WHERE exposure.level == \"critical\" OR exposure.level == \"blind_spot\" | STATS `Critical / Blind Spots` = COUNT_DISTINCT(threat.name.keyword)"
+          },
+          "metrics": [{ "type": "primary", "operation": "value", "column": "Critical / Blind Spots" }]
+        }
+      }
+    },
+    {
+      "type": "lens",
+      "uid": "metric-feeds-active",
+      "grid": { "x": 24, "y": 0, "w": 8, "h": 5 },
+      "config": {
+        "attributes": {
+          "title": "",
+          "type": "metric",
+          "dataset": {
+            "type": "esql",
+            "query": "FROM threat-intel-findings | STATS `Active Feeds` = COUNT_DISTINCT(feed.name)"
+          },
+          "metrics": [{ "type": "primary", "operation": "value", "column": "Active Feeds" }]
+        }
+      }
+    },
+    {
+      "type": "lens",
+      "uid": "metric-latest-scan",
+      "grid": { "x": 32, "y": 0, "w": 16, "h": 5 },
+      "config": {
+        "attributes": {
+          "title": "",
+          "type": "metric",
+          "dataset": {
+            "type": "esql",
+            "query": "FROM threat-intel-findings | STATS `Last Scan` = MAX(feed.run_timestamp)"
+          },
+          "metrics": [{ "type": "primary", "operation": "value", "column": "Last Scan" }]
+        }
+      }
+    },
+    {
+      "type": "lens",
+      "uid": "donut-exposure-levels",
+      "grid": { "x": 0, "y": 5, "w": 16, "h": 12 },
+      "config": {
+        "attributes": {
+          "title": "Exposure Level Breakdown",
+          "type": "donut",
+          "dataset": {
+            "type": "esql",
+            "query": "FROM threat-intel-findings | STATS count = COUNT() BY exposure.level | SORT count DESC"
+          },
+          "metrics": [{ "operation": "value", "column": "count" }],
+          "group_by": [{ "operation": "value", "column": "exposure.level" }]
+        }
+      }
+    },
+    {
+      "type": "lens",
+      "uid": "bar-severity-by-feed",
+      "grid": { "x": 16, "y": 5, "w": 16, "h": 12 },
+      "config": {
+        "attributes": {
+          "title": "Threat Severity by Feed",
+          "type": "xy",
+          "axis": {
+            "x": { "title": { "visible": false } },
+            "left": { "title": { "visible": false } }
+          },
+          "layers": [
+            {
+              "type": "bar_stacked",
+              "dataset": {
+                "type": "esql",
+                "query": "FROM threat-intel-findings | STATS count = COUNT() BY feed.name, threat.severity | SORT count DESC"
+              },
+              "x": { "operation": "value", "column": "feed.name" },
+              "y": [{ "operation": "value", "column": "count" }],
+              "breakdown_by": { "operation": "value", "column": "threat.severity" }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "lens",
+      "uid": "timeline-findings",
+      "grid": { "x": 32, "y": 5, "w": 16, "h": 12 },
+      "config": {
+        "attributes": {
+          "title": "Findings Over Time",
+          "type": "xy",
+          "axis": {
+            "x": { "title": { "visible": false } },
+            "left": { "title": { "visible": false } }
+          },
+          "layers": [
+            {
+              "type": "bar_stacked",
+              "dataset": {
+                "type": "esql",
+                "query": "FROM threat-intel-findings | STATS count = COUNT() BY bucket = BUCKET(@timestamp, 75, ?_tstart, ?_tend), exposure.level"
+              },
+              "x": { "operation": "value", "column": "bucket" },
+              "y": [{ "operation": "value", "column": "count" }],
+              "breakdown_by": { "operation": "value", "column": "exposure.level" }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "lens",
+      "uid": "table-threat-correlation",
+      "grid": { "x": 0, "y": 17, "w": 48, "h": 12 },
+      "config": {
+        "attributes": {
+          "title": "Threat Correlation Matrix (Latest Scan per Feed)",
+          "type": "datatable",
+          "dataset": {
+            "type": "esql",
+            "query": "FROM threat-intel-findings | SORT @timestamp DESC | STATS exposure_level = MAX(exposure.level), severity = MAX(threat.severity), ioc_matched = MAX(TO_STRING(ioc.matched)), score = MAX(exposure.score), notes = MAX(exposure.notes.keyword) BY threat.name.keyword, feed.name | SORT score DESC | LIMIT 50"
+          },
+          "metrics": [
+            { "operation": "value", "column": "exposure_level" },
+            { "operation": "value", "column": "severity" },
+            { "operation": "value", "column": "ioc_matched" },
+            { "operation": "value", "column": "score" },
+            { "operation": "value", "column": "notes" }
+          ],
+          "rows": [
+            { "operation": "value", "column": "threat.name.keyword" },
+            { "operation": "value", "column": "feed.name" }
+          ]
+        }
+      }
+    },
+    {
+      "type": "lens",
+      "uid": "table-active-ioc-hits",
+      "grid": { "x": 0, "y": 29, "w": 48, "h": 12 },
+      "config": {
+        "attributes": {
+          "title": "Active IOC Matches -- Confirmed Hits in Environment",
+          "type": "datatable",
+          "dataset": {
+            "type": "esql",
+            "query": "FROM threat-intel-findings | WHERE ioc.matched == true | SORT exposure.score DESC, @timestamp DESC | KEEP threat.name.keyword, exposure.level, ioc.match_count, data_sources, threat.severity, feed.name, @timestamp | LIMIT 50"
+          },
+          "metrics": [
+            { "operation": "value", "column": "exposure.level" },
+            { "operation": "value", "column": "ioc.match_count" },
+            { "operation": "value", "column": "threat.severity" },
+            { "operation": "value", "column": "data_sources" },
+            { "operation": "value", "column": "@timestamp" }
+          ],
+          "rows": [
+            { "operation": "value", "column": "threat.name.keyword" },
+            { "operation": "value", "column": "feed.name" }
+          ]
+        }
+      }
+    },
+    {
+      "type": "lens",
+      "uid": "bar-mitre-techniques",
+      "grid": { "x": 0, "y": 41, "w": 24, "h": 12 },
+      "config": {
+        "attributes": {
+          "title": "MITRE ATT&CK Technique Coverage",
+          "type": "xy",
+          "axis": {
+            "x": { "title": { "visible": false } },
+            "left": { "title": { "visible": false } }
+          },
+          "layers": [
+            {
+              "type": "bar_horizontal",
+              "dataset": {
+                "type": "esql",
+                "query": "FROM threat-intel-findings | STATS count = COUNT() BY mitre.technique_ids | SORT count DESC | LIMIT 20"
+              },
+              "x": { "operation": "value", "column": "mitre.technique_ids" },
+              "y": [{ "operation": "value", "column": "count" }]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "lens",
+      "uid": "waffle-exposure-distribution",
+      "grid": { "x": 24, "y": 41, "w": 24, "h": 12 },
+      "config": {
+        "attributes": {
+          "title": "Exposure Distribution by Threat Type",
+          "type": "waffle",
+          "dataset": {
+            "type": "esql",
+            "query": "FROM threat-intel-findings | STATS count = COUNT() BY threat.type, exposure.level"
+          },
+          "metrics": [{ "operation": "value", "column": "count" }],
+          "group_by": [
+            { "operation": "value", "column": "threat.type" },
+            { "operation": "value", "column": "exposure.level" }
+          ]
+        }
+      }
+    },
+    {
+      "type": "lens",
+      "uid": "table-detection-gaps",
+      "grid": { "x": 0, "y": 53, "w": 48, "h": 10 },
+      "config": {
+        "attributes": {
+          "title": "Detection Gaps & Blind Spots",
+          "type": "datatable",
+          "dataset": {
+            "type": "esql",
+            "query": "FROM threat-intel-findings | WHERE exposure.level == \"blind_spot\" OR exposure.level == \"high\" OR exposure.level == \"critical\" | SORT exposure.score DESC, @timestamp DESC | KEEP threat.name.keyword, exposure.level, exposure.notes.keyword, feed.name, @timestamp | LIMIT 50"
+          },
+          "metrics": [
+            { "operation": "value", "column": "exposure.level" },
+            { "operation": "value", "column": "exposure.notes.keyword" },
+            { "operation": "value", "column": "@timestamp" }
+          ],
+          "rows": [
+            { "operation": "value", "column": "threat.name.keyword" },
+            { "operation": "value", "column": "feed.name" }
+          ]
+        }
+      }
+    }
+  ]
+}

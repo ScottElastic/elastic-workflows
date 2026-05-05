@@ -1,0 +1,679 @@
+# =============================================================================
+# Workflow: Okta AiTM Session Cookie Replay Investigation (v1.0)
+# Category: security/response
+# Trigger: Alert-driven (Okta AiTM Session Cookie Replay detection rule)
+#
+# CUSTOMER DATA SOURCES:
+#   - logs-okta.system-*              (Okta System Log — raw session events)
+#   - logs-aws.cloudtrail-*           (AWS CloudTrail — API activity from attacker IPs)
+#   - logs-panw.panos-*               (Palo Alto NGFW — network activity for IPs)
+#
+# PREREQUISITES:
+#   - Elastic 9.3+ with Workflows enabled (Tech Preview)
+#   - AI agent configured (security.agent_1 or custom)
+#   - Okta AiTM Session Cookie Replay detection rule enabled
+#   - Data view for logs-* created (for Discover links)
+# =============================================================================
+
+name: "Okta AiTM Session Cookie Replay Investigation v1.0"
+description: >
+  Investigates Okta AiTM session cookie replay alerts by gathering full session
+  context from Okta, then pivoting to AWS CloudTrail and Palo Alto logs for
+  attacker IP activity. AI-driven triage produces a case with investigation
+  dashboard, hunt queries, and Discover deep-links for analyst verification.
+enabled: true
+tags:
+  - security
+  - identity
+  - okta
+  - aitm
+  - credential-access
+  - triage
+  - SOC
+
+# =============================================================================
+# CONSTANTS — Update these for your environment
+# =============================================================================
+consts:
+  # Kibana base URL (no trailing slash)
+  kibana_base_url: "https://your-kibana.example.com"
+  # Data view ID for Discover links (Stack Management > Data Views)
+  logs_data_view_id: "logs-*"
+  # Lookback windows
+  hunt_window_hours: 24
+  okta_session_window_hours: 48
+
+# =============================================================================
+# TRIGGERS
+# =============================================================================
+triggers:
+  - type: alert
+  - type: manual
+
+# =============================================================================
+# INPUTS — For manual trigger, accept a user and session ID
+# =============================================================================
+inputs:
+  - name: okta_user
+    type: string
+    required: false
+    description: "Okta actor alternate_id to investigate (for manual runs)"
+  - name: okta_session_id
+    type: string
+    required: false
+    description: "Okta root session ID to investigate (for manual runs)"
+
+# =============================================================================
+# STEPS
+# =============================================================================
+steps:
+
+  # ================================================================
+  # PHASE 1: CONTEXT GATHERING
+  # ================================================================
+
+  # ── 1a: All raw Okta events for the compromised session ─────────
+  - name: get_okta_session_events
+    type: elasticsearch.esql.query
+    with:
+      format: json
+      query: |
+        FROM logs-okta.system-*
+        | WHERE @timestamp > NOW() - {{ consts.okta_session_window_hours }} hours
+        {%- if event.alerts[0].okta.authentication_context.root_session_id != blank -%}
+        | WHERE okta.authentication_context.root_session_id == "{{ event.alerts[0].okta.authentication_context.root_session_id }}"
+        {%- elsif inputs.okta_session_id != blank -%}
+        | WHERE okta.authentication_context.root_session_id == "{{ inputs.okta_session_id }}"
+        {%- endif -%}
+        | SORT @timestamp ASC
+        | LIMIT 50
+        | KEEP @timestamp,
+              okta.event_type,
+              okta.display_message,
+              okta.outcome.result,
+              okta.outcome.reason,
+              okta.client.ip,
+              source.geo.city_name,
+              source.geo.country_name,
+              user_agent.original,
+              okta.target.display_name,
+              okta.target.type,
+              okta.debug_context.debug_data.risk_level,
+              okta.debug_context.debug_data.risk_reasons,
+              okta.security_context.is_proxy
+
+  # ── 1b: Okta account modification events for the user ──────────
+  - name: get_okta_account_changes
+    type: elasticsearch.esql.query
+    with:
+      format: json
+      query: |
+        FROM logs-okta.system-*
+        | WHERE @timestamp > NOW() - {{ consts.hunt_window_hours }} hours
+        {%- if event.alerts[0].okta.actor.alternate_id != blank -%}
+        | WHERE okta.actor.alternate_id == "{{ event.alerts[0].okta.actor.alternate_id }}"
+            OR okta.target.alternate_id == "{{ event.alerts[0].okta.actor.alternate_id }}"
+        {%- elsif inputs.okta_user != blank -%}
+        | WHERE okta.actor.alternate_id == "{{ inputs.okta_user }}"
+            OR okta.target.alternate_id == "{{ inputs.okta_user }}"
+        {%- endif -%}
+        | WHERE okta.event_type IN (
+            "user.account.reset_password",
+            "user.mfa.factor.activate",
+            "user.mfa.factor.deactivate",
+            "user.mfa.factor.reset_all",
+            "user.lifecycle.activate",
+            "user.lifecycle.deactivate",
+            "user.lifecycle.suspend",
+            "system.api_token.create",
+            "application.user_membership.add",
+            "application.user_membership.remove",
+            "group.user_membership.add",
+            "group.user_membership.remove",
+            "user.session.impersonation.initiate",
+            "policy.lifecycle.update",
+            "application.lifecycle.create"
+          )
+        | SORT @timestamp DESC
+        | LIMIT 25
+        | KEEP @timestamp,
+              okta.event_type,
+              okta.display_message,
+              okta.outcome.result,
+              okta.actor.alternate_id,
+              okta.client.ip,
+              okta.target.display_name,
+              okta.target.type
+
+  # ── 1c: Okta SSO app access during the session ────────────────
+  - name: get_okta_sso_app_access
+    type: elasticsearch.esql.query
+    with:
+      format: json
+      query: |
+        FROM logs-okta.system-*
+        | WHERE @timestamp > NOW() - {{ consts.hunt_window_hours }} hours
+        {%- if event.alerts[0].okta.authentication_context.root_session_id != blank -%}
+        | WHERE okta.authentication_context.root_session_id == "{{ event.alerts[0].okta.authentication_context.root_session_id }}"
+        {%- elsif inputs.okta_session_id != blank -%}
+        | WHERE okta.authentication_context.root_session_id == "{{ inputs.okta_session_id }}"
+        {%- endif -%}
+        | WHERE okta.event_type == "user.authentication.sso"
+        | SORT @timestamp ASC
+        | LIMIT 25
+        | KEEP @timestamp,
+              okta.outcome.result,
+              okta.client.ip,
+              okta.target.display_name,
+              okta.target.type,
+              user_agent.original,
+              okta.debug_context.debug_data.risk_level
+
+  # ── 1d: Okta activity from the attacker IP(s) — other users ───
+  - name: get_okta_lateral_movement
+    type: elasticsearch.esql.query
+    with:
+      format: json
+      query: |
+        FROM logs-okta.system-*
+        | WHERE @timestamp > NOW() - {{ consts.hunt_window_hours }} hours
+        {%- if event.alerts[0].Esql.okta_client_ip_values != blank -%}
+        | WHERE okta.client.ip IN ("{{ event.alerts[0].Esql.okta_client_ip_values | join: '", "' }}")
+        {%- elsif event.alerts[0].Esql.session_start_ip != blank -%}
+        | WHERE okta.client.ip == "{{ event.alerts[0].Esql.session_start_ip }}"
+        {%- endif -%}
+        {%- if event.alerts[0].okta.actor.alternate_id != blank -%}
+        | WHERE okta.actor.alternate_id != "{{ event.alerts[0].okta.actor.alternate_id }}"
+        {%- elsif inputs.okta_user != blank -%}
+        | WHERE okta.actor.alternate_id != "{{ inputs.okta_user }}"
+        {%- endif -%}
+        | STATS
+            event_count = COUNT(*),
+            event_types = VALUES(okta.event_type),
+            outcomes = VALUES(okta.outcome.result)
+          BY okta.actor.alternate_id, okta.client.ip
+        | SORT event_count DESC
+        | LIMIT 20
+
+  # ── 1e: AWS CloudTrail — activity from attacker IPs ────────────
+  - name: get_cloudtrail_activity
+    type: elasticsearch.esql.query
+    with:
+      format: json
+      query: |
+        FROM logs-aws.cloudtrail-*
+        | WHERE @timestamp > NOW() - {{ consts.hunt_window_hours }} hours
+        {%- if event.alerts[0].Esql.okta_client_ip_values != blank -%}
+        | WHERE source.ip IN ("{{ event.alerts[0].Esql.okta_client_ip_values | join: '", "' }}")
+            OR source.address IN ("{{ event.alerts[0].Esql.okta_client_ip_values | join: '", "' }}")
+        {%- endif -%}
+        | SORT @timestamp DESC
+        | LIMIT 25
+        | KEEP @timestamp,
+              event.action,
+              event.outcome,
+              source.ip,
+              cloud.account.id,
+              cloud.region,
+              user.name,
+              aws.cloudtrail.user_identity.type,
+              aws.cloudtrail.user_identity.arn,
+              user_agent.original
+
+  # ── 1f: Palo Alto NGFW — network activity for attacker IPs ────
+  - name: get_panw_activity
+    type: elasticsearch.esql.query
+    with:
+      format: json
+      query: |
+        FROM logs-panw.panos-*
+        | WHERE @timestamp > NOW() - {{ consts.hunt_window_hours }} hours
+        {%- if event.alerts[0].Esql.okta_client_ip_values != blank -%}
+        | WHERE source.ip IN ("{{ event.alerts[0].Esql.okta_client_ip_values | join: '", "' }}")
+            OR destination.ip IN ("{{ event.alerts[0].Esql.okta_client_ip_values | join: '", "' }}")
+        {%- endif -%}
+        | SORT @timestamp DESC
+        | LIMIT 25
+        | KEEP @timestamp,
+              event.action,
+              event.category,
+              event.outcome,
+              source.ip,
+              destination.ip,
+              destination.port,
+              network.application,
+              network.direction,
+              network.transport,
+              panw.panos.action,
+              panw.panos.threat.name,
+              panw.panos.threat.id,
+              panw.panos.sub_type,
+              observer.hostname,
+              rule.name
+
+  # ================================================================
+  # PHASE 2: AI TRIAGE
+  # ================================================================
+  - name: ai_triage
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/agent_builder/converse
+      headers:
+        kbn-xsrf: "true"
+      body:
+        input: |
+          You are a senior SOC analyst performing triage on an Okta Adversary-in-the-Middle
+          (AiTM) session cookie replay alert. This alert fires when a session is used from
+          multiple IPs or with suspicious non-browser user agents after initial authentication,
+          indicating stolen session cookies being replayed from attacker infrastructure.
+
+          Analyze ALL the investigation data below and produce a structured triage report.
+
+          ALERT DETAILS
+          User: {{ event.alerts[0].okta.actor.alternate_id }}
+          Session ID: {{ event.alerts[0].okta.authentication_context.root_session_id }}
+          Session Start IP: {{ event.alerts[0].Esql.session_start_ip }}
+          Session Start Time: {{ event.alerts[0].Esql.session_start_time }}
+          First Replay Time: {{ event.alerts[0].Esql.first_replay_time }}
+          Last Replay Time: {{ event.alerts[0].Esql.last_replay_time }}
+          All IPs: {{ event.alerts[0].Esql.okta_client_ip_values | join: ", " }}
+          Distinct IP Count: {{ event.alerts[0].Esql.okta_client_ip_count_distinct }}
+          User Agents: {{ event.alerts[0].Esql.user_agent_values | join: " | " }}
+          Distinct UA Count: {{ event.alerts[0].Esql.user_agent_count_distinct }}
+          Suspicious UA Count: {{ event.alerts[0].Esql.suspicious_ua_count }}
+          Event Types: {{ event.alerts[0].Esql.okta_event_type_values | join: ", " }}
+          Outcomes: {{ event.alerts[0].Esql.okta_outcome_result_values | join: ", " }}
+          Geo (City): {{ event.alerts[0].Esql.source_geo_city_name_values }}
+          Geo (Country): {{ event.alerts[0].Esql.source_geo_country_name_values }}
+          Risk Level: {{ event.alerts[0].Esql.okta_debug_context_debug_data_risk_level_values }}
+          Replay Events: {{ event.alerts[0].Esql.replay_event_count }}
+          Session Start UA: {{ event.alerts[0].Esql.session_start_ua }}
+
+          FULL OKTA SESSION EVENTS (chronological)
+          {{ steps.get_okta_session_events.output | json }}
+
+          OKTA ACCOUNT CHANGES (password resets, MFA, group changes)
+          {{ steps.get_okta_account_changes.output | json }}
+
+          OKTA SSO APP ACCESS (apps accessed via compromised session)
+          {{ steps.get_okta_sso_app_access.output | json }}
+
+          OKTA LATERAL MOVEMENT (other users from attacker IPs)
+          {{ steps.get_okta_lateral_movement.output | json }}
+
+          AWS CLOUDTRAIL (activity from attacker IPs, last {{ consts.hunt_window_hours }}h)
+          {{ steps.get_cloudtrail_activity.output | json }}
+
+          PALO ALTO NGFW (network activity for attacker IPs, last {{ consts.hunt_window_hours }}h)
+          {{ steps.get_panw_activity.output | json }}
+
+          Produce a triage report with these sections:
+
+          1. Alert Summary - One paragraph with who, what, when, where, what happened. Include the time delta between session start and first replay to assess attack speed.
+          2. Attack Timeline - Chronological timeline of key events from session start through last attacker activity.
+          3. User Context - Okta user identity. Is this activity anomalous?
+          4. Risk Indicators (Positive, supports compromise) - IP analysis, user agent analysis, session replay timing, apps accessed via SSO, account changes, lateral movement, CloudTrail hits, Palo Alto hits.
+          5. Risk Indicators (Negative, supports benign) - VPN/corporate IP ranges, known automation accounts, normal travel patterns.
+          6. Cross-Source Correlation - Connections across data sources. Did the attacker IP show up in CloudTrail or Palo Alto?
+          7. Severity Assessment - CRITICAL / HIGH / MEDIUM / LOW with justification.
+          8. Recommended Next Steps - Prioritized actionable steps for AiTM response.
+          9. IOC List - All indicators: IPs, user agents, session IDs, timestamps, app names, hostnames. One per line with type label and source.
+    timeout: 10m
+    on-failure:
+      retry:
+        max-attempts: 2
+
+  # ================================================================
+  # PHASE 3: INVESTIGATION DASHBOARD TABLES
+  # ================================================================
+  - name: ai_build_dashboard
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/agent_builder/converse
+      headers:
+        kbn-xsrf: "true"
+      body:
+        conversation_id: "{{ steps.ai_triage.output.conversation_id }}"
+        input: |
+          Build investigation dashboard tables for this Okta AiTM session cookie
+          replay case. Respond ONLY with formatted markdown tables, no prose.
+
+          Use this data:
+
+          TRIAGE REPORT:
+          {{ steps.ai_triage.output.response.message }}
+
+          OKTA SESSION EVENTS:
+          {{ steps.get_okta_session_events.output | json }}
+
+          OKTA SSO APP ACCESS:
+          {{ steps.get_okta_sso_app_access.output | json }}
+
+          OKTA ACCOUNT CHANGES:
+          {{ steps.get_okta_account_changes.output | json }}
+
+          OKTA LATERAL MOVEMENT:
+          {{ steps.get_okta_lateral_movement.output | json }}
+
+          CLOUDTRAIL:
+          {{ steps.get_cloudtrail_activity.output | json }}
+
+          PALO ALTO:
+          {{ steps.get_panw_activity.output | json }}
+
+          Build these tables:
+
+          Session Timeline - Timestamp, Event Type, Outcome, Source IP, User Agent, Risk Level, Target. Chronological order. Highlight rows where IP or UA changes from session start.
+
+          SSO Applications Accessed - Timestamp, Application, Outcome, Source IP, User Agent, Risk. Flag apps accessed from non-session-start IP as SUSPICIOUS.
+
+          Account Modifications - Timestamp, Action, Target, Outcome, Source IP. Flag password resets, MFA changes, API tokens as HIGH RISK.
+
+          Lateral Movement Other Users from Attacker IPs - User, IP, Event Count, Event Types, Outcomes.
+
+          AWS CloudTrail Activity from Attacker IPs - Timestamp, Action, Outcome, Source IP, Account, Region, User/Role.
+
+          Palo Alto NGFW Activity - Timestamp, Action, Source IP, Dest IP, Dest Port, App, Threat, Rule.
+
+          Extracted IOCs - IOC Type, Value, Source, Context.
+    timeout: 10m
+    on-failure:
+      retry:
+        max-attempts: 2
+
+  # ================================================================
+  # PHASE 4: HUNT QUERIES
+  # ================================================================
+  - name: ai_generate_hunt_queries
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/agent_builder/converse
+      headers:
+        kbn-xsrf: "true"
+      body:
+        conversation_id: "{{ steps.ai_triage.output.conversation_id }}"
+        input: |
+          Generate hunt queries for this Okta AiTM session cookie replay investigation.
+          These queries are for an analyst to copy-paste into Discover or the ES|QL editor.
+
+          Context:
+          {{ steps.ai_triage.output.response.message }}
+
+          USER: {{ event.alerts[0].okta.actor.alternate_id | default: "UNKNOWN" }}
+          SESSION ID: {{ event.alerts[0].okta.authentication_context.root_session_id | default: "UNKNOWN" }}
+          ATTACKER IPS: {{ event.alerts[0].Esql.okta_client_ip_values | join: ", " | default: "UNKNOWN" }}
+          SESSION START IP: {{ event.alerts[0].Esql.session_start_ip | default: "UNKNOWN" }}
+
+          Generate ES|QL queries for each of these hunts. For each query, include a title describing what it hunts for, the complete ES|QL query ready to paste, and what to look for in the results.
+
+          IMPORTANT: ES|QL does NOT support COUNT_IF. Use SUM(TO_INT(condition)) instead.
+
+          REQUIRED HUNT QUERIES:
+
+          1. Full Session Reconstruction - ALL Okta events for this session ID, chronologically ordered. Query logs-okta.system-* by okta.authentication_context.root_session_id.
+
+          2. Suspicious User Agent Activity - All Okta events using suspicious non-browser user agents (Java, python-requests, curl, etc.) across ALL users.
+
+          3. Attacker IP Reconnaissance - All Okta events from the attacker IPs across ALL users and ALL event types.
+
+          4. MFA Manipulation - MFA factor enrollments, resets, or deactivations for this user.
+
+          5. OAuth Token and API Key Creation - Any API tokens or OAuth grants created during or after the compromised session.
+
+          6. AWS CloudTrail from Attacker IPs - All AWS API calls originating from the attacker IPs. Query logs-aws.cloudtrail-* by source.ip.
+
+          7. Palo Alto Firewall Activity - Network connections to/from the attacker IPs. Query logs-panw.panos-* by source.ip and destination.ip.
+
+          8. Other Sessions for This User - All session.start events for this user in the past 7 days.
+
+          Format each query with a numbered title, what to look for description, and the complete ES|QL query in a code block.
+    timeout: 10m
+    on-failure:
+      retry:
+        max-attempts: 2
+
+  # ================================================================
+  # PHASE 5: CREATE THE INVESTIGATION CASE
+  # ================================================================
+  - name: create_investigation_case
+    type: kibana.createCaseDefaultSpace
+    with:
+      title: "Okta AiTM: {{ event.alerts[0].okta.actor.alternate_id | default: inputs.okta_user | default: 'Unknown' }}"
+      description: |
+        **Automated Okta AiTM Session Cookie Replay Investigation**
+
+        Triggered by detection rule: Okta AiTM Session Cookie Replay
+        AI triage, cross-source investigation dashboard, hunt queries, and Discover
+        deep-links will be posted as comments below.
+
+        **HUMAN REVIEW REQUIRED — Verify findings before taking containment action.**
+
+        ---
+
+        **User:** {{ event.alerts[0].okta.actor.alternate_id | default: "N/A" }}
+        **Session ID:** {{ event.alerts[0].okta.authentication_context.root_session_id | default: "N/A" }}
+        **Session Start IP:** {{ event.alerts[0].Esql.session_start_ip | default: "N/A" }}
+        **All IPs:** {{ event.alerts[0].Esql.okta_client_ip_values | join: ", " | default: "N/A" }}
+        **Distinct IPs:** {{ event.alerts[0].Esql.okta_client_ip_count_distinct | default: "N/A" }}
+        **User Agents:** {{ event.alerts[0].Esql.user_agent_values | join: " | " | default: "N/A" }}
+        **Suspicious UA Count:** {{ event.alerts[0].Esql.suspicious_ua_count | default: "N/A" }}
+        **Session Start Time:** {{ event.alerts[0].Esql.session_start_time | default: "N/A" }}
+        **First Replay:** {{ event.alerts[0].Esql.first_replay_time | default: "N/A" }}
+        **Location:** {{ event.alerts[0].Esql.source_geo_city_name_values | default: "N/A" }}, {{ event.alerts[0].Esql.source_geo_country_name_values | default: "N/A" }}
+        **Risk Level:** {{ event.alerts[0].Esql.okta_debug_context_debug_data_risk_level_values | default: "N/A" }}
+
+        ---
+
+        **MITRE ATT&CK:** T1539 (Steal Web Session Cookie), T1550.004 (Web Session Cookie)
+      tags:
+        - okta_aitm
+        - credential_access
+        - session_hijack
+        - automated_triage
+        - SOC_Investigation
+      severity: high
+      owner: securitySolution
+      connector:
+        id: none
+        name: none
+        type: .none
+        fields: null
+      settings:
+        syncAlerts: true
+
+  # ── 5b: Post AI Triage Report ────────────────────────────────────
+  - name: post_triage_to_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_investigation_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # Phase 1: AI Triage Report
+
+          {{ steps.ai_triage.output.response.message }}
+
+          ---
+          [Open AI Assistant]({{ consts.kibana_base_url }}/app/security/ai-assistant) to continue this investigation.
+
+  # ── 5c: Post Investigation Dashboard ─────────────────────────────
+  - name: post_dashboard_to_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_investigation_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # Phase 2: Investigation Dashboard
+
+          {{ steps.ai_build_dashboard.output.response.message }}
+
+  # ── 5d: Post Hunt Queries ────────────────────────────────────────
+  - name: post_hunt_queries_to_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_investigation_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # Phase 3: Hunt Queries
+
+          Copy-paste these ES|QL queries into Discover to dig deeper.
+
+          {{ steps.ai_generate_hunt_queries.output.response.message }}
+
+  # ================================================================
+  # PHASE 6: DISCOVER DEEP-LINKS FOR ANALYST VERIFICATION
+  # ================================================================
+  - name: post_discover_links_to_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_investigation_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # Phase 4: Evidence Deep-Links — Analyst Verification
+
+          Click any link below to open the pre-filtered query in Discover.
+          All links use a 7-day lookback window. Adjust the time picker as needed.
+
+          ---
+
+          ### Full Compromised Session (All Okta Events)
+          **KQL:** `event.dataset:okta.system AND okta.authentication_context.root_session_id:"{{ event.alerts[0].okta.authentication_context.root_session_id | default: inputs.okta_session_id }}"`
+
+          [Open in Discover]({{ consts.kibana_base_url }}/app/discover#/?_g=(time:(from:now-7d,to:now))&_a=(dataSource:(dataViewId:'{{ consts.logs_data_view_id }}',type:dataView),query:(language:kuery,query:'event.dataset:okta.system%20AND%20okta.authentication_context.root_session_id:%22{{ event.alerts[0].okta.authentication_context.root_session_id | default: inputs.okta_session_id }}%22')))
+
+          ---
+
+          ### All Okta Activity for User
+          **KQL:** `event.dataset:okta.system AND okta.actor.alternate_id:"{{ event.alerts[0].okta.actor.alternate_id | default: inputs.okta_user }}"`
+
+          [Open in Discover]({{ consts.kibana_base_url }}/app/discover#/?_g=(time:(from:now-7d,to:now))&_a=(dataSource:(dataViewId:'{{ consts.logs_data_view_id }}',type:dataView),query:(language:kuery,query:'event.dataset:okta.system%20AND%20okta.actor.alternate_id:%22{{ event.alerts[0].okta.actor.alternate_id | default: inputs.okta_user }}%22')))
+
+          ---
+
+          ### All Activity from Session Start IP ({{ event.alerts[0].Esql.session_start_ip }})
+          **KQL:** `okta.client.ip:"{{ event.alerts[0].Esql.session_start_ip }}" OR source.ip:"{{ event.alerts[0].Esql.session_start_ip }}" OR source.address:"{{ event.alerts[0].Esql.session_start_ip }}"`
+
+          [Open in Discover]({{ consts.kibana_base_url }}/app/discover#/?_g=(time:(from:now-7d,to:now))&_a=(dataSource:(dataViewId:'{{ consts.logs_data_view_id }}',type:dataView),query:(language:kuery,query:'okta.client.ip:%22{{ event.alerts[0].Esql.session_start_ip }}%22%20OR%20source.ip:%22{{ event.alerts[0].Esql.session_start_ip }}%22%20OR%20source.address:%22{{ event.alerts[0].Esql.session_start_ip }}%22')))
+
+          ---
+
+          ### AWS CloudTrail from Attacker IPs
+          **KQL:** `event.dataset:aws.cloudtrail AND (source.ip:"{{ event.alerts[0].Esql.okta_client_ip_values | join: '" OR source.ip:"' }}")`
+
+          [Open in Discover]({{ consts.kibana_base_url }}/app/discover#/?_g=(time:(from:now-7d,to:now))&_a=(dataSource:(dataViewId:'{{ consts.logs_data_view_id }}',type:dataView),query:(language:kuery,query:'event.dataset:aws.cloudtrail%20AND%20(source.ip:%22{{ event.alerts[0].Esql.okta_client_ip_values | join: '%22%20OR%20source.ip:%22' }}%22)')))
+
+          ---
+
+          ### Palo Alto NGFW — Attacker IP Traffic
+          **KQL:** `event.dataset:panw.panos AND (source.ip:"{{ event.alerts[0].Esql.okta_client_ip_values | join: '" OR source.ip:"' }}" OR destination.ip:"{{ event.alerts[0].Esql.okta_client_ip_values | join: '" OR destination.ip:"' }}")`
+
+          [Open in Discover]({{ consts.kibana_base_url }}/app/discover#/?_g=(time:(from:now-7d,to:now))&_a=(dataSource:(dataViewId:'{{ consts.logs_data_view_id }}',type:dataView),query:(language:kuery,query:'event.dataset:panw.panos%20AND%20(source.ip:%22{{ event.alerts[0].Esql.okta_client_ip_values | join: '%22%20OR%20source.ip:%22' }}%22%20OR%20destination.ip:%22{{ event.alerts[0].Esql.okta_client_ip_values | join: '%22%20OR%20destination.ip:%22' }}%22)')))
+
+          ---
+
+          ### Okta Account Changes for User
+          **KQL:** `event.dataset:okta.system AND (okta.actor.alternate_id:"{{ event.alerts[0].okta.actor.alternate_id | default: inputs.okta_user }}" OR okta.target.alternate_id:"{{ event.alerts[0].okta.actor.alternate_id | default: inputs.okta_user }}") AND okta.event_type:(user.account.reset_password OR user.mfa.factor.* OR system.api_token.create OR application.user_membership.* OR group.user_membership.*)`
+
+          [Open in Discover]({{ consts.kibana_base_url }}/app/discover#/?_g=(time:(from:now-7d,to:now))&_a=(dataSource:(dataViewId:'{{ consts.logs_data_view_id }}',type:dataView),query:(language:kuery,query:'event.dataset:okta.system%20AND%20(okta.actor.alternate_id:%22{{ event.alerts[0].okta.actor.alternate_id | default: inputs.okta_user }}%22%20OR%20okta.target.alternate_id:%22{{ event.alerts[0].okta.actor.alternate_id | default: inputs.okta_user }}%22)%20AND%20okta.event_type:(user.account.reset_password%20OR%20user.mfa.factor.*%20OR%20system.api_token.create%20OR%20application.user_membership.*%20OR%20group.user_membership.*)')))
+
+          ---
+
+          ### Suspicious User Agents in Okta (Java, curl, python-requests)
+          **KQL:** `event.dataset:okta.system AND (user_agent.original:Java* OR user_agent.original:curl* OR user_agent.original:python-requests* OR user_agent.original:httpx* OR user_agent.original:Go-http-client* OR user_agent.original:okhttp*)`
+
+          [Open in Discover]({{ consts.kibana_base_url }}/app/discover#/?_g=(time:(from:now-7d,to:now))&_a=(dataSource:(dataViewId:'{{ consts.logs_data_view_id }}',type:dataView),query:(language:kuery,query:'event.dataset:okta.system%20AND%20(user_agent.original:Java*%20OR%20user_agent.original:curl*%20OR%20user_agent.original:python-requests*%20OR%20user_agent.original:httpx*%20OR%20user_agent.original:Go-http-client*%20OR%20user_agent.original:okhttp*)')))
+
+          ---
+
+          **Tip:** Each link includes the KQL query in plain text above it.
+          If the deep-link doesn't load correctly, copy the KQL and paste it
+          into Discover's search bar manually, then set the time range to Last 7 days.
+
+  # ================================================================
+  # PHASE 7: FINAL AI SYNTHESIS
+  # ================================================================
+  - name: ai_final_synthesis
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/agent_builder/converse
+      headers:
+        kbn-xsrf: "true"
+      body:
+        conversation_id: "{{ steps.ai_triage.output.conversation_id }}"
+        input: |
+          Final synthesis for this Okta AiTM session cookie replay investigation.
+          Using ALL data below, provide a closing assessment.
+
+          TRIAGE REPORT:
+          {{ steps.ai_triage.output.response.message }}
+
+          DASHBOARD:
+          {{ steps.ai_build_dashboard.output.response.message }}
+
+          Produce:
+
+          1. Final Verdict - Is this an AiTM session hijack? Confidence High/Medium/Low. Consider IP changes, suspicious user agents, timing of replay, apps accessed.
+
+          2. Blast Radius - What was accessed during the compromised session? Okta apps accessed via SSO, AWS resources (if CloudTrail hits), network resources (if firewall hits), other users targeted from same attacker IPs.
+
+          3. Response Actions - Prioritized: Immediate (terminate ALL Okta sessions, reset password, require MFA re-enrollment), Short-term (revoke OAuth tokens/API keys, review inbox rules, check for persistence), Investigation (contact user about phishing, check email security logs for lures), Containment (block attacker IPs at perimeter via Palo Alto, add to threat intel), Long-term (enable Okta ThreatInsight, implement risk-based sign-on policies, add session binding policies).
+
+          4. Gaps - What data sources are missing? What should we hunt for next? Consider email security (phishing lure), EDR (endpoint compromise), DLP (data exfiltration), DNS (C2 communication).
+
+          5. Severity Recommendation - Should this case stay HIGH or escalate to CRITICAL? Base on apps accessed, account changes made, lateral movement observed, data exposure risk.
+    timeout: 10m
+    on-failure:
+      retry:
+        max-attempts: 2
+
+  - name: post_synthesis_to_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_investigation_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # Phase 5: Final Synthesis & Recommendations
+
+          {{ steps.ai_final_synthesis.output.response.message }}
+
+          ---
+          [Open AI Assistant]({{ consts.kibana_base_url }}/app/security/ai-assistant) to continue this investigation.
+
+  # ── Final log ────────────────────────────────────────────────────
+  - name: log_complete
+    type: console
+    with:
+      message: |
+        Okta AiTM Investigation complete.
+        Case ID: {{ steps.create_investigation_case.output.id }}
+        User: {{ event.alerts[0].okta.actor.alternate_id | default: "N/A" }}
+        Session: {{ event.alerts[0].okta.authentication_context.root_session_id | default: "N/A" }}
+        View case: {{ consts.kibana_base_url }}/app/security/cases/{{ steps.create_investigation_case.output.id }}

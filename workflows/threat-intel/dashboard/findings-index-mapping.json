@@ -1,0 +1,99 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 1,
+    "index.lifecycle.name": "logs",
+    "index.lifecycle.rollover_alias": "threat-intel-findings"
+  },
+  "mappings": {
+    "properties": {
+      "@timestamp": {
+        "type": "date"
+      },
+      "feed": {
+        "properties": {
+          "name": { "type": "keyword" },
+          "url": { "type": "keyword" },
+          "run_timestamp": { "type": "date" }
+        }
+      },
+      "case": {
+        "properties": {
+          "id": { "type": "keyword" },
+          "title": { "type": "text", "fields": { "keyword": { "type": "keyword" } } }
+        }
+      },
+      "threat": {
+        "properties": {
+          "name": { "type": "text", "fields": { "keyword": { "type": "keyword" } } },
+          "type": { "type": "keyword" },
+          "severity": { "type": "keyword" },
+          "description": { "type": "text" }
+        }
+      },
+      "exposure": {
+        "properties": {
+          "level": { "type": "keyword" },
+          "score": { "type": "integer" },
+          "notes": { "type": "text", "fields": { "keyword": { "type": "keyword", "ignore_above": 512 } } }
+        }
+      },
+      "ioc": {
+        "properties": {
+          "matched": { "type": "boolean" },
+          "values": {
+            "type": "nested",
+            "properties": {
+              "value": { "type": "keyword" },
+              "type": { "type": "keyword" },
+              "hit": { "type": "boolean" },
+              "associated_threat": { "type": "keyword" }
+            }
+          },
+          "match_count": { "type": "integer" }
+        }
+      },
+      "affected_hosts": {
+        "type": "nested",
+        "properties": {
+          "ip": { "type": "ip" },
+          "hostname": { "type": "keyword" },
+          "zone": { "type": "keyword" },
+          "hit_count": { "type": "integer" }
+        }
+      },
+      "data_sources": { "type": "keyword" },
+      "detection_gaps": {
+        "type": "nested",
+        "properties": {
+          "gap": { "type": "text", "fields": { "keyword": { "type": "keyword", "ignore_above": 256 } } },
+          "impact": { "type": "text" },
+          "affected_threats": { "type": "keyword" },
+          "remediation": { "type": "text" }
+        }
+      },
+      "mitre": {
+        "properties": {
+          "technique_ids": { "type": "keyword" },
+          "tactic_names": { "type": "keyword" }
+        }
+      },
+      "action_items": {
+        "type": "nested",
+        "properties": {
+          "priority": { "type": "keyword" },
+          "description": { "type": "text", "fields": { "keyword": { "type": "keyword", "ignore_above": 512 } } },
+          "status": { "type": "keyword" }
+        }
+      },
+      "event": {
+        "properties": {
+          "kind": { "type": "keyword" },
+          "category": { "type": "keyword" },
+          "type": { "type": "keyword" },
+          "outcome": { "type": "keyword" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+
+# Local Claude Code state
+.claude/
+**/.claude/
+
+# Local-only overrides — anything ending in .local.yaml is git-ignored
+*.local.yaml
+*.local.json
+.env
+.env.*
+
+# Backup files
+*.bak
+*~

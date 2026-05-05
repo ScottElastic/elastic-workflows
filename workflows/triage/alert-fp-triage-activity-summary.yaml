@@ -1,0 +1,419 @@
+# =============================================================================
+# Workflow: Alert False Positive Triage — Activity Summary with AI (v2.0)
+# Category: security/triage
+# Trigger: Alert-driven or Manual
+#
+# DESCRIPTION:
+#   Generic ECS-based false positive triage. Queries the last 15 minutes of
+#   activity for an alert's source IP or user, builds a behavioral summary,
+#   uses ES|QL COMPLETION for AI triage, then passes the full context to
+#   the security AI agent for a definitive determination. False positives
+#   are auto-closed and documented in a case. True positives are escalated.
+#
+# DATA SOURCES:
+#   - logs-* (broad — catches any ECS-mapped data source)
+#
+# PREREQUISITES:
+#   - Elastic 9.3+ with Workflows enabled (Tech Preview)
+#   - Inference endpoint: .anthropic-claude-4.6-opus-completion
+#   - Detection rule linked to this workflow via Actions
+#
+# SETUP:
+#   1. Update consts.kibana_base_url to your Kibana deployment URL
+#   2. Verify the inference endpoint exists: GET _inference/_all
+#   3. Link detection rules to this workflow via rule Actions settings
+# =============================================================================
+
+name: "Alert False Positive Triage — Activity Summary with AI v2"
+description: >
+  Generic ECS-based alert triage workflow. Queries the last 15 minutes of
+  IP, user, and host activity from logs-*, uses ES|QL COMPLETION for initial
+  AI classification (CRITICAL / WARNING / LOW), then passes the full context
+  to the security AI agent for a definitive false positive determination.
+  False positives are auto-closed with a case for paper trail. True positives
+  are escalated with investigation context. Works with any ECS-mapped data source.
+enabled: true
+tags:
+  - SOC
+  - False_Positive_Triage
+  - Automated
+  - ECS
+  - COMPLETION
+
+# =============================================================================
+# CONSTANTS — Update these for your environment
+# =============================================================================
+consts:
+  kibana_base_url: "CHANGEME"
+  lookback_minutes: 15
+  inference_id: ".anthropic-claude-4.6-opus-completion"
+
+# =============================================================================
+# TRIGGERS
+# =============================================================================
+triggers:
+  - type: alert
+  - type: manual
+
+# =============================================================================
+# INPUTS — For manual trigger or to override alert-extracted values
+# =============================================================================
+inputs:
+  - name: target_ip
+    type: string
+    required: false
+    description: "IP address to investigate (source or destination)"
+  - name: target_user
+    type: string
+    required: false
+    description: "Username to investigate (ECS user.name)"
+
+# =============================================================================
+# STEPS
+# =============================================================================
+steps:
+
+  # ================================================================
+  # PHASE 1: ES|QL ACTIVITY SUMMARY WITH COMPLETION TRIAGE
+  # Queries all logs for the target IP/user/host over the lookback
+  # window, builds a behavioral summary, and pipes it to COMPLETION
+  # for initial AI classification.
+  # ================================================================
+  - name: activity_summary_triage
+    type: elasticsearch.esql.query
+    with:
+      format: json
+      query: |
+        FROM logs-*
+        | WHERE @timestamp > NOW() - {{ consts.lookback_minutes }} minutes
+        {%- if inputs.target_ip != blank -%}
+        | WHERE source.ip == "{{ inputs.target_ip }}"
+            OR destination.ip == "{{ inputs.target_ip }}"
+            OR client.ip == "{{ inputs.target_ip }}"
+        {%- elsif inputs.target_user != blank -%}
+        | WHERE user.name == "{{ inputs.target_user }}"
+        {%- elsif event.alerts[0].source.ip != blank -%}
+        | WHERE source.ip == "{{ event.alerts[0].source.ip }}"
+            OR destination.ip == "{{ event.alerts[0].source.ip }}"
+            OR client.ip == "{{ event.alerts[0].source.ip }}"
+        {%- elsif event.alerts[0].user.name != blank -%}
+        | WHERE user.name == "{{ event.alerts[0].user.name }}"
+        {%- endif -%}
+        | STATS
+            total_events = COUNT(*),
+            unique_actions = COUNT_DISTINCT(event.action),
+            actions = VALUES(event.action),
+            data_sources = VALUES(event.dataset),
+            unique_users = COUNT_DISTINCT(user.name),
+            users = VALUES(user.name),
+            source_ips = VALUES(source.ip),
+            destination_ips = VALUES(destination.ip),
+            user_agents = VALUES(user_agent.original),
+            outcomes = VALUES(event.outcome),
+            geo_countries = VALUES(source.geo.country_name),
+            geo_cities = VALUES(source.geo.city_name),
+            first_seen = MIN(@timestamp),
+            last_seen = MAX(@timestamp)
+        | EVAL time_window = TO_STRING(DATE_DIFF("minute", first_seen, last_seen))
+        | EVAL actions_str = MV_CONCAT(actions, "; ")
+        | EVAL sources_str = MV_CONCAT(data_sources, "; ")
+        | EVAL users_str = MV_CONCAT(users, "; ")
+        | EVAL src_ips_str = MV_CONCAT(TO_STRING(source_ips), "; ")
+        | EVAL dst_ips_str = MV_CONCAT(TO_STRING(destination_ips), "; ")
+        | EVAL ua_str = MV_CONCAT(user_agents, "; ")
+        | EVAL outcomes_str = MV_CONCAT(outcomes, "; ")
+        | EVAL countries_str = MV_CONCAT(geo_countries, "; ")
+        | EVAL cities_str = MV_CONCAT(geo_cities, "; ")
+        | EVAL alert_summary = CONCAT(
+            "Source IPs: ", src_ips_str,
+            " | Destination IPs: ", dst_ips_str,
+            " | Users: ", users_str,
+            " | Total events: ", TO_STRING(total_events),
+            " | Unique actions: ", TO_STRING(unique_actions),
+            " | Actions: ", actions_str,
+            " | Data sources: ", sources_str,
+            " | Unique users: ", TO_STRING(unique_users),
+            " | User agents: ", ua_str,
+            " | Outcomes: ", outcomes_str,
+            " | Geo countries: ", countries_str,
+            " | Geo cities: ", cities_str,
+            " | Time window: ", time_window, " minutes",
+            " | First seen: ", TO_STRING(first_seen),
+            " | Last seen: ", TO_STRING(last_seen)
+          )
+        | EVAL instructions = " You are a senior SOC analyst investigating activity associated with a security alert. Analyze the full behavioral picture and assess whether it looks like normal user/service activity or something suspicious. Consider: volume and variety of actions (recon patterns like ListBuckets, DescribeInstances, GetUser suggest enumeration), whether multiple user identities are tied to the same IP (credential sharing or compromised proxy), geographic anomalies, failed vs successful outcomes (brute force, credential stuffing), unusual user agents (scripting tools like python-requests, boto3, curl vs normal browser), host-based indicators, and time patterns. Classify as: CRITICAL (clear attack pattern — enumeration, privilege escalation, exfiltration indicators), WARNING (anomalous but inconclusive — warrants deeper investigation), or LOW (normal user or service traffic). Structure the output as follows: verdict=<verdict> confidence=<score> summary=<short assessment max 80 words> action=<recommended next steps max 40 words> without any other response statements on a single line."
+        | EVAL prompt = CONCAT("Activity summary to triage: ", alert_summary, instructions)
+        | COMPLETION triage_result = prompt WITH { "inference_id": "{{ consts.inference_id }}" }
+        | DISSECT triage_result """verdict=%{verdict} confidence=%{confidence} summary=%{summary} action=%{action}"""
+        | KEEP verdict, confidence, summary, action, total_events, unique_actions, actions_str, sources_str, users_str, src_ips_str, dst_ips_str, countries_str, cities_str, time_window
+    timeout: 5m
+    on-failure:
+      retry:
+        max-attempts: 2
+
+  # ================================================================
+  # PHASE 2: AI DETAILED ANALYSIS
+  # Pass the full ESQL triage output + alert context to the
+  # security AI agent for a definitive determination.
+  # ================================================================
+  - name: ai_detailed_analysis
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/agent_builder/converse
+      headers:
+        kbn-xsrf: "true"
+      body:
+        input: |
+          You are a senior SOC analyst performing definitive false positive analysis.
+          An alert has fired and an initial ES|QL COMPLETION triage has been performed.
+          Your job is to review ALL context and make a final determination.
+
+          ## ESQL TRIAGE OUTPUT (includes COMPLETION verdict)
+          {{ steps.activity_summary_triage.output | json }}
+
+          ## ALERT CONTEXT
+          - Rule Name: {{ event.rule.name }}
+          - Severity: {{ event.alerts[0].kibana.alert.severity }}
+          - Risk Score: {{ event.alerts[0].kibana.alert.risk_score }}
+          - Alert Reason: {{ event.alerts[0].kibana.alert.reason }}
+
+          ## ALERT ECS FIELDS
+          - Source IP: {{ event.alerts[0].source.ip }}
+          - Destination IP: {{ event.alerts[0].destination.ip }}
+          - User: {{ event.alerts[0].user.name }}
+          - Event Action: {{ event.alerts[0].event.action }}
+          - Event Outcome: {{ event.alerts[0].event.outcome }}
+          - User Agent: {{ event.alerts[0].user_agent.original }}
+          - Geo: {{ event.alerts[0].source.geo.country_name }}, {{ event.alerts[0].source.geo.city_name }}
+
+          ## RULE'S KNOWN FALSE POSITIVE SCENARIOS
+          {{ event.alerts[0].kibana.alert.rule.false_positives | join: " | " }}
+
+          ## YOUR TASK
+          Analyze the full picture — ESQL triage, alert enrichment, known FP scenarios,
+          and behavioral indicators. Provide:
+
+          1. **DISPOSITION** — State exactly one of: `FALSE_POSITIVE` or `TRUE_POSITIVE`
+          2. **Confidence** — HIGH / MEDIUM / LOW
+          3. **Reasoning** — 3-5 sentences explaining your determination. Reference specific
+             data points (IPs, user agents, event types, geo, risk levels).
+          4. **Evidence For** — Bullet list of indicators supporting your disposition
+          5. **Evidence Against** — Bullet list of indicators that could argue the opposite
+          6. **Recommended Action** — What should happen next (max 2 sentences)
+
+          CRITICAL: Your ENTIRE response MUST be under 25,000 characters. Be concise.
+          Use short bullet points, not lengthy paragraphs. No preamble or filler.
+
+          Be precise. If the activity matches a known FP scenario from the rule AND
+          the behavioral data supports it, classify as FALSE_POSITIVE. If there is
+          any credible attack signal, classify as TRUE_POSITIVE even if confidence is low.
+    timeout: 10m
+    on-failure:
+      retry:
+        max-attempts: 3
+
+  # ================================================================
+  # PHASE 3: CREATE CASE (ALWAYS — paper trail for all dispositions)
+  # ================================================================
+  - name: create_triage_case
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/cases
+      headers:
+        kbn-xsrf: "true"
+      body:
+        title: "[FP Triage] {{ event.rule.name }} — {{ event.alerts[0].user.name | default: event.alerts[0].source.ip }}"
+        description: >
+          **Automated False Positive Triage Case**
+
+          Triggered by detection rule: `{{ event.rule.name }}`
+          Alert ID: `{{ event.alerts[0]._id }}`
+
+          ---
+
+          **Alert Summary:**
+          {{ event.alerts[0].kibana.alert.reason }}
+
+          **User:** {{ event.alerts[0].user.name }}
+          **Source IP:** {{ event.alerts[0].source.ip }}
+          **Destination IP:** {{ event.alerts[0].destination.ip }}
+          **Risk Score:** {{ event.alerts[0].kibana.alert.risk_score }}
+
+          ---
+          *This case was auto-generated by the Alert FP Triage workflow for audit purposes.*
+        tags:
+          - FP_Triage
+          - Automated
+          - "{{ event.rule.name }}"
+        severity: low
+        owner: securitySolution
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        settings:
+          syncAlerts: true
+    on-failure:
+      retry:
+        max-attempts: 2
+
+  # ── Post the AI detailed analysis to the case ─────────────────────
+  - name: post_ai_analysis_to_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_triage_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # AI Detailed Analysis Report
+
+          {{ steps.ai_detailed_analysis.output.response.message | truncate: 25000 }}
+
+          ---
+          AI Conversation ID: `{{ steps.ai_detailed_analysis.output.conversation_id }}`
+          {%- if consts.kibana_base_url != "CHANGEME" -%}
+          [Open AI Assistant]({{ consts.kibana_base_url }}/app/security/ai-assistant) to continue this thread.
+          {%- endif -%}
+
+  # ── Post the raw ESQL triage data to the case ─────────────────────
+  - name: post_esql_data_to_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_triage_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # ES|QL Activity Summary (Last {{ consts.lookback_minutes }} Minutes)
+
+          **ESQL COMPLETION Triage Output:**
+          ```
+          {{ steps.activity_summary_triage.output | json | truncate: 25000 }}
+          ```
+
+  # ── Attach the triggering alert to the case ───────────────────────
+  - name: attach_alert_to_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_triage_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: alert
+        alertId: "{{ event.alerts[0]._id }}"
+        index: .alerts-security.alerts-default
+        rule:
+          name: "{{ event.rule.name }}"
+          id: "{{ event.alerts[0]._id }}"
+        owner: securitySolution
+
+  # ================================================================
+  # PHASE 4: CONDITIONAL ACTIONS BASED ON DISPOSITION
+  # ================================================================
+
+  # ── FALSE POSITIVE PATH: Close the alert ──────────────────────────
+  - name: handle_false_positive
+    type: if
+    condition: "steps.ai_detailed_analysis.output.response.message contains 'FALSE_POSITIVE'"
+    steps:
+      - name: close_alert_false_positive
+        type: kibana.request
+        with:
+          method: POST
+          path: /api/detection_engine/signals/status
+          headers:
+            kbn-xsrf: "true"
+          body:
+            signal_ids:
+              - "{{ event.alerts[0]._id }}"
+            status: "closed"
+        on-failure:
+          retry:
+            max-attempts: 2
+
+      - name: post_closure_comment
+        type: kibana.request
+        with:
+          method: POST
+          path: "/api/cases/{{ steps.create_triage_case.output.id }}/comments"
+          headers:
+            kbn-xsrf: "true"
+          body:
+            type: user
+            owner: securitySolution
+            comment: |
+              # Alert Auto-Closed as False Positive
+
+              The alert `{{ event.alerts[0]._id }}` has been automatically closed
+              with disposition **FALSE_POSITIVE** based on the AI triage analysis.
+
+              If this closure was incorrect, reopen the alert from the Alerts page
+              and update this case with additional findings.
+
+  # ── TRUE POSITIVE PATH: Escalate ──────────────────────────────────
+  - name: handle_true_positive
+    type: if
+    condition: "steps.ai_detailed_analysis.output.response.message contains 'TRUE_POSITIVE'"
+    steps:
+      - name: update_case_severity
+        type: kibana.request
+        with:
+          method: PATCH
+          path: "/api/cases/{{ steps.create_triage_case.output.id }}"
+          headers:
+            kbn-xsrf: "true"
+          body:
+            severity: "high"
+            tags:
+              - FP_Triage
+              - Automated
+              - TRUE_POSITIVE
+              - Escalated
+              - "{{ event.rule.name }}"
+        on-failure:
+          continue: true
+
+      - name: post_escalation_comment
+        type: kibana.request
+        with:
+          method: POST
+          path: "/api/cases/{{ steps.create_triage_case.output.id }}/comments"
+          headers:
+            kbn-xsrf: "true"
+          body:
+            type: user
+            owner: securitySolution
+            comment: |
+              # Alert Escalated — TRUE POSITIVE
+
+              The AI triage determined this alert is a **TRUE POSITIVE** and requires
+              human investigation.
+
+              ## Investigation Checklist
+              - [ ] Review the AI analysis above and validate the reasoning
+              - [ ] Investigate source IP: `{{ event.alerts[0].source.ip }}`
+              - [ ] Investigate destination IP: `{{ event.alerts[0].destination.ip }}`
+              - [ ] Review user activity: `{{ event.alerts[0].user.name }}`
+              - [ ] Check for lateral movement from the source
+              - [ ] Determine if containment action is required
+              - [ ] Assign this case to the appropriate analyst
+
+  # ── Final status log ──────────────────────────────────────────────
+  - name: log_completion
+    type: console
+    with:
+      message: >
+        FP Triage complete for alert {{ event.alerts[0]._id }}.
+        AI disposition: {{ steps.ai_detailed_analysis.output.response.message }}.
+        Case ID: {{ steps.create_triage_case.output.id }}.

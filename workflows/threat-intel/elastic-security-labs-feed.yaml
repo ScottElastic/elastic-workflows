@@ -1,0 +1,398 @@
+# =============================================================================
+# Workflow: Threat Intelligence — Elastic Security Labs
+# Category: security/threat-intel
+# Trigger: Scheduled (every 24h) + Manual
+#
+# PURPOSE:
+# Fetches the Elastic Security Labs RSS feed, has AI extract threats and
+# IOCs, then uses platform.core.execute_esql to actively hunt the
+# environment. Creates a Kibana Security case with findings.
+#
+# FEED: Elastic Security Labs (https://www.elastic.co/security-labs/rss/feed.xml)
+# =============================================================================
+
+name: "Threat Intelligence — Elastic Security Labs"
+description: >
+  Fetches Elastic Security Labs RSS, extracts IOCs with AI, hunts the
+  environment with execute_esql, and creates a case with findings.
+enabled: true
+tags:
+  - security
+  - threat-intel
+  - elastic-security-labs
+  - automated-hunting
+  - SOC
+
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+consts:
+  # Replace with your Kibana and Elasticsearch URLs (no trailing slash).
+  kibana_base_url: "https://YOUR-DEPLOYMENT.kb.REGION.PROVIDER.elastic-cloud.com"
+  es_url: "https://YOUR-DEPLOYMENT.es.REGION.PROVIDER.elastic-cloud.com"
+  # Create an Elasticsearch API key with privileges to write to
+  # `threat-intel-findings*` and run `_update_by_query` against it,
+  # then base64-encode `id:api_key` and prefix with `ApiKey `.
+  # Docs: https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-security-create-api-key
+  es_auth: "ApiKey YOUR_BASE64_API_KEY"
+  logs_data_view_id: "logs-*"
+
+# =============================================================================
+# TRIGGERS
+# =============================================================================
+triggers:
+  - type: scheduled
+    with:
+      every: "24h"
+  - type: manual
+
+# =============================================================================
+# INPUTS
+# =============================================================================
+inputs:
+  - name: focus_topic
+    type: string
+    required: false
+    description: "Optional: focus on a specific topic (e.g., ransomware, malware analysis, detection engineering)"
+
+# =============================================================================
+# STEPS
+# =============================================================================
+steps:
+
+  # ================================================================
+  # PHASE 1: FETCH RSS FEED
+  # ================================================================
+  - name: fetch_feed
+    type: http
+    with:
+      url: "https://www.elastic.co/security-labs/rss/feed.xml"
+      method: GET
+    on-failure:
+      retry:
+        max-attempts: 2
+
+  # ================================================================
+  # PHASE 2: AI — ANALYZE FEED & EXTRACT IOCs
+  # ================================================================
+  - name: ai_analyze_feed
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/agent_builder/converse
+      headers:
+        kbn-xsrf: "true"
+      body:
+        input: |
+          You are a threat intelligence analyst for a SOC team. Below is an RSS
+          feed from Elastic Security Labs — Elastic's own threat research team.
+          Their articles typically include deep malware analysis, detection
+          strategies, YARA/ESQL rules, and IOCs. Analyze the articles and
+          produce a concise threat intelligence briefing.
+
+          RSS FEED:
+          {{ steps.fetch_feed.output.data }}
+
+          {%- if inputs.focus_topic != blank -%}
+          FOCUS: Prioritize articles related to "{{ inputs.focus_topic }}".
+          {%- endif -%}
+
+          Be CONCISE. Produce:
+
+          ## Top Threats & Research
+          For each article (max 10 items):
+          - Title | Threat Type | Affected Products/Platforms | Severity
+
+          ## Extracted IOCs
+          List ANY IPs, domains, URLs, file hashes, CVEs, or MITRE ATT&CK
+          techniques mentioned. Only include IOCs actually in the content.
+          Format: `Value | Type | Associated Threat`
+          If none found, state "No explicit IOCs in this feed cycle."
+
+          ## Detection Opportunities
+          Elastic Security Labs often publishes detection logic. Extract any:
+          - ES|QL queries or detection rules mentioned
+          - YARA rules or signatures referenced
+          - Elastic detection rule names or IDs
+          - Recommended Elastic integrations or features
+
+          ## Key Takeaways
+          3-5 bullet points: what should a SOC team act on right now?
+    timeout: 15m
+    on-failure:
+      retry:
+        max-attempts: 2
+
+  # ================================================================
+  # PHASE 3: AI — HUNT THE ENVIRONMENT
+  # Agent uses platform.core.execute_esql to run queries and report.
+  # ================================================================
+  - name: ai_hunt_environment
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/agent_builder/converse
+      headers:
+        kbn-xsrf: "true"
+      body:
+        conversation_id: "{{ steps.ai_analyze_feed.output.conversation_id }}"
+        input: |
+          Hunt our environment. USE platform.core.execute_esql to EXECUTE
+          these 2 queries (do NOT modify them, run them exactly as written):
+
+          Query 1 — Data sources:
+          FROM logs-* | STATS count=COUNT(*) BY event.dataset | SORT count DESC | LIMIT 20
+
+          Query 2 — IOC hunt (substitute the TOP 5 C2 domains from your
+          analysis as a comma-separated list in the WHERE clause):
+          FROM logs-* | WHERE @timestamp > NOW() - 24 hours AND (destination.domain IN ("domain1","domain2","domain3","domain4","domain5") OR dns.question.name IN ("domain1","domain2","domain3","domain4","domain5")) | LIMIT 50
+
+          Run ONLY these 2 queries. Be BRIEF in your report:
+
+          ## Data Sources
+          Table of top datasets found.
+
+          ## IOC Hunt
+          Query ran, results (hits or no hits), assessment.
+
+          ## Finding
+          THREATS DETECTED or NO THREATS DETECTED
+    timeout: 20m
+    on-failure:
+      retry:
+        max-attempts: 2
+
+  # ================================================================
+  # PHASE 4: AI — FINAL ASSESSMENT & DETECTION RULES
+  # ================================================================
+  - name: ai_recommendations
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/agent_builder/converse
+      headers:
+        kbn-xsrf: "true"
+      body:
+        conversation_id: "{{ steps.ai_analyze_feed.output.conversation_id }}"
+        input: |
+          Based on your threat analysis AND the actual hunt results, produce:
+
+          ## Executive Summary
+          One paragraph: threats identified, what you found in the environment,
+          risk level, key actions needed.
+
+          ## Detection Rule Suggestions
+          Suggest 2-3 custom ES|QL detection rules based on today's threats.
+          If Elastic Security Labs published specific detection logic in the
+          articles, incorporate or adapt those rules for our environment.
+          Include the full query and recommended schedule interval for each.
+          Use FROM logs-* with event.dataset filters.
+
+          ## Elastic Features to Enable
+          Based on the research articles, recommend any Elastic features,
+          integrations, or pre-built rules the SOC should enable.
+
+          ## SOC Action Items
+          Prioritized checklist:
+          1. IMMEDIATE (check now)
+          2. SHORT-TERM (this week)
+          3. LONG-TERM (process improvements)
+
+          ## Gaps & Blind Spots
+          Based on the threats reported and what you observed in the data,
+          what are we missing? What should we add?
+    timeout: 15m
+    on-failure:
+      retry:
+        max-attempts: 2
+
+  # ================================================================
+  # PHASE 4b: AI — PRODUCE STRUCTURED FINDINGS AS BULK NDJSON
+  # The AI produces _bulk NDJSON that will be POSTed to ES directly.
+  # ================================================================
+  - name: ai_structured_findings
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/agent_builder/converse
+      headers:
+        kbn-xsrf: "true"
+      body:
+        conversation_id: "{{ steps.ai_analyze_feed.output.conversation_id }}"
+        input: |
+          Produce an Elasticsearch _bulk NDJSON payload for indexing your
+          threat findings into the "threat-intel-findings" index. This powers
+          a live operational dashboard — accuracy is critical.
+
+          OUTPUT FORMAT — Return ONLY valid NDJSON lines with NO markdown
+          fences, NO explanation, NO text before or after. Each threat gets
+          two lines: an action line and a document line.
+
+          Action line (identical for every document):
+          {"index":{"_index":"threat-intel-findings"}}
+
+          Document line (one compact JSON object per line):
+          {"@timestamp":"{{ 'now' | date: '%Y-%m-%dT%H:%M:%S.000Z' }}","feed":{"name":"elastic-security-labs","url":"https://www.elastic.co/security-labs/rss/feed.xml","run_timestamp":"{{ 'now' | date: '%Y-%m-%dT%H:%M:%S.000Z' }}"},"event":{"kind":"enrichment","category":"threat","type":"indicator"},"threat":{"name":"...","type":"...","severity":"critical|high|medium|low","description":"..."},"exposure":{"level":"critical|high|medium|low|informational|blind_spot","score":0-100,"notes":"..."},"ioc":{"matched":false,"match_count":0,"values":[]},"affected_hosts":[],"data_sources":["panw.panos"],"mitre":{"technique_ids":["T1195.001"],"tactic_names":["initial-access"]},"detection_gaps":[{"gap":"...","impact":"...","affected_threats":["..."],"remediation":"..."}],"action_items":[{"priority":"immediate|short_term|long_term","description":"...","status":"open"}]}
+
+          RULES:
+          - exposure.score: critical=90-100, high=70-89, medium=40-69,
+            low=10-39, informational=1-9, blind_spot=95-100
+          - ioc.matched=true ONLY for IOCs with confirmed hits in environment
+          - affected_hosts: only hosts with actual evidence, empty array if none
+          - detection_gaps: include even for threats with no hits
+          - One document per threat from your correlation table
+          - EACH LINE MUST BE VALID JSON — no trailing commas, no comments
+          - The ENTIRE response must be valid NDJSON — nothing else
+
+          Return the NDJSON now. No other text.
+    timeout: 15m
+    on-failure:
+      retry:
+        max-attempts: 2
+
+  # ================================================================
+  # PHASE 4c: INDEX FINDINGS VIA ELASTICSEARCH _bulk API
+  # Posts the AI's NDJSON output directly to ES via http step.
+  # ================================================================
+  - name: index_findings
+    type: http
+    with:
+      url: "{{ consts.es_url }}/threat-intel-findings/_bulk?refresh=true"
+      method: POST
+      headers:
+        Content-Type: "application/x-ndjson"
+        Authorization: "{{ consts.es_auth }}"
+      body: "{{ steps.ai_structured_findings.output.response.message }}\n"
+    timeout: 2m
+    on-failure:
+      retry:
+        max-attempts: 2
+
+  # ================================================================
+  # PHASE 5: CREATE CASE & POST ALL FINDINGS
+  # ================================================================
+  - name: create_case
+    type: kibana.createCaseDefaultSpace
+    with:
+      title: "Threat Intel Briefing — Elastic Security Labs — {{ 'now' | date: '%Y-%m-%d %H:%M' }}"
+      description: |
+        **Automated Threat Intelligence Briefing**
+
+        AI-analyzed Elastic Security Labs RSS feed with extracted IOCs,
+        detection logic, active environment hunting, and recommendations.
+
+        **HUMAN REVIEW REQUIRED — Verify findings before taking action.**
+
+        ---
+        **Feed:** Elastic Security Labs (elastic.co/security-labs)
+        **Schedule:** Every 24 hours
+      tags:
+        - threat_intel
+        - elastic_security_labs
+        - daily_briefing
+        - SOC_Investigation
+      severity: medium
+      owner: securitySolution
+      connector:
+        id: none
+        name: none
+        type: .none
+        fields: null
+      settings:
+        syncAlerts: true
+
+  - name: post_threat_summary
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # Threat Intelligence Summary — Elastic Security Labs
+
+          {{ steps.ai_analyze_feed.output.response.message }}
+
+  - name: post_hunt_results
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # Hunt Results
+
+          The AI agent ran targeted ES|QL queries against our environment
+          based on today's threat intel. Here are the findings:
+
+          {{ steps.ai_hunt_environment.output.response.message }}
+
+  - name: post_recommendations
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # Recommendations & Detection Rules
+
+          {{ steps.ai_recommendations.output.response.message }}
+
+          ---
+          Auto-generated by Threat Intel Feed Monitor (Elastic Security Labs).
+          [Open AI Assistant]({{ consts.kibana_base_url }}/app/security/ai-assistant) to investigate further.
+
+  # ================================================================
+  # PHASE 6: UPDATE INDEXED FINDINGS WITH CASE ID
+  # Direct ES call via http step to run update_by_query.
+  # ================================================================
+  - name: update_findings_case_id
+    type: http
+    with:
+      url: "{{ consts.es_url }}/threat-intel-findings/_update_by_query"
+      method: POST
+      headers:
+        Content-Type: "application/json"
+        Authorization: "{{ consts.es_auth }}"
+      body:
+        query:
+          bool:
+            must:
+              - term:
+                  feed.name: "elastic-security-labs"
+              - range:
+                  "@timestamp":
+                    gte: "now-30m"
+            must_not:
+              - exists:
+                  field: "case.id"
+        script:
+          source: "ctx._source.case = new HashMap(); ctx._source.case.id = params.case_id; ctx._source.case.title = params.case_title"
+          params:
+            case_id: "{{ steps.create_case.output.id }}"
+            case_title: "Threat Intel Briefing — Elastic Security Labs — {{ 'now' | date: '%Y-%m-%d %H:%M' }}"
+    timeout: 2m
+    on-failure:
+      retry:
+        max-attempts: 2
+
+  - name: log_complete
+    type: console
+    with:
+      message: |
+        Threat Intel Feed Monitor (Elastic Security Labs) complete.
+        Case ID: {{ steps.create_case.output.id }}
+        Findings indexed to: threat-intel-findings
+        View case: {{ consts.kibana_base_url }}/app/security/cases/{{ steps.create_case.output.id }}
+

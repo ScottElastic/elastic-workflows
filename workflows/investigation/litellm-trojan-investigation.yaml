@@ -1,0 +1,683 @@
+# =============================================================================
+# Workflow: Trojaned LiteLLM / Malicious Python Base64 Execution Investigation
+# Category: security/response
+# Trigger: Alert-driven + Manual
+#
+# PURPOSE:
+# Investigates alerts where a Python interpreter launches with a command line
+# containing `import base64; exec(base64.b64decode(...)` — the exact bootstrap
+# mechanism used in the trojaned LiteLLM supply chain attack. The detection
+# rule catches the malicious command line; this workflow investigates the host:
+# process tree, network C2, file drops, and lateral spread.
+#
+# NOTE: process.command_line and process.args are NOT available in ES|QL for
+# this index. The alert itself carries the command line detail. ES|QL steps
+# use process.name-based filters only.
+#
+# MITRE ATT&CK:
+#   T1195.002, T1059.006, T1140, T1027, T1071.001
+# =============================================================================
+
+name: "Trojaned Python Package — Base64 Exec Investigation"
+description: >
+  Investigates Python processes executing base64-decoded payloads, the
+  behavioral signature of the trojaned LiteLLM supply chain attack.
+  Gathers process tree, network C2, file drops, related alerts, and
+  suspicious child processes, then creates an AI-triaged investigation case.
+enabled: true
+tags:
+  - security
+  - supply-chain
+  - python
+  - litellm
+  - base64-exec
+  - T1195.002
+  - T1059.006
+  - SOC
+
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+consts:
+  kibana_base_url: "https://YOUR-DEPLOYMENT.kb.REGION.PROVIDER.elastic-cloud.com"
+  logs_data_view_id: "logs-*"
+  hunt_window_hours: 72
+  process_tree_window_hours: 24
+  network_window_hours: 48
+
+# =============================================================================
+# TRIGGERS
+# =============================================================================
+triggers:
+  - type: alert
+  - type: manual
+
+# =============================================================================
+# INPUTS
+# =============================================================================
+inputs:
+  - name: hostname
+    type: string
+    required: false
+    description: "Hostname to investigate (for manual runs)"
+  - name: source_ip
+    type: string
+    required: false
+    description: "Known C2 IP to hunt for (for manual runs)"
+
+# =============================================================================
+# STEPS
+# =============================================================================
+steps:
+
+  # ================================================================
+  # PHASE 1: CONTEXT GATHERING
+  # ================================================================
+
+  # -- 1a: All python process activity on the affected host ----------
+  - name: get_python_processes
+    type: elasticsearch.esql.query
+    with:
+      format: json
+      query: |
+        FROM logs-endpoint.events.process-*
+        | WHERE @timestamp > NOW() - {{ consts.process_tree_window_hours }} hours
+        {%- if event.alerts[0].host.name != blank -%}
+        | WHERE host.name == "{{ event.alerts[0].host.name }}"
+        {%- elsif inputs.hostname != blank -%}
+        | WHERE host.name == "{{ inputs.hostname }}"
+        {%- endif -%}
+        | WHERE process.name LIKE "python*"
+            OR process.parent.name LIKE "python*"
+            OR process.name LIKE "pip*"
+            OR process.parent.name LIKE "pip*"
+        | SORT @timestamp ASC
+        | LIMIT 50
+        | KEEP @timestamp,
+              event.action,
+              process.entity_id,
+              process.pid,
+              process.name,
+              process.executable,
+              process.parent.entity_id,
+              process.parent.pid,
+              process.parent.name,
+              user.name,
+              host.name
+
+  # -- 1b: Suspicious child processes spawned by python ---------------
+  - name: get_suspicious_children
+    type: elasticsearch.esql.query
+    with:
+      format: json
+      query: |
+        FROM logs-endpoint.events.process-*
+        | WHERE @timestamp > NOW() - {{ consts.process_tree_window_hours }} hours
+        {%- if event.alerts[0].host.name != blank -%}
+        | WHERE host.name == "{{ event.alerts[0].host.name }}"
+        {%- elsif inputs.hostname != blank -%}
+        | WHERE host.name == "{{ inputs.hostname }}"
+        {%- endif -%}
+        | WHERE process.parent.name LIKE "python*"
+        | WHERE process.name IN ("sh", "bash", "zsh", "curl", "wget",
+                                  "nc", "ncat", "netcat", "chmod",
+                                  "base64", "openssl", "perl", "ruby",
+                                  "python", "python3", "python3.12", "node")
+        | SORT @timestamp ASC
+        | LIMIT 50
+        | KEEP @timestamp,
+              host.name,
+              process.pid,
+              process.name,
+              process.executable,
+              process.parent.pid,
+              process.parent.name,
+              user.name,
+              event.action
+
+  # -- 1c: Network connections from python processes ------------------
+  - name: get_python_network_activity
+    type: elasticsearch.esql.query
+    with:
+      format: json
+      query: |
+        FROM logs-endpoint.events.network-*
+        | WHERE @timestamp > NOW() - {{ consts.network_window_hours }} hours
+        {%- if event.alerts[0].host.name != blank -%}
+        | WHERE host.name == "{{ event.alerts[0].host.name }}"
+        {%- elsif inputs.hostname != blank -%}
+        | WHERE host.name == "{{ inputs.hostname }}"
+        {%- endif -%}
+        | WHERE process.name LIKE "python*"
+        | SORT @timestamp ASC
+        | LIMIT 50
+        | KEEP @timestamp,
+              process.name,
+              process.pid,
+              destination.ip,
+              destination.port,
+              destination.domain,
+              source.ip,
+              source.port,
+              network.direction,
+              network.transport,
+              event.action,
+              host.name,
+              user.name
+
+  # -- 1d: File events from python processes --------------------------
+  - name: get_python_file_activity
+    type: elasticsearch.esql.query
+    with:
+      format: json
+      query: |
+        FROM logs-endpoint.events.file-*
+        | WHERE @timestamp > NOW() - {{ consts.process_tree_window_hours }} hours
+        {%- if event.alerts[0].host.name != blank -%}
+        | WHERE host.name == "{{ event.alerts[0].host.name }}"
+        {%- elsif inputs.hostname != blank -%}
+        | WHERE host.name == "{{ inputs.hostname }}"
+        {%- endif -%}
+        | WHERE process.name LIKE "python*"
+        | WHERE event.action IN ("creation", "modification", "overwrite")
+        | SORT @timestamp ASC
+        | LIMIT 50
+        | KEEP @timestamp,
+              event.action,
+              file.path,
+              file.name,
+              file.extension,
+              file.hash.sha256,
+              process.name,
+              process.pid,
+              user.name,
+              host.name
+
+  # -- 1e: Related security alerts on this host -----------------------
+  - name: get_host_alerts
+    type: elasticsearch.esql.query
+    with:
+      format: json
+      query: |
+        FROM .alerts-security.alerts-default
+        | WHERE @timestamp > NOW() - {{ consts.hunt_window_hours }} hours
+        {%- if event.alerts[0].host.name != blank -%}
+        | WHERE host.name == "{{ event.alerts[0].host.name }}"
+        {%- elsif inputs.hostname != blank -%}
+        | WHERE host.name == "{{ inputs.hostname }}"
+        {%- endif -%}
+        | SORT @timestamp DESC
+        | LIMIT 25
+        | KEEP @timestamp,
+              kibana.alert.rule.name,
+              kibana.alert.severity,
+              process.name,
+              source.ip,
+              destination.ip,
+              user.name,
+              host.name
+
+  # ================================================================
+  # PHASE 2: LATERAL HUNT
+  # ================================================================
+
+  # -- 2a: Python C2 — network connections to unusual ports -----------
+  - name: hunt_c2_network
+    type: elasticsearch.esql.query
+    with:
+      format: json
+      query: |
+        FROM logs-endpoint.events.network-*
+        | WHERE @timestamp > NOW() - {{ consts.network_window_hours }} hours
+        | WHERE process.name LIKE "python*"
+        | WHERE destination.port NOT IN (443, 80, 53)
+        | STATS
+            connection_count = COUNT(*),
+            hosts_affected = COUNT_DISTINCT(host.name),
+            first_seen = MIN(@timestamp),
+            last_seen = MAX(@timestamp),
+            source_hosts = VALUES(host.name)
+          BY destination.ip, destination.port
+        | SORT connection_count DESC
+        | LIMIT 30
+
+  # -- 2b: Suspicious python children across fleet --------------------
+  - name: hunt_suspicious_python_children
+    type: elasticsearch.esql.query
+    with:
+      format: json
+      query: |
+        FROM logs-endpoint.events.process-*
+        | WHERE @timestamp > NOW() - {{ consts.hunt_window_hours }} hours
+        | WHERE process.parent.name LIKE "python*"
+        | WHERE process.name IN ("sh", "bash", "zsh", "curl", "wget",
+                                  "nc", "ncat", "netcat", "chmod",
+                                  "base64", "openssl", "perl", "ruby")
+        | STATS
+            hit_count = COUNT(*),
+            first_seen = MIN(@timestamp),
+            last_seen = MAX(@timestamp),
+            users = VALUES(user.name)
+          BY host.name, process.name, process.parent.name
+        | SORT hit_count DESC
+        | LIMIT 50
+
+  # ================================================================
+  # PHASE 3: AI TRIAGE
+  # ================================================================
+  - name: ai_triage
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/agent_builder/converse
+      headers:
+        kbn-xsrf: "true"
+      body:
+        input: |
+          You are a senior SOC analyst and malware reverse engineer investigating a
+          suspected supply chain compromise. A Python process was observed executing
+          base64-decoded payloads — the exact behavioral signature of the trojaned
+          LiteLLM package attack where a compromised pip package injects:
+
+              python3 -c "import base64; exec(base64.b64decode('...'))"
+
+          This decodes and executes an obfuscated first-stage payload in a child process.
+
+          Analyze ALL investigation data below and produce a structured triage report.
+
+          ALERT CONTEXT (from the detection rule — this has the full command line)
+          {{ event | json }}
+
+          === PYTHON PROCESS TREE (affected host) ===
+          {{ steps.get_python_processes.output | json }}
+
+          === SUSPICIOUS CHILD PROCESSES (shells, curl, netcat spawned by python) ===
+          {{ steps.get_suspicious_children.output | json }}
+
+          === NETWORK CONNECTIONS (python processes on affected host) ===
+          {{ steps.get_python_network_activity.output | json }}
+
+          === FILE ACTIVITY (files created/modified by python) ===
+          {{ steps.get_python_file_activity.output | json }}
+
+          === RELATED SECURITY ALERTS ON HOST ===
+          {{ steps.get_host_alerts.output | json }}
+
+          === LATERAL HUNT: SUSPICIOUS PYTHON NETWORK (potential C2, all hosts) ===
+          {{ steps.hunt_c2_network.output | json }}
+
+          === LATERAL HUNT: SUSPICIOUS PYTHON CHILD PROCESSES (all hosts) ===
+          {{ steps.hunt_suspicious_python_children.output | json }}
+
+          Produce a triage report with these sections:
+
+          1. **Executive Summary** — 3-4 sentences. What happened, which host(s),
+             what was executed, and how far the compromise has spread. State
+             whether this matches the known LiteLLM/supply chain trojan pattern.
+
+          2. **Attack Chain Reconstruction** — Map to MITRE ATT&CK phases:
+             - **Initial Access** (T1195.002) — How did the trojaned package arrive?
+             - **Execution** (T1059.006) — The python base64 decode exec bootstrap.
+               Decode the base64 payload if visible in the alert command line.
+             - **Defense Evasion** (T1140, T1027) — The obfuscation layers.
+             - **Command & Control** (T1071.001) — Network connections from the
+               payload. Identify C2 IPs/domains from the network data.
+             - **Persistence** — Any evidence of persistence from child processes or file writes?
+             - **Credential Access** — Did the payload access .env files, API keys, cloud credentials?
+             - **Lateral Movement** — Same pattern observed on other hosts?
+
+          3. **Blast Radius Assessment**
+             - How many hosts show suspicious python behavior?
+             - Which users ran the compromised package?
+             - What API keys or credentials were potentially exposed?
+               (LiteLLM proxies LLM API calls — OpenAI, Anthropic, Azure keys)
+
+          4. **IOC Extraction** — All indicators in a table:
+             | IOC Type | Value | Context | Source |
+             Include: C2 IPs/domains, file hashes, dropped file paths, process entity IDs.
+
+          5. **Immediate Containment Recommendations**
+             Prioritized actions:
+             - Network isolation of affected hosts
+             - Kill malicious processes (provide PIDs/entity IDs)
+             - Rotate ALL LLM API keys (OpenAI, Anthropic, Azure, etc.)
+             - Rotate any cloud credentials accessible from affected hosts
+             - Block C2 IPs/domains at perimeter
+             - Pin litellm to a known-good version or remove entirely
+
+          6. **Detection Gaps** — What should we add?
+    timeout: 10m
+    on-failure:
+      retry:
+        max-attempts: 2
+
+  # ================================================================
+  # PHASE 4: AI INVESTIGATION DASHBOARD
+  # ================================================================
+  - name: ai_build_dashboard
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/agent_builder/converse
+      headers:
+        kbn-xsrf: "true"
+      body:
+        conversation_id: "{{ steps.ai_triage.output.conversation_id }}"
+        input: |
+          Build investigation dashboard tables for this supply chain trojan case.
+          Respond ONLY with formatted markdown tables, no prose.
+
+          TRIAGE:
+          {{ steps.ai_triage.output.response.message }}
+
+          PYTHON PROCESSES:
+          {{ steps.get_python_processes.output | json }}
+
+          SUSPICIOUS CHILDREN:
+          {{ steps.get_suspicious_children.output | json }}
+
+          NETWORK:
+          {{ steps.get_python_network_activity.output | json }}
+
+          FILE ACTIVITY:
+          {{ steps.get_python_file_activity.output | json }}
+
+          HOST ALERTS:
+          {{ steps.get_host_alerts.output | json }}
+
+          C2 NETWORK (all hosts):
+          {{ steps.hunt_c2_network.output | json }}
+
+          SUSPICIOUS CHILDREN (all hosts):
+          {{ steps.hunt_suspicious_python_children.output | json }}
+
+          Build these tables:
+
+          ## Process Tree (Affected Host)
+          | Timestamp | PID | Process | Executable | Parent PID | Parent Process | User | Action |
+
+          ## Suspicious Child Processes (Affected Host)
+          | Timestamp | Child PID | Child Process | Child Executable | Parent PID | Parent Process | User |
+
+          ## Network Connections (Python -> External)
+          | Timestamp | Host | Process | Dest IP | Dest Port | Dest Domain | Direction |
+          Flag non-443/80 connections and unknown IPs as SUSPICIOUS.
+
+          ## Files Created/Modified by Python
+          | Timestamp | Host | File Path | File Name | Action | SHA256 |
+          Flag writes outside of site-packages as HIGH RISK.
+
+          ## Suspicious C2 Candidates (Fleet-wide)
+          | Dest IP | Dest Port | Connection Count | Hosts Affected | First Seen | Last Seen |
+          Flag IPs with connections from multiple hosts as HIGH PRIORITY.
+
+          ## Suspicious Python Children (Fleet-wide)
+          | Host | Child Process | Parent Process | Hit Count | Users | First Seen | Last Seen |
+
+          ## Related Security Alerts
+          | Timestamp | Rule Name | Severity | Process | User | Host |
+
+          ## IOC Summary
+          | IOC Type | Value | Context | First Seen | Hosts Affected |
+    timeout: 10m
+    on-failure:
+      retry:
+        max-attempts: 2
+
+  # ================================================================
+  # PHASE 5: AI SYNTHESIS & RESPONSE PLAN
+  # ================================================================
+  - name: ai_synthesis
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/agent_builder/converse
+      headers:
+        kbn-xsrf: "true"
+      body:
+        conversation_id: "{{ steps.ai_triage.output.conversation_id }}"
+        input: |
+          Final synthesis for this trojaned Python package / supply chain investigation.
+
+          Using ALL data from the triage and dashboard phases, produce:
+
+          1. **Final Verdict** — Is this a confirmed supply chain compromise?
+             Confidence: High/Medium/Low. Key evidence for and against.
+
+          2. **Complete Attack Narrative** — One coherent narrative from
+             initial package install through payload execution to current state.
+
+          3. **Credential Exposure Assessment**
+             LiteLLM is a proxy layer for LLM API calls. If compromised, the
+             attacker likely had access to:
+             - LLM API keys (OpenAI, Anthropic, Azure OpenAI, Google, Cohere, etc.)
+             - Environment variables containing secrets
+             - Cloud provider credentials (AWS, GCP, Azure)
+             - Database connection strings
+             - Any secrets in .env files on the host
+
+             Assess which credentials were likely exposed based on the host's
+             purpose and the file/network activity observed.
+
+          4. **Response Actions** (prioritized):
+
+             **IMMEDIATE (next 30 minutes):**
+             - Isolate affected hosts from the network
+             - Kill malicious python processes (list specific PIDs)
+             - Block C2 IPs/domains at firewall
+             - Rotate ALL LLM API keys across all providers
+             - Revoke and regenerate any cloud credentials on affected hosts
+
+             **SHORT-TERM (next 4 hours):**
+             - Uninstall the compromised litellm version on all hosts
+             - Pin to a verified clean version or switch to direct SDK calls
+             - Check for persistence mechanisms (cron, systemd, shell profiles)
+             - Review LLM API usage logs for anomalous calls during compromise window
+
+             **LONG-TERM (next 7 days):**
+             - Implement package pinning and hash verification in requirements.txt
+             - Deploy pip audit / safety checks in CI/CD
+             - Add detection rules for base64 exec patterns
+             - Consider package signing verification (PEP 740)
+             - Review supply chain security posture for all AI/ML dependencies
+
+          5. **Severity Recommendation** — CRITICAL / HIGH / MEDIUM / LOW.
+
+          Summary counts:
+          Python network connections: {{ steps.get_python_network_activity.output.values | size }}
+          Files modified by python: {{ steps.get_python_file_activity.output.values | size }}
+          Related alerts on host: {{ steps.get_host_alerts.output.values | size }}
+          Suspicious child processes (fleet): {{ steps.hunt_suspicious_python_children.output.values | size }}
+    timeout: 10m
+    on-failure:
+      retry:
+        max-attempts: 2
+
+  # ================================================================
+  # PHASE 6: CREATE CASE & POST FINDINGS
+  # ================================================================
+  - name: create_investigation_case
+    type: kibana.createCaseDefaultSpace
+    with:
+      title: "Supply Chain: Trojaned Python Base64 Exec — {{ event.alerts[0].host.name | default: inputs.hostname | default: 'Fleet Hunt' }}"
+      description: |
+        **Automated Supply Chain Compromise Investigation**
+        **Trojaned Python Package — Base64 Decode & Execute Pattern**
+
+        A Python interpreter was observed executing base64-decoded payloads,
+        matching the behavioral signature of the trojaned LiteLLM supply chain attack.
+
+        **CRITICAL: HUMAN REVIEW REQUIRED**
+        Do NOT restore network access to affected hosts until credential rotation is confirmed.
+
+        ---
+
+        **Triggering Host:** {{ event.alerts[0].host.name | default: inputs.hostname | default: "Fleet-wide hunt" }}
+        **Alert Rule:** {{ event.rule.name | default: "Manual investigation" }}
+        **Process:** {{ event.alerts[0].process.name | default: "python" }}
+        **Parent Process:** {{ event.alerts[0].process.parent.name | default: "N/A" }}
+        **User:** {{ event.alerts[0].user.name | default: "N/A" }}
+
+        ---
+
+        **MITRE ATT&CK:**
+        - T1195.002 — Supply Chain Compromise
+        - T1059.006 — Python Execution
+        - T1140 — Deobfuscate/Decode Files or Information
+        - T1027 — Obfuscated Files or Information
+
+        **Key Risk:** LiteLLM proxies LLM API calls — all API keys
+        (OpenAI, Anthropic, Azure, etc.) must be assumed compromised.
+      tags:
+        - supply_chain
+        - trojan
+        - python_base64_exec
+        - litellm
+        - credential_exposure
+        - T1195.002
+        - T1059.006
+        - SOC_Investigation
+      severity: critical
+      owner: securitySolution
+      connector:
+        id: none
+        name: none
+        type: .none
+        fields: null
+      settings:
+        syncAlerts: true
+
+  - name: post_triage_to_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_investigation_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # Phase 1: AI Triage & Attack Chain Analysis
+
+          {{ steps.ai_triage.output.response.message }}
+
+          ---
+          [Open AI Assistant]({{ consts.kibana_base_url }}/app/security/ai-assistant) to continue this investigation.
+
+  - name: post_dashboard_to_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_investigation_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # Phase 2: Investigation Dashboard
+
+          {{ steps.ai_build_dashboard.output.response.message }}
+
+  - name: post_synthesis_to_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_investigation_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # Phase 3: Final Synthesis & Response Plan
+
+          {{ steps.ai_synthesis.output.response.message }}
+
+          ---
+          [Open AI Assistant]({{ consts.kibana_base_url }}/app/security/ai-assistant) to continue this investigation.
+
+  - name: post_discover_links
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_investigation_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # Phase 4: Evidence Deep-Links
+
+          Click any link below to open pre-filtered queries in Discover.
+
+          ---
+
+          ### Python Processes (Affected Host)
+          **KQL:** `event.dataset:endpoint.events.process AND process.name:python* AND host.name:"{{ event.alerts[0].host.name | default: inputs.hostname }}"`
+
+          [Open in Discover]({{ consts.kibana_base_url }}/app/discover#/?_g=(time:(from:now-7d,to:now))&_a=(dataSource:(dataViewId:'{{ consts.logs_data_view_id }}',type:dataView),query:(language:kuery,query:'event.dataset:endpoint.events.process%20AND%20process.name:python*%20AND%20host.name:%22{{ event.alerts[0].host.name | default: inputs.hostname }}%22')))
+
+          ---
+
+          ### Python Network Connections (Affected Host)
+          **KQL:** `event.dataset:endpoint.events.network AND process.name:python* AND host.name:"{{ event.alerts[0].host.name | default: inputs.hostname }}"`
+
+          [Open in Discover]({{ consts.kibana_base_url }}/app/discover#/?_g=(time:(from:now-7d,to:now))&_a=(dataSource:(dataViewId:'{{ consts.logs_data_view_id }}',type:dataView),query:(language:kuery,query:'event.dataset:endpoint.events.network%20AND%20process.name:python*%20AND%20host.name:%22{{ event.alerts[0].host.name | default: inputs.hostname }}%22')))
+
+          ---
+
+          ### Python File Modifications (Affected Host)
+          **KQL:** `event.dataset:endpoint.events.file AND process.name:python* AND event.action:(creation OR modification) AND host.name:"{{ event.alerts[0].host.name | default: inputs.hostname }}"`
+
+          [Open in Discover]({{ consts.kibana_base_url }}/app/discover#/?_g=(time:(from:now-7d,to:now))&_a=(dataSource:(dataViewId:'{{ consts.logs_data_view_id }}',type:dataView),query:(language:kuery,query:'event.dataset:endpoint.events.file%20AND%20process.name:python*%20AND%20event.action:(creation%20OR%20modification)%20AND%20host.name:%22{{ event.alerts[0].host.name | default: inputs.hostname }}%22')))
+
+          ---
+
+          ### Suspicious Python Child Processes (Fleet-wide)
+          **KQL:** `event.dataset:endpoint.events.process AND process.parent.name:python* AND process.name:(sh OR bash OR curl OR wget OR nc OR netcat OR chmod OR base64)`
+
+          [Open in Discover]({{ consts.kibana_base_url }}/app/discover#/?_g=(time:(from:now-7d,to:now))&_a=(dataSource:(dataViewId:'{{ consts.logs_data_view_id }}',type:dataView),query:(language:kuery,query:'event.dataset:endpoint.events.process%20AND%20process.parent.name:python*%20AND%20process.name:(sh%20OR%20bash%20OR%20curl%20OR%20wget%20OR%20nc%20OR%20netcat%20OR%20chmod%20OR%20base64)')))
+
+          ---
+
+          ### All Security Alerts on Affected Host
+          **KQL:** `host.name:"{{ event.alerts[0].host.name | default: inputs.hostname }}"`
+
+          [Open in Discover]({{ consts.kibana_base_url }}/app/discover#/?_g=(time:(from:now-7d,to:now))&_a=(dataSource:(dataViewId:'.alerts-security.alerts-default',type:dataView),query:(language:kuery,query:'host.name:%22{{ event.alerts[0].host.name | default: inputs.hostname }}%22')))
+
+          ---
+
+          **Tip:** If a deep-link doesn't load correctly, copy the KQL and paste
+          it into Discover's search bar, then set the time range to Last 7 days.
+
+  - name: attach_alert
+    type: if
+    condition: "event.alerts[0]._id != blank"
+    steps:
+      - name: link_alert
+        type: kibana.request
+        with:
+          method: POST
+          path: "/api/cases/{{ steps.create_investigation_case.output.id }}/comments"
+          headers:
+            kbn-xsrf: "true"
+          body:
+            type: alert
+            alertId: "{{ event.alerts[0]._id }}"
+            index: .alerts-security.alerts-default
+            rule:
+              name: "{{ event.rule.name | default: 'Python Base64 Exec' }}"
+              id: "{{ event.alerts[0]._id }}"
+            owner: securitySolution
+
+  - name: log_complete
+    type: console
+    with:
+      message: |
+        Supply Chain Investigation complete.
+        Case ID: {{ steps.create_investigation_case.output.id }}
+        Host: {{ event.alerts[0].host.name | default: inputs.hostname | default: "Fleet-wide" }}
+        View case: {{ consts.kibana_base_url }}/app/security/cases/{{ steps.create_investigation_case.output.id }}

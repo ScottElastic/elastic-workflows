@@ -1,0 +1,701 @@
+version: '1'
+name: MFA Bombing Attack Discovery Triage 🔐
+description: >
+  Automated triage workflow triggered by Attack Discovery for MFA bombing/fatigue attacks.
+  Performs AI triage, user context enrichment, Okta event hunting, post-compromise scoping,
+  AI-formatted investigation dashboard, synthesis with response recommendations,
+  and Slack escalation — all posted as structured comments to a Kibana case
+  for analyst review before containment actions are taken.
+enabled: true
+tags:
+  - SOC
+  - MFA_Bombing
+  - Credential_Access
+  - Attack_Discovery
+  - Okta
+
+consts:
+  slack_token: "xoxb-YOUR-SLACK-TOKEN-HERE"
+  slack_channel: "C0A43UN92F5"
+  kibana_base_url: "https://your-kibana.example.com"
+
+triggers:
+  - type: alert
+
+steps:
+  # ================================================================
+  # PHASE 1: AI TRIAGE & ANALYSIS
+  # ================================================================
+  - name: ai_initial_triage
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/agent_builder/converse
+      headers:
+        kbn-xsrf: "true"
+      body:
+        input: |
+          Act as a Senior SOC Analyst specializing in identity-based attacks.
+          You are triaging an Attack Discovery alert for a suspected MFA bombing/fatigue attack.
+
+          Analyze the following alert payload and provide:
+
+          1. **Executive Summary** — 2-3 sentence plain-English summary of the MFA bombing attack.
+             Include the target user, source IP, timing, and outcome (successful bypass or not).
+          2. **Attack Chain Reconstruction** — Map each phase to MITRE ATT&CK:
+             - Initial Access / Valid Accounts (T1078) — how did the attacker obtain credentials?
+             - Credential Access / MFA Request Generation (T1621) — the push spam campaign
+             - Authentication bypass — the successful push acceptance
+             - Any post-compromise activity indicators
+          3. **TTP Context** — Briefly note that MFA fatigue is a known technique (T1621) and
+             which types of threat actors have been observed using it. Keep this to 2-3 sentences —
+             do NOT provide a full attribution analysis or confidence scoring.
+          4. **Immediate Containment Recommendations** — What should a human analyst do RIGHT NOW?
+             Prioritize: session revocation, MFA reset, IP blocking, user notification.
+          5. **Suggested Hunting Queries** — Provide 3-4 ES|QL queries to scope the incident:
+             - Okta push events for the target user in the attack window
+             - Authentication events from the source IP across all users
+             - Post-bypass session activity and application access
+             - Geo-anomaly check on the source IP vs user's normal locations
+          6. **IOC Extraction** — List ALL indicators: source IPs, target usernames,
+             Okta event action types, user agents, timestamps of key events.
+             Format each on its own line.
+
+          Alert Payload:
+          {{ event | json }}
+    timeout: 10m
+    on-failure:
+      retry:
+        max-attempts: 3
+
+  - name: generate_case_title
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/agent_builder/converse
+      headers:
+        kbn-xsrf: "true"
+      body:
+        conversation_id: "{{ steps.ai_initial_triage.output.conversation_id }}"
+        input: |
+          Based on your triage analysis, generate a concise, urgent case title.
+          Include: attack type, target user identity, and source IP.
+          Do NOT include threat actor attribution in the title.
+          Return ONLY the title string, nothing else. Max 120 characters.
+          Example format: "MFA Bombing → user@domain compromised from <IP>"
+    timeout: 5m
+    on-failure:
+      retry:
+        max-attempts: 3
+
+  # ================================================================
+  # PHASE 2: CREATE THE INVESTIGATION CASE
+  # ================================================================
+  - name: create_investigation_case
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/cases
+      headers:
+        kbn-xsrf: "true"
+      body:
+        title: "🚨 {{ steps.generate_case_title.output.response.message }}"
+        description: >
+          **Automated SOC Investigation Case — MFA Bombing Attack**
+
+          Triggered by Attack Discovery (rule: `{{ event.rule.name }}`).
+          AI triage, Okta event hunting, post-compromise scoping,
+          and AI synthesis will be posted as comments below.
+
+          **⚠️ HUMAN REVIEW REQUIRED — Do not revoke sessions or reset MFA without analyst sign-off.**
+
+          ---
+
+          **Attack Summary:**
+          {{ event.alerts[0]['kibana.alert.attack_discovery.summary_markdown_with_replacements'] }}
+
+          **Entity Impact:**
+          {{ event.alerts[0]['kibana.alert.attack_discovery.entity_summary_markdown_with_replacements'] }}
+
+          **Risk Score:** {{ event.alerts[0]['kibana.alert.risk_score'] }}
+          **MITRE Tactics:** {{ event.alerts[0]['kibana.alert.attack_discovery.mitre_attack_tactics'] }}
+          **Correlated Alerts:** {{ event.alerts[0]['kibana.alert.attack_discovery.alert_ids'] | size }}
+          **AI Model:** {{ event.alerts[0]['kibana.alert.attack_discovery.api_config'].name }}
+        tags:
+          - SOC_Investigation
+          - Attack_Discovery
+          - MFA_Bombing
+          - T1621
+          - Credential_Access
+        severity: critical
+        owner: securitySolution
+        connector:
+          id: none
+          name: none
+          type: .none
+          fields: null
+        settings:
+          syncAlerts: true
+
+  # ================================================================
+  # PHASE 3: POST AI TRIAGE REPORT TO CASE
+  # ================================================================
+  - name: post_ai_triage_to_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_investigation_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # 🤖 Phase 1: AI Triage & Analysis Report
+
+          {{ steps.ai_initial_triage.output.response.message }}
+
+          ---
+          🔗 AI Conversation ID: `{{ steps.ai_initial_triage.output.conversation_id }}`
+          📎 [Open AI Assistant]({{ consts.kibana_base_url }}/app/security/ai-assistant) to continue this investigation thread.
+
+  # ================================================================
+  # PHASE 4: ATTACH CORRELATED ALERTS TO CASE
+  # These render as clickable alert chips in the case timeline
+  # ================================================================
+  - name: attach_raw_alerts
+    type: foreach
+    foreach: "{{ event.alerts[0]['kibana.alert.attack_discovery.alert_ids'] }}"
+    steps:
+      - name: fetch_alert_data
+        type: elasticsearch.search
+        with:
+          index: .alerts-security.alerts-default
+          size: 1
+          query:
+            match:
+              _id: "{{ foreach.item }}"
+      - name: link_alert_to_case
+        type: kibana.request
+        with:
+          method: POST
+          path: "/api/cases/{{ steps.create_investigation_case.output.id }}/comments"
+          headers:
+            kbn-xsrf: "true"
+          body:
+            type: alert
+            alertId: "{{ foreach.item }}"
+            index: .alerts-security.alerts-default
+            rule:
+              name: "{{ steps.fetch_alert_data.output.hits.hits[0]._source['kibana.alert.rule.name'] }}"
+              id: "{{ foreach.item }}"
+            owner: securitySolution
+
+  # ================================================================
+  # PHASE 5: USER CONTEXT ENRICHMENT
+  # Query for additional context about the target user — login history,
+  # app access patterns, and recent activity to establish a baseline
+  # ================================================================
+
+  # 5a: User login geo baseline — where does this user normally log in from?
+  - name: enrich_user_login_history
+    type: elasticsearch.search
+    with:
+      index: logs-okta.system-default
+      size: 50
+      query:
+        bool:
+          must:
+            - match:
+                okta.actor.alternate_id: "target.user@example.com"
+            - match:
+                event.action: "user.session.start"
+          filter:
+            - range:
+                "@timestamp":
+                  gte: "now-30d"
+      _source:
+        - "@timestamp"
+        - source.ip
+        - source.geo.city_name
+        - source.geo.country_name
+        - source.geo.region_name
+        - okta.client.user_agent.raw_user_agent
+        - okta.client.geographical_context
+        - event.outcome
+
+  # 5b: User SSO app access patterns — what apps does this user normally access?
+  - name: enrich_user_app_access
+    type: elasticsearch.search
+    with:
+      index: logs-okta.system-default
+      size: 50
+      query:
+        bool:
+          must:
+            - match:
+                okta.actor.alternate_id: "target.user@example.com"
+            - match:
+                event.action: "user.authentication.sso"
+          filter:
+            - range:
+                "@timestamp":
+                  gte: "now-30d"
+      _source:
+        - "@timestamp"
+        - source.ip
+        - okta.target.display_name
+        - okta.target.type
+        - event.outcome
+        - okta.client.geographical_context
+
+  # 5c: Source IP user profile — who else authenticates from this IP?
+  - name: enrich_source_ip_users
+    type: elasticsearch.search
+    with:
+      index: logs-okta.system-default
+      size: 50
+      query:
+        bool:
+          must:
+            - match:
+                source.ip: "198.51.100.42"
+          filter:
+            - range:
+                "@timestamp":
+                  gte: "now-30d"
+      _source:
+        - "@timestamp"
+        - okta.actor.alternate_id
+        - event.action
+        - event.outcome
+        - okta.client.user_agent.raw_user_agent
+        - okta.client.geographical_context
+
+  - name: post_user_context_to_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_investigation_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # 🔎 Phase 1b: User Context Enrichment
+
+          ## User Login Geo Baseline (30d)
+          Normal login locations for `target.user@example.com` — helps identify geo anomalies from the attack IP:
+          ```
+          {{ steps.enrich_user_login_history.output.hits.hits | json }}
+          ```
+
+          ## User App Access Patterns (30d)
+          Applications accessed via SSO — shows what the attacker could reach post-compromise:
+          ```
+          {{ steps.enrich_user_app_access.output.hits.hits | json }}
+          ```
+
+          ## Source IP User Profile (30d)
+          All users authenticating from `198.51.100.42` — scopes whether this IP targeted others:
+          ```
+          {{ steps.enrich_source_ip_users.output.hits.hits | json }}
+          ```
+
+  # ================================================================
+  # PHASE 6: ENRICHMENT DATA COLLECTION
+  # Okta-focused hunting for MFA bombing evidence + post-compromise
+  # ================================================================
+
+  # 6a: Okta MFA push events for target user — the attack itself
+  - name: enrich_okta_mfa_events
+    type: elasticsearch.search
+    with:
+      index: logs-okta*
+      size: 100
+      query:
+        bool:
+          should:
+            - match:
+                event.action: "system.push.send_factor_verify_push"
+            - match:
+                event.action: "user.authentication.auth_via_mfa"
+            - match:
+                event.action: "system.push.verify_push"
+            - match:
+                event.action: "user.mfa.factor.update"
+            - match:
+                event.action: "user.mfa.okta_verify.deny_push"
+          minimum_should_match: 1
+          filter:
+            - range:
+                "@timestamp":
+                  gte: "now-7d"
+      _source:
+        - "@timestamp"
+        - event.action
+        - event.outcome
+        - source.ip
+        - user.name
+        - okta.outcome.reason
+        - okta.client.user_agent.raw_user_agent
+        - okta.client.ip_chain
+        - okta.debug_context.debug_data
+
+  # 6b: Source IP activity across ALL users — check for spray attacks
+  - name: enrich_source_ip_activity
+    type: elasticsearch.search
+    with:
+      index: logs-okta*
+      size: 50
+      query:
+        bool:
+          should:
+            - match:
+                source.ip: "198.51.100.42"
+          minimum_should_match: 1
+          filter:
+            - range:
+                "@timestamp":
+                  gte: "now-30d"
+      _source:
+        - "@timestamp"
+        - event.action
+        - event.outcome
+        - source.ip
+        - user.name
+        - okta.client.user_agent.raw_user_agent
+        - okta.client.geographical_context
+
+  # 6c: Post-compromise activity — what did the attacker do after bypass?
+  - name: enrich_post_compromise
+    type: elasticsearch.search
+    with:
+      index: logs-okta*
+      size: 50
+      query:
+        bool:
+          must_not:
+            - match:
+                event.action: "system.push.send_factor_verify_push"
+            - match:
+                event.action: "system.push.verify_push"
+          filter:
+            - range:
+                "@timestamp":
+                  gte: "now-3d"
+      _source:
+        - "@timestamp"
+        - event.action
+        - event.outcome
+        - source.ip
+        - user.name
+        - okta.target
+        - okta.client.user_agent.raw_user_agent
+        - okta.client.geographical_context
+
+  # 6d: Alert breakdown — fetch recent alerts for the target user/IP
+  #     (aggs not supported in workflows; fetch raw alerts for AI to summarize)
+  - name: agg_alert_breakdown
+    type: elasticsearch.search
+    with:
+      index: .alerts-security.alerts-default
+      size: 50
+      query:
+        bool:
+          should:
+            - match:
+                source.ip: "198.51.100.42"
+          minimum_should_match: 1
+          filter:
+            - range:
+                "@timestamp":
+                  gte: "now-7d"
+      _source:
+        - "@timestamp"
+        - kibana.alert.rule.name
+        - kibana.alert.severity
+        - user.name
+        - source.ip
+        - event.action
+        - event.outcome
+
+  # ================================================================
+  # PHASE 7: AI-FORMATTED INVESTIGATION DASHBOARD
+  # ================================================================
+  - name: ai_build_dashboard
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/agent_builder/converse
+      headers:
+        kbn-xsrf: "true"
+      body:
+        conversation_id: "{{ steps.ai_initial_triage.output.conversation_id }}"
+        input: |
+          Build an Investigation Dashboard for this MFA Bombing case. Use your Phase 1
+          analysis combined with the raw Okta and alert data below.
+
+          IMPORTANT: Respond ONLY with the formatted tables below. No preamble, no explanation,
+          just the dashboard content. Use markdown tables that render in Kibana case comments.
+
+          ## 🎯 MITRE ATT&CK Coverage
+
+          Map each tactic/technique observed in this MFA bombing attack:
+
+          | Tactic | Technique ID | Technique Name | Evidence | Alerts |
+          |--------|-------------|----------------|----------|--------|
+          (fill from Phase 1 analysis — expect T1078, T1621 at minimum)
+
+          ## 📱 MFA Push Timeline
+
+          Build a chronological timeline of MFA push events from the Okta data below.
+          Show each push attempt with timestamp, outcome (SUCCESS/FAILURE/DENIED), and source IP.
+
+          | Timestamp | Event Action | Outcome | Source IP | User Agent |
+          |-----------|-------------|---------|-----------|------------|
+          (build from Okta MFA event data below)
+
+          ## 🌐 Source IP Profile
+
+          | Attribute | Value |
+          |-----------|-------|
+          | IP Address | 198.51.100.42 |
+          | Users Targeted | (count from source IP activity data) |
+          | First Seen | (earliest timestamp) |
+          | Last Seen | (latest timestamp) |
+          | User Agents | (unique user agents observed) |
+          | Geo Location | (if available from okta.client.geographical_context) |
+
+          ## 🔴 Post-Compromise Activity
+
+          Show any non-MFA Okta events for the target user AFTER the successful bypass.
+          These indicate what the attacker did with the stolen session.
+
+          | Timestamp | Event Action | Outcome | Source IP | Target/App | Geo |
+          |-----------|-------------|---------|-----------|------------|-----|
+          (build from post-compromise data — flag any geo anomalies or new app access)
+
+          ## 🔔 Detection Rule Summary
+
+          | Rule Name | Alert Count | Severity |
+          |-----------|-------------|----------|
+          (fill from alert aggregation data)
+
+          ## 🎯 IOC Tracking Table
+
+          | IOC Type | Value | Context | First Seen | Last Seen |
+          |----------|-------|---------|------------|-----------|
+          (IP addresses, usernames, user agents, Okta session tokens if visible)
+
+          --- OKTA MFA PUSH EVENTS (attack evidence) ---
+          {{ steps.enrich_okta_mfa_events.output.hits.hits | json }}
+
+          --- SOURCE IP ACTIVITY (all users, 30d) ---
+          {{ steps.enrich_source_ip_activity.output.hits.hits | json }}
+
+          --- POST-COMPROMISE ACTIVITY (non-MFA events after bypass) ---
+          {{ steps.enrich_post_compromise.output.hits.hits | json }}
+
+          --- RELATED SECURITY ALERTS (raw, 7d) ---
+          {{ steps.agg_alert_breakdown.output.hits.hits | json }}
+
+          --- USER LOGIN GEO BASELINE (30d) ---
+          {{ steps.enrich_user_login_history.output.hits.hits | json }}
+
+          --- USER APP ACCESS PATTERNS (30d) ---
+          {{ steps.enrich_user_app_access.output.hits.hits | json }}
+
+          --- SOURCE IP USER PROFILE (30d) ---
+          {{ steps.enrich_source_ip_users.output.hits.hits | json }}
+
+          Total MFA events: {{ steps.enrich_okta_mfa_events.output.hits.total.value }}
+          Total source IP events: {{ steps.enrich_source_ip_activity.output.hits.total.value }}
+    timeout: 10m
+    on-failure:
+      retry:
+        max-attempts: 3
+
+  - name: post_dashboard_to_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_investigation_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # 📊 Phase 3: MFA Bombing Investigation Dashboard
+
+          {{ steps.ai_build_dashboard.output.response.message }}
+
+          ---
+
+          ## 🔍 Investigation Shortcuts
+
+          - 📱 [Okta MFA Events for Target User — Discover]({{ consts.kibana_base_url }}/app/discover#/?_a=(query:(language:kuery,query:'event.action:system.push*%20AND%20user.name:target.user%40example.com'))&_g=(time:(from:now-7d,to:now)))
+          - 🌐 [All Activity from 198.51.100.42 — Discover]({{ consts.kibana_base_url }}/app/discover#/?_a=(query:(language:kuery,query:'source.ip:198.51.100.42'))&_g=(time:(from:now-30d,to:now)))
+          - 🔓 [Post-Bypass Session Activity — Discover]({{ consts.kibana_base_url }}/app/discover#/?_a=(query:(language:kuery,query:'user.name:target.user%40example.com%20AND%20NOT%20event.action:system.push*'))&_g=(time:(from:now-3d,to:now)))
+          - 🧑‍💻 [Target User Full Activity — Discover]({{ consts.kibana_base_url }}/app/discover#/?_a=(query:(language:kuery,query:'user.name:target.user%40example.com'))&_g=(time:(from:now-7d,to:now)))
+          - 🚨 [All Security Alerts — Discover]({{ consts.kibana_base_url }}/app/discover#/?_a=(query:(language:kuery,query:'source.ip:198.51.100.42'),index:'.alerts-security.alerts-default'))&_g=(time:(from:now-7d,to:now)))
+
+  # ================================================================
+  # PHASE 8: AI SYNTHESIS — CONNECT THE DOTS
+  # ================================================================
+  - name: ai_enrichment_synthesis
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/agent_builder/converse
+      headers:
+        kbn-xsrf: "true"
+      body:
+        conversation_id: "{{ steps.ai_initial_triage.output.conversation_id }}"
+        input: |
+          Final synthesis step for this MFA bombing investigation.
+          Using ALL enrichment data collected, provide:
+
+          1. **Attack Timeline** — Build a precise chronological narrative:
+             - When did push spam begin?
+             - How many pushes were sent before the victim accepted?
+             - When exactly did the successful bypass occur?
+             - What did the attacker do immediately after gaining access?
+
+          2. **Blast Radius Assessment**
+             - Was ONLY this user targeted, or were others hit from the same IP?
+             - What applications/resources were accessed post-compromise?
+             - Were any privilege escalation or persistence actions taken in Okta?
+               (e.g., MFA factor enrollment, admin role changes, API token creation)
+
+          3. **IOC Summary Table** — All confirmed IOCs:
+             | IOC Type | Value | Verdict | Notes |
+             |----------|-------|---------|-------|
+
+          4. **Recommended Response Actions** (prioritized):
+             🔴 **IMMEDIATE** (< 15 min):
+             - Revoke all Okta sessions for the compromised user
+             - Reset MFA factors
+             - Block source IP in Okta network zone deny list
+
+             🟡 **SHORT-TERM** (< 4 hours):
+             - Hunt for the source IP targeting other users
+             - Review all application access and OAuth grants post-bypass
+             - Check for new MFA factor enrollments or admin changes
+             - Notify the affected user via out-of-band channel
+
+             🟢 **LONG-TERM** (< 1 week):
+             - Enable Okta MFA rate limiting (if not already)
+             - Enforce number matching for push notifications
+             - Consider migration to FIDO2/WebAuthn phishing-resistant MFA
+             - Review conditional access policies for high-risk sign-ins
+
+          5. **Severity Recommendation** — Should this case remain CRITICAL or can it
+             be downgraded? Factor in: successful compromise (yes/no),
+             post-compromise activity scope, data access risk, and user privilege level.
+
+          You already have the full enrichment data from the previous dashboard step.
+          Use that context plus these summary counts to inform your synthesis:
+
+          --- ENRICHMENT SUMMARY ---
+          Okta MFA push events found: {{ steps.enrich_okta_mfa_events.output.hits.total.value }}
+          Source IP activity events (30d): {{ steps.enrich_source_ip_activity.output.hits.total.value }}
+          Post-compromise activity events: {{ steps.enrich_post_compromise.output.hits.total.value }}
+          User login history events (30d): {{ steps.enrich_user_login_history.output.hits.total.value }}
+          User app access events (30d): {{ steps.enrich_user_app_access.output.hits.total.value }}
+          Source IP user profile events (30d): {{ steps.enrich_source_ip_users.output.hits.total.value }}
+          Related security alerts (7d): {{ steps.agg_alert_breakdown.output.hits.total.value }}
+    timeout: 10m
+    on-failure:
+      retry:
+        max-attempts: 3
+
+  - name: post_ai_synthesis_to_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_investigation_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # 🧠 Phase 4: AI Enrichment Synthesis & Response Recommendations
+
+          {{ steps.ai_enrichment_synthesis.output.response.message }}
+
+          ---
+          🔗 AI Conversation ID: `{{ steps.ai_initial_triage.output.conversation_id }}`
+          📎 [Open AI Assistant]({{ consts.kibana_base_url }}/app/security/ai-assistant) to continue this investigation thread.
+          📎 [View Original Attack Discovery]({{ event.alerts[0]['kibana.alert.url'] }})
+
+  # ================================================================
+  # PHASE 9: SLACK ESCALATION — HITL REVIEW
+  # ================================================================
+  - name: slack_notify
+    type: http
+    with:
+      url: https://slack.com/api/chat.postMessage
+      method: POST
+      headers:
+        Content-Type: "application/json; charset=utf-8"
+        Authorization: "Bearer {{ consts.slack_token }}"
+      body:
+        channel: "{{ consts.slack_channel }}"
+        text: "🚨 MFA Bombing: {{ steps.generate_case_title.output.response.message }}"
+        blocks:
+          - type: header
+            text:
+              type: plain_text
+              text: "🛑 HITL REQUIRED: MFA Bombing Investigation Ready for Review"
+              emoji: true
+          - type: section
+            text:
+              type: mrkdwn
+              text: >
+                *Case:* {{ steps.generate_case_title.output.response.message }}
+
+                *Attack Summary:*
+                {{ event.alerts[0]['kibana.alert.attack_discovery.summary_markdown_with_replacements'] }}
+          - type: section
+            fields:
+              - type: mrkdwn
+                text: "*Risk Score:*\n{{ event.alerts[0]['kibana.alert.risk_score'] }}"
+              - type: mrkdwn
+                text: "*MITRE:*\nT1621 — MFA Request Generation"
+              - type: mrkdwn
+                text: "*Correlated Alerts:*\n{{ event.alerts[0]['kibana.alert.attack_discovery.alert_ids'] | size }}"
+              - type: mrkdwn
+                text: "*Okta MFA Events:*\n{{ steps.enrich_okta_mfa_events.output.hits.total.value }} events (7d)"
+          - type: section
+            text:
+              type: mrkdwn
+              text: >
+                *Enrichment:* ✅ AI Triage • ✅ User Context • ✅ Okta MFA Timeline • ✅ Source IP Hunt • ✅ Post-Compromise Scoping • ✅ AI Synthesis • ✅ Alerts Attached
+          - type: context
+            elements:
+              - type: mrkdwn
+                text: "🤖 AI Model: {{ event.alerts[0]['kibana.alert.attack_discovery.api_config'].name }} | AD Alert: `{{ event.alerts[0]._id }}`"
+          - type: divider
+          - type: actions
+            elements:
+              - type: button
+                text:
+                  type: plain_text
+                  text: "🔴 Open Investigation Case"
+                style: danger
+                url: "{{ consts.kibana_base_url }}/app/security/cases/{{ steps.create_investigation_case.output.id }}"
+              - type: button
+                text:
+                  type: plain_text
+                  text: "📊 View Attack Discovery"
+                url: "{{ event.alerts[0]['kibana.alert.url'] }}"
+              - type: button
+                text:
+                  type: plain_text
+                  text: "🤖 Continue in AI Assistant"
+                url: "{{ consts.kibana_base_url }}/app/security/ai-assistant"
+      timeout: 30s

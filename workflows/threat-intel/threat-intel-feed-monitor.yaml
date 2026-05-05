@@ -1,0 +1,319 @@
+# =============================================================================
+# Workflow: Threat Intelligence Feed Monitor
+# Category: security/threat-intel
+# Trigger: Scheduled (every 24h) + Manual
+#
+# PURPOSE:
+# Fetches a curated infosec RSS feed, has AI analyze the articles,
+# extract IOCs, generate targeted ES|QL hunt queries for your specific
+# data sources, and outputs everything to a Kibana Security case.
+#
+# FEED: 0dayfans.com (curated infosec news — lightweight RSS)
+#
+# ARCHITECTURE:
+#   1. Fetch RSS feed
+#   2. AI reads articles → extracts threats, IOCs, generates hunt queries
+#   3. AI produces environment-specific recommendations
+#   4. Everything posted to a Kibana Security case for SOC review
+# =============================================================================
+
+name: "Threat Intelligence Feed Monitor"
+description: >
+  Fetches infosec news, extracts IOCs with AI, generates targeted ES|QL
+  hunt queries for your environment, and creates a case with findings.
+enabled: true
+tags:
+  - security
+  - threat-intel
+  - OSINT
+  - automated-hunting
+  - SOC
+
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+consts:
+  kibana_base_url: "https://your-kibana.example.com"
+  logs_data_view_id: "logs-*"
+
+# =============================================================================
+# TRIGGERS
+# =============================================================================
+triggers:
+  - type: scheduled
+    with:
+      every: "24h"
+  - type: manual
+
+# =============================================================================
+# INPUTS
+# =============================================================================
+inputs:
+  - name: focus_topic
+    type: string
+    required: false
+    description: "Optional: focus on a specific topic (e.g., ransomware, phishing, zero-day)"
+
+# =============================================================================
+# STEPS
+# =============================================================================
+steps:
+
+  # ================================================================
+  # PHASE 1: FETCH RSS FEED
+  # ================================================================
+  - name: fetch_feed
+    type: http
+    with:
+      url: "https://0dayfans.com/feed.rss"
+      method: GET
+    on-failure:
+      retry:
+        max-attempts: 2
+
+  # ================================================================
+  # PHASE 2: AI — ANALYZE FEED
+  # Pass raw output (not | json) to avoid bloating the payload.
+  # ================================================================
+  - name: ai_analyze_feed
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/agent_builder/converse
+      headers:
+        kbn-xsrf: "true"
+      body:
+        input: |
+          You are a threat intelligence analyst for a SOC team. Below is an RSS
+          feed from a curated infosec news source. Analyze the articles and
+          produce a concise threat intelligence briefing.
+
+          RSS FEED:
+          {{ steps.fetch_feed.output.data }}
+
+          {%- if inputs.focus_topic != blank -%}
+          FOCUS: Prioritize articles related to "{{ inputs.focus_topic }}".
+          {%- endif -%}
+
+          Be CONCISE. Produce:
+
+          ## Top Threats
+          For each article describing an active threat, vulnerability, or campaign
+          (max 10 items):
+          - Title | Threat Type | Affected Products | Severity
+
+          ## Extracted IOCs
+          List ANY IPs, domains, URLs, file hashes, or CVEs mentioned.
+          Only include IOCs that actually appear in the content.
+          Format: `Value | Type | Associated Threat`
+          If none found, state "No explicit IOCs in this feed cycle."
+
+          ## Key Takeaways
+          3-5 bullet points: what should a SOC team act on right now?
+    timeout: 10m
+    on-failure:
+      retry:
+        max-attempts: 2
+
+  # ================================================================
+  # PHASE 3: AI — HUNT THE ENVIRONMENT
+  # The agent uses platform.core.execute_esql to actually run queries
+  # against our data, analyze the results, and report findings.
+  # ================================================================
+  - name: ai_hunt_environment
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/agent_builder/converse
+      headers:
+        kbn-xsrf: "true"
+      body:
+        conversation_id: "{{ steps.ai_analyze_feed.output.conversation_id }}"
+        input: |
+          Now hunt our environment for the threats and IOCs you just identified.
+
+          USE YOUR platform.core.execute_esql TOOL to run ES|QL queries against
+          our data. Do NOT just generate queries — actually EXECUTE them and
+          analyze the results.
+
+          AVAILABLE DATA SOURCES (use FROM logs-* with event.dataset filter):
+          - azure.signinlogs (user sign-ins: IPs, locations, apps, risk levels, MFA)
+          - azure.auditlogs (Entra ID admin changes: password resets, role assignments)
+          - azure.graphactivitylogs (Graph API: mail, file, user operations)
+          - crowdstrike.alert (EDR alerts: tactics, techniques, file hashes, host info)
+          - windows.powershell_operational (PowerShell script execution)
+          - system.security (Windows logon events: event codes 4624, 4625, 4648)
+          - entityanalytics_entra_id.user (user entity data)
+
+          ES|QL RULES:
+          - Always use: FROM logs-* | WHERE event.dataset == "dataset.name"
+          - ES|QL does NOT support COUNT_IF — use SUM(TO_INT(condition)) instead
+          - Use STATS for aggregations, KEEP for column selection
+          - Use LIMIT to cap results (max 50)
+          - Time filter: | WHERE @timestamp > NOW() - 24 hours
+
+          HUNTING STRATEGY:
+          For each threat or IOC you identified, choose the right data source:
+          - IP-based threats → query azure.signinlogs, system.security
+          - Malware/hash threats → query crowdstrike.alert
+          - Phishing/email threats → query azure.graphactivitylogs
+          - Credential threats → query azure.signinlogs, azure.auditlogs
+          - PowerShell/execution threats → query windows.powershell_operational
+          - General anomalies → query across multiple sources
+
+          Run 5-8 queries. After each query, analyze the results.
+
+          Then produce a HUNT REPORT:
+
+          ## Hunt Results Summary
+          For each query you ran:
+          ### Hunt [N]: [Title]
+          **Query:** (the ES|QL you ran)
+          **Results:** [what you found — row count, key findings, or "no hits"]
+          **Assessment:** [is this concerning? what does it mean?]
+
+          ## Overall Finding
+          "THREATS DETECTED" or "NO THREATS DETECTED"
+
+          ## Matches Found
+          If any query returned results that correlate with today's threats:
+          | Finding | Data Source | Details | Severity |
+
+          ## Environment Baseline
+          Brief summary of what the environment looks like right now
+          (sign-in volumes, alert counts, any anomalies).
+    timeout: 10m
+    on-failure:
+      retry:
+        max-attempts: 2
+
+  # ================================================================
+  # PHASE 4: AI — FINAL ASSESSMENT & DETECTION RULES
+  # ================================================================
+  - name: ai_recommendations
+    type: kibana.request
+    with:
+      method: POST
+      path: /api/agent_builder/converse
+      headers:
+        kbn-xsrf: "true"
+      body:
+        conversation_id: "{{ steps.ai_analyze_feed.output.conversation_id }}"
+        input: |
+          Based on your threat analysis AND the actual hunt results, produce:
+
+          ## Executive Summary
+          One paragraph: threats identified, what you found in the environment,
+          risk level, key actions needed.
+
+          ## Detection Rule Suggestions
+          Suggest 2-3 custom ES|QL detection rules based on today's threats.
+          Include the full query and recommended schedule interval for each.
+          Use FROM logs-* with event.dataset filters.
+
+          ## SOC Action Items
+          Prioritized checklist:
+          1. IMMEDIATE (check now)
+          2. SHORT-TERM (this week)
+          3. LONG-TERM (process improvements)
+
+          ## Gaps & Blind Spots
+          Based on the threats reported and what you observed in the data,
+          what are we missing? What should we add?
+    timeout: 10m
+    on-failure:
+      retry:
+        max-attempts: 2
+
+  # ================================================================
+  # PHASE 5: CREATE CASE & POST ALL FINDINGS
+  # ================================================================
+  - name: create_case
+    type: kibana.createCaseDefaultSpace
+    with:
+      title: "Threat Intel Briefing — 0dayfans — {{ 'now' | date: '%Y-%m-%d %H:%M' }}"
+      description: |
+        **Automated Threat Intelligence Briefing**
+
+        AI-analyzed infosec news feed with extracted IOCs, targeted hunt
+        queries, and detection recommendations.
+
+        **HUMAN REVIEW REQUIRED — Run the hunt queries and verify findings.**
+
+        ---
+        **Feed:** 0dayfans.com
+        **Schedule:** Every 24 hours
+      tags:
+        - threat_intel
+        - OSINT
+        - daily_briefing
+        - SOC_Investigation
+      severity: medium
+      owner: securitySolution
+      connector:
+        id: none
+        name: none
+        type: .none
+        fields: null
+      settings:
+        syncAlerts: true
+
+  - name: post_threat_summary
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # Threat Intelligence Summary
+
+          {{ steps.ai_analyze_feed.output.response.message }}
+
+  - name: post_hunt_results
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # Hunt Results
+
+          The AI agent ran targeted ES|QL queries against our environment
+          based on today's threat intel. Here are the findings:
+
+          {{ steps.ai_hunt_environment.output.response.message }}
+
+  - name: post_recommendations
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.create_case.output.id }}/comments"
+      headers:
+        kbn-xsrf: "true"
+      body:
+        type: user
+        owner: securitySolution
+        comment: |
+          # Recommendations & Detection Rules
+
+          {{ steps.ai_recommendations.output.response.message }}
+
+          ---
+          Auto-generated by Threat Intel Feed Monitor.
+          [Open AI Assistant]({{ consts.kibana_base_url }}/app/security/ai-assistant) to investigate further.
+
+  - name: log_complete
+    type: console
+    with:
+      message: |
+        Threat Intel Feed Monitor complete.
+        Case ID: {{ steps.create_case.output.id }}
+        View case: {{ consts.kibana_base_url }}/app/security/cases/{{ steps.create_case.output.id }}

@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "ReversingLabs — Reported Email Triage"
 description: >
-  Triages user-reported phishing or malware emails. Filters incoming
-  alerts by name, queries Microsoft Graph for the original message
-  by subject, downloads attachments to the vault, detonates each
-  attachment in ReversingLabs A1000, and pulls back the summary
-  report for analyst review.
+  Triages user-reported phishing/malware emails. Gated on the
+  user-reported alert name; pulls the matching message from
+  Microsoft Graph by network_message_id, downloads its attachments,
+  uploads each to a ReversingLabs A1000 appliance for detonation,
+  then fetches the per-sample report and records the classification
+  + threat name for analyst review.
 enabled: true
 tags: ["splunk-soar", "email-triage", "reported-email", "reversinglabs", "o365", "translated"]
 
@@ -86,37 +87,43 @@ steps:
               items: ${{ steps.get_email_attachments.output.value }}
             steps:
               # TODO: swap for a native ReversingLabs connector when available.
-              # Phantom action: reversinglabs_a1000_v2 "detonate file".
+              # A1000 expects multipart upload at /api/uploads/v2/upload-file;
+              # body shape below is base64 because Workflows HTTP step does
+              # not support multipart natively — operators may need to wire
+              # a small upload helper for production traffic.
               - name: submit_to_a1000
                 type: http
                 with:
-                  url: "{{ consts.reversinglabs_a1000_endpoint }}/api/uploads/"
+                  url: "{{ consts.reversinglabs_a1000_endpoint }}/api/uploads/v2/upload-file"
                   method: POST
                   headers:
                     Authorization: "{{ consts.reversinglabs_a1000_token }}"
+                    Content-Type: "application/json"
                   body:
-                    file_name: "{{ item.name }}"
+                    filename: "{{ item.name }}"
                     content_base64: "{{ item.contentBytes }}"
-                on-failure:
-                  retry:
-                    max-attempts: 2
-                    delay: "5s"
-                  continue: true
-
-              # Phantom action: reversinglabs_a1000_v2 "get summary report".
-              - name: get_summary_report
-                type: http
-                with:
-                  url: "{{ consts.reversinglabs_a1000_endpoint }}/api/samples/{{ steps.submit_to_a1000.output.sha1 | default: item.contentSha1 }}/report/"
-                  method: GET
-                  headers:
-                    Authorization: "{{ consts.reversinglabs_a1000_token }}"
-                  query:
-                    include_network_threat_intelligence: "true"
+                    analysis: "cloud"
                 on-failure:
                   retry:
                     max-attempts: 3
                     delay: "10s"
+                  continue: true
+
+              # A1000 sample report — keyed by detected SHA-1.
+              - name: get_summary_report
+                type: http
+                with:
+                  url: "{{ consts.reversinglabs_a1000_endpoint }}/api/samples/v2/{{ steps.submit_to_a1000.output.detail.sha1 | default: steps.submit_to_a1000.output.sha1 | default: item.contentSha1 }}/"
+                  method: GET
+                  headers:
+                    Authorization: "{{ consts.reversinglabs_a1000_token }}"
+                    Accept: "application/json"
+                  query:
+                    fields: "id,sha1,sha256,classification,threat_name,threat_level,first_seen,last_seen"
+                on-failure:
+                  retry:
+                    max-attempts: 5
+                    delay: "15s"
                   continue: true
 
               - name: record_finding
@@ -124,8 +131,10 @@ steps:
                 with:
                   finding:
                     attachment: "{{ item.name }}"
-                    sha1: "{{ steps.submit_to_a1000.output.sha1 | default: '' }}"
+                    sha1: "{{ steps.submit_to_a1000.output.detail.sha1 | default: '' }}"
+                    sha256: "{{ steps.submit_to_a1000.output.detail.sha256 | default: '' }}"
                     classification: "{{ steps.get_summary_report.output.classification | default: 'unknown' }}"
+                    threat_level: "{{ steps.get_summary_report.output.threat_level | default: 0 }}"
                     threat_name: "{{ steps.get_summary_report.output.threat_name | default: '' }}"
 
               - name: log_finding

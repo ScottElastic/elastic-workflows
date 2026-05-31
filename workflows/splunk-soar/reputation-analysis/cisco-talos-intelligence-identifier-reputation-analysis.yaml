@@ -4,10 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Cisco Talos Intelligence — Identifier Reputation Analysis"
 description: >
-  Routes URLs, domains, and IPs to the Cisco Talos Intelligence reputation
-  endpoints, then maps each Talos threat level to a normalized OCSF
-  reputation score and constructs an observable record for downstream
-  consumers.
+  Looks up URLs, domains, and IPs against a Cisco Talos Intelligence
+  reputation endpoint and builds an OCSF-shaped observable from the
+  returned threat level, threat categories, and AUP categories.
+  Cisco does not publish an unauthenticated reputation API; operators
+  must wire `talos_endpoint`/`talos_auth_header` to a licensed feed
+  (Talos Intel SOC, ThreatGrid, SecureX) or an internal Talos proxy.
 enabled: true
 tags: ["splunk-soar", "reputation", "url", "domain", "ip", "cisco-talos", "translated"]
 
@@ -29,9 +31,11 @@ inputs:
     description: "IP addresses to evaluate (may be empty)."
 
 consts:
-  # Cisco Talos Intelligence does not currently have a native Elastic
-  # connector; use the public Talos API or your licensed endpoint.
-  talos_endpoint: "https://talosintelligence.com/sb_api/query_lookup"
+  # Cisco Talos Intelligence does not currently have a public reputation
+  # API or a native Elastic connector. Point this at a licensed Talos
+  # feed (e.g. Cisco SecureX Threat Response, ThreatGrid) or an internal
+  # broker that returns the same shape used below.
+  talos_endpoint: "https://CHANGEME-talos-broker.internal/api/v1/reputation"
   talos_auth_header: "Bearer CHANGEME_TALOS_TOKEN"
   # OCSF reputation score reference: https://schema.ocsf.io/objects/reputation
   # threat_level (talos) -> ocsf score mapping is applied per-item below.

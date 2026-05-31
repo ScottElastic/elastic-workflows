@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "urlscan.io — Dynamic URL Analysis"
 description: >
-  Detonates each provided URL in urlscan.io and builds a per-URL
-  observable. When urlscan.io returns an error code (blacklisted,
-  invalid hostname, etc.) the observable records the error context;
-  otherwise a normalized OCSF reputation score is computed from the
-  overall, urlscan, engine, and community verdicts.
+  Submits each input URL to urlscan.io (`POST /scan/`) with private
+  visibility, then fetches the scan result (`GET /result/{uuid}/`)
+  and emits a per-URL observable containing the urlscan, engine,
+  community, and overall verdicts plus the public report URL. If
+  urlscan returns an HTTP 400 (blacklisted host, invalid URL, etc.)
+  the observable captures the error message instead of a score.
 enabled: true
 tags: ["splunk-soar", "reputation", "url", "urlscan", "dynamic-analysis", "translated"]
 
@@ -108,21 +109,34 @@ steps:
                 categories: "{{ steps.fetch_result.output.verdicts.overall.categories | default: [] }}"
                 report_url: "{{ steps.fetch_result.output.task.reportURL | default: '' }}"
 
-          # AI fallback: convert the four verdict numbers into a single
-          # OCSF reputation score. Wire an LLM connector to make this concrete;
-          # otherwise downstream consumers can bucketise the raw verdicts.
+          # Optional: bucketise the four verdict numbers into a single
+          # OCSF reputation score via an LLM. Wire an LLM connector to
+          # enable, or skip and have downstream consumers map the raw
+          # verdicts themselves.
           - name: score_with_ai
             type: ai.prompt
             connector-id: "CHANGEME-llm-connector"
             with:
               prompt: |
-                Convert these four urlscan.io verdict scores (each in -100..100)
-                into a single OCSF reputation score_id (0-10) and label.
-                overall={{ steps.normalize_score.output.verdicts.overall_score }}
-                urlscan={{ steps.normalize_score.output.verdicts.urlscan_score }}
-                engines={{ steps.normalize_score.output.verdicts.engine_score }}
-                community={{ steps.normalize_score.output.verdicts.community_score }}
-                Return JSON: {"score_id": <int>, "score": "<label>", "confidence": <0-100>}
+                You are normalizing urlscan.io verdict scores to the OCSF
+                Reputation schema (https://schema.ocsf.io/objects/reputation).
+                Inputs (each in -100..100, where positive = malicious):
+                  overall  = {{ steps.normalize_score.output.verdicts.overall_score }}
+                  urlscan  = {{ steps.normalize_score.output.verdicts.urlscan_score }}
+                  engines  = {{ steps.normalize_score.output.verdicts.engine_score }}
+                  community= {{ steps.normalize_score.output.verdicts.community_score }}
+                  malicious_flag = {{ steps.normalize_score.output.verdicts.malicious }}
+
+                Map to OCSF score_id using:
+                  0 Unknown, 1 Very_Safe, 2 Safe, 3 Probably_Safe,
+                  4 Leans_Safe, 5 May_not_be_Safe, 6 Exercise_Caution,
+                  7 Suspicious_or_Risky, 8 Possibly_Malicious,
+                  9 Probably_Malicious, 10 Malicious.
+
+                Confidence (0-100) = max of |overall|, |urlscan|, |engines|, |community|.
+
+                Return ONLY a single JSON object, no prose:
+                {"score_id": <int 0-10>, "score": "<label>", "confidence": <int 0-100>, "rationale": "<one short sentence>"}
             on-failure:
               continue: true
 

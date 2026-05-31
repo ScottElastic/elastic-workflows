@@ -4,13 +4,14 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Symantec ProxySG — Website Unblock Request"
 description: >
-  Handles a user-submitted website unblock ticket. Looks up URL reputation
-  in VirusTotal and Symantec WebPulse, captures a screenshot, optionally
-  detonates the URL on urlscan.io, then asks an approver. On approval the
-  URL is unblocked on the proxy and the requester is notified; on denial,
-  the user is told the request was rejected. The originating ticket is
-  updated with the outcome.
-  Caution: urlscan.io makes the submitted URL publicly visible.
+  Handles a user-submitted website unblock ticket. Looks up URL
+  reputation in VirusTotal and Symantec WebPulse; if both come back
+  clean, captures a screenshot, detonates the URL on urlscan.io, then
+  asks an analyst-approver via ai.prompt. On YES the URL is allowed on
+  the ProxySG, requester emailed, ticket commented. On NO (or any
+  malicious finding upstream) the request is denied and the ticket
+  closed with a reason. Caution: urlscan.io submissions can be made
+  publicly visible — set scan visibility appropriately.
 enabled: true
 tags: ["splunk-soar", "remediation", "url-unblock", "symantec-proxysg", "translated"]
 
@@ -119,7 +120,11 @@ steps:
                 Content-Type: "application/json"
               body:
                 url: "{{ inputs.request_url }}"
+                visibility: "unlisted"
             on-failure:
+              retry:
+                max-attempts: 2
+                delay: "5s"
               continue: true
 
           - name: ask_approver
@@ -127,11 +132,21 @@ steps:
             connector-id: "CHANGEME-llm-connector"
             with:
               prompt: |
-                You are deciding whether to unblock a website on the proxy.
-                Reputation services returned clean.
-                URL: {{ inputs.request_url }}
-                urlscan verdict: {{ steps.detonate_url.output | default: {} | json }}
-                Reply YES to approve unblocking, NO to deny.
+                APPROVAL REQUEST — proxy URL unblock
+
+                Requester:    {{ inputs.from_email }}
+                Request URL:  {{ inputs.request_url }}
+                Ticket:       {{ inputs.ticket_id | default: '(none)' }}
+
+                Upstream reputation checks (all passed before this step):
+                  - VirusTotal malicious votes: {{ steps.virustotal_url_reputation.output.data.attributes.last_analysis_stats.malicious | default: 0 }}
+                  - Symantec WebPulse categories: {{ steps.webpulse_url_reputation.output.categories | default: [] | json }}
+                  - urlscan.io scan UUID: {{ steps.detonate_url.output.uuid | default: '(submission failed)' }}
+                  - urlscan.io report: {{ steps.detonate_url.output.result | default: '(not available)' }}
+
+                You are the approver. Reply with ONLY one word:
+                YES   to allow the URL on the ProxySG
+                NO    to keep it blocked
 
           - name: approval_decision
             type: if
@@ -149,9 +164,8 @@ steps:
                     url: "{{ inputs.request_url }}"
                 on-failure:
                   retry:
-                    max-attempts: 2
-                    delay: "5s"
-                  continue: true
+                    max-attempts: 3
+                    delay: "10s"
 
               - name: notify_approved
                 type: email

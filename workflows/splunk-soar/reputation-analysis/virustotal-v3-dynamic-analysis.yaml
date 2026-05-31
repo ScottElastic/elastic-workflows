@@ -4,10 +4,14 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "VirusTotal v3 — Dynamic Analysis"
 description: >
-  Submits URLs and file vault IDs to the VirusTotal v3 sandbox for
-  detonation, then derives a normalized OCSF reputation score from the
-  harmless/undetected/malicious/suspicious verdict counts and emits a
-  per-observable record. Maps to MITRE D3FEND DynamicAnalysis.
+  Submits each input URL to VirusTotal v3 (`POST /urls`) and polls
+  `/analyses/{id}` for the verdict; submits each file SHA-256 through
+  the native `virustotal.scanFileHash` connector. For each indicator
+  it emits a per-observable record carrying the harmless / undetected
+  / malicious / suspicious counts so downstream consumers can compute
+  an OCSF reputation score. Maps to MITRE D3FEND DynamicAnalysis.
+  Note: URL analyses are asynchronous — the fetch step retries on
+  `queued` results.
 enabled: true
 tags: ["splunk-soar", "reputation", "dynamic-analysis", "virustotal", "translated"]
 
@@ -56,6 +60,13 @@ steps:
                 delay: "5s"
               continue: true
 
+          # Analyses are asynchronous — give VT time to finish before
+          # reading verdicts. Up to 5 minutes total wait.
+          - name: wait_for_analysis
+            type: wait
+            with:
+              duration: "30s"
+
           - name: fetch_url_report
             type: http
             with:
@@ -63,10 +74,11 @@ steps:
               method: GET
               headers:
                 x-apikey: "{{ consts.vt_api_key }}"
+                Accept: "application/json"
             on-failure:
               retry:
-                max-attempts: 5
-                delay: "10s"
+                max-attempts: 10
+                delay: "30s"
               continue: true
 
           - name: build_url_observable

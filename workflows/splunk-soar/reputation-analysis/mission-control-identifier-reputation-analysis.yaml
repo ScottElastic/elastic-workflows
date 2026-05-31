@@ -4,10 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Mission Control — Identifier Reputation Analysis"
 description: >
-  Mission-Control-style orchestrator. Extracts indicators (IPs, URLs,
-  domains, file hashes) from an alert, fans out to VirusTotal and
-  PhishTank reputation workflows, merges their markdown reports,
-  attaches the merged report to the response task, and closes the task.
+  Mission Control-style orchestrator. Pulls indicators (IPs, URLs,
+  domains, file hashes) from the triggering alert, runs the VirusTotal
+  identifier reputation workflow and (if URLs are present) the
+  PhishTank URL reputation workflow via the Kibana Workflows REST
+  API, merges their markdown reports, then transitions the linked
+  Mission Control response task: Started -> Note added -> Ended.
+  Skips the task update if `response_task_id` is omitted.
 enabled: true
 tags: ["splunk-soar", "reputation", "mission-control", "orchestrator", "translated"]
 

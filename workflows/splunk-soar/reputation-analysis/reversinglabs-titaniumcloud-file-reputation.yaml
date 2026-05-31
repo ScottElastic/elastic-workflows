@@ -4,9 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "ReversingLabs TitaniumCloud — File Reputation"
 description: >
-  Sends each file hash to the ReversingLabs TitaniumCloud file
-  reputation endpoint and captures the malware presence classification
-  for downstream consumers.
+  Queries the ReversingLabs TitaniumCloud Malware Presence API
+  (`/databrowser/malware_presence/query/sha256/{hash}`) for each input
+  hash and records the classification, threat name, and scanner counts
+  on a per-hash observable. Input hashes must be SHA-256; adapt the
+  hash-type segment for MD5 or SHA-1 collections.
 enabled: true
 tags: ["splunk-soar", "reputation", "file-hash", "reversinglabs", "translated"]
 
@@ -21,9 +23,10 @@ inputs:
     description: "File hashes (MD5/SHA1/SHA256) to query."
 
 consts:
-  # ReversingLabs TitaniumCloud uses HTTP Basic auth. Place credentials
-  # in your secret store and reference via the auth header.
-  rl_endpoint: "https://data.reversinglabs.com/api/databrowser/malware_presence/query"
+  # ReversingLabs TitaniumCloud uses HTTP Basic auth. Place the
+  # base64(user:pass) credential in your secret store and reference
+  # it through `rl_auth_header`.
+  rl_endpoint: "https://data.reversinglabs.com/api/databrowser/malware_presence/query/sha256"
   rl_auth_header: "Basic CHANGEME_BASE64_CREDENTIAL"
 
 steps:
@@ -40,10 +43,11 @@ steps:
           method: GET
           headers:
             Authorization: "{{ consts.rl_auth_header }}"
+            Accept: "application/json"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: store_classification
@@ -54,9 +58,14 @@ steps:
             type: "hash"
             source: "ReversingLabs TitaniumCloud"
             classification: "{{ steps.rl_file_reputation.output.rl.malware_presence.status | default: 'UNKNOWN' }}"
+            threat_name: "{{ steps.rl_file_reputation.output.rl.malware_presence.threat_name | default: '' }}"
+            scanner_count: "{{ steps.rl_file_reputation.output.rl.malware_presence.scanner_count | default: 0 }}"
+            scanner_match: "{{ steps.rl_file_reputation.output.rl.malware_presence.scanner_match | default: 0 }}"
+            first_seen: "{{ steps.rl_file_reputation.output.rl.malware_presence.first_seen | default: '' }}"
+            last_seen: "{{ steps.rl_file_reputation.output.rl.malware_presence.last_seen | default: '' }}"
 
       - name: log_hash_classification
         type: console
         with:
           message: |
-            File hash {{ item }} classification={{ steps.rl_file_reputation.output.rl.malware_presence.status | default: 'UNKNOWN' }}
+            File hash {{ item }} classification={{ steps.rl_file_reputation.output.rl.malware_presence.status | default: 'UNKNOWN' }} threat={{ steps.rl_file_reputation.output.rl.malware_presence.threat_name | default: '' }}

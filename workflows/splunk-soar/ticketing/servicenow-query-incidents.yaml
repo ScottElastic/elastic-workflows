@@ -4,10 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "ServiceNow — Query Incidents by Affected Entity"
 description: >
-  Looks up recent ServiceNow incidents whose configuration item (cmdb_ci)
-  matches an entity from an Elastic Security detection, then emits a
-  compact summary of the related incidents (ticket number, severity,
-  priority, open/close timestamps) for the analyst to triage.
+  Queries the ServiceNow `incident` table for tickets whose configuration item
+  (cmdb_ci) matches a given entity within the lookback window, using the Table
+  API (`GET /api/now/table/incident`) with a `sysparm_query` filter. Emits a
+  per-ticket console line and stores the raw result list for downstream
+  workflows. Inputs: `entity` (required), `lookback_days` (default 7),
+  `max_results` (default 100).
 enabled: true
 tags: ["splunk-soar", "ticketing", "servicenow", "query", "translated"]
 
@@ -42,11 +44,14 @@ steps:
   - name: build_filter_query
     type: data.set
     with:
-      # SNOW sysparm_query string filtered by CMDB CI and creation time.
-      filter: "cmdb_ci.name={{ inputs.entity }}^sys_created_onONLast%20{{ inputs.lookback_days | default: 7 }}%20days"
+      # ServiceNow encoded query (sysparm_query) syntax. The http transport
+      # URL-encodes the `query` map values, so pass the raw caret-delimited
+      # encoded-query string here — no %20 escaping needed.
+      filter: "cmdb_ci.name={{ inputs.entity }}^sys_created_onONLast {{ inputs.lookback_days | default: 7 }} days@javascript:gs.beginningOfLast{{ inputs.lookback_days | default: 7 }}Days()@javascript:gs.endOfToday()"
 
-  # TODO: when ServiceNow's "list tickets" subAction is exposed on the
-  # workflow connector, swap this http call for the native action.
+  # ServiceNow Table API GET /api/now/table/incident. Native servicenow
+  # connector exposes pushToService/getFields but not a generic query
+  # subAction, so we use http for read-only listing.
   - name: list_snow_tickets
     type: http
     with:
@@ -58,9 +63,11 @@ steps:
       query:
         sysparm_query: "{{ steps.build_filter_query.output.filter }}"
         sysparm_limit: "{{ inputs.max_results | default: 100 }}"
+        sysparm_fields: "number,sys_id,short_description,severity,priority,opened_at,closed_at,state,assigned_to,caller_id"
+        sysparm_display_value: "all"
     on-failure:
       retry:
-        max-attempts: 2
+        max-attempts: 3
         delay: "5s"
       continue: true
 

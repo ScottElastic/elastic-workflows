@@ -4,13 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "SSH Endpoint — Investigate New Linux Server"
 description: >
-  Fired when a Jira ticket arrives tagged as a new Linux server. Looks
-  up the ticket, ensures the work hasn't already been done elsewhere
-  (matches against existing tickets in the same Jira project), confirms
-  the host runs CentOS 7, then collects login history and listening
-  ports via SSH and writes the results back as Jira comments. The
-  first ticket of its kind is promoted to a Case so subsequent tickets
-  can be batched together.
+  Triggered by a Jira ticket carrying the `new_linux_server` label. Pulls the
+  ticket via the native jira connector, JQL-searches Jira Cloud REST v3 for
+  prior tickets with the same label, confirms the target host runs CentOS 7
+  over an SSH runner stub, then captures `last -a` and `ss -tunapl` output and
+  posts both as Jira comments. Inputs: `jira_key` (required), `target_host`
+  (required), `ticket_label` (default `new_linux_server`). Requires an
+  external SSH execution endpoint (no native Elastic SSH connector yet).
 enabled: true
 tags: ["splunk-soar", "investigation", "ssh", "jira", "linux", "translated"]
 
@@ -34,8 +34,12 @@ inputs:
 
 consts:
   jira_connector_id: "CHANGEME-jira-connector"
-  # SSH execution stub. Replace with a real remote-execution connector
-  # when available.
+  # Jira Cloud REST API base + Basic auth header (base64 of email:api_token).
+  # Used for JQL search since the Kibana jira connector doesn't expose search.
+  jira_base_url: "https://CHANGEME.atlassian.net"
+  jira_auth_header: "Basic CHANGEME_BASE64_EMAIL_TOKEN"
+  # SSH execution stub. No native Elastic SSH connector yet — point this at
+  # your in-house remote-execution proxy / Ansible Tower / Rundeck endpoint.
   ssh_runner_endpoint: "https://CHANGEME-ssh-runner.internal/api/execute"
   ssh_runner_auth_header: "Bearer CHANGEME_TOKEN"
 
@@ -54,14 +58,28 @@ steps:
     type: if
     condition: "{{ steps.get_ticket.output.fields.customLabels | default: '' | contains: inputs.ticket_label }}"
     steps:
+      # Jira Cloud REST v3 JQL search. v2 /search is deprecated; v3 uses
+      # /search/jql with POST body. Returns issues + nextPageToken.
       - name: search_existing_tickets
         type: http
         with:
-          url: "https://CHANGEME-jira.atlassian.net/rest/api/2/search"
-          method: GET
-          query:
-            jql: "labels = {{ inputs.ticket_label }}"
+          url: "{{ consts.jira_base_url }}/rest/api/3/search/jql"
+          method: POST
+          headers:
+            Authorization: "{{ consts.jira_auth_header }}"
+            Content-Type: "application/json"
+            Accept: "application/json"
+          body:
+            jql: "labels = \"{{ inputs.ticket_label }}\""
+            maxResults: 100
+            fields:
+              - "summary"
+              - "status"
+              - "created"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       # Original playbook checks for an existing "case" container with the
@@ -70,12 +88,12 @@ steps:
       # describes which branch ran.
       - name: promote_or_merge
         type: if
-        condition: "${{ steps.search_existing_tickets.output.total | default: 0 }} > 0"
+        condition: "${{ steps.search_existing_tickets.output.issues | size | default: 0 }} > 1"
         steps:
           - name: log_merge_existing
             type: console
             with:
-              message: "Existing parent case found among {{ steps.search_existing_tickets.output.total }} matching tickets — would merge this ticket into it."
+              message: "Existing parent case found among {{ steps.search_existing_tickets.output.issues | size }} matching tickets — would merge this ticket into it."
         else:
           - name: log_promote_to_case
             type: console
@@ -94,6 +112,9 @@ steps:
             ip_hostname: "{{ inputs.target_host }}"
             command: "cat /etc/redhat-release"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: is_centos7
@@ -113,6 +134,9 @@ steps:
                 ip_hostname: "{{ inputs.target_host }}"
                 command: "/usr/bin/last -a"
             on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
               continue: true
 
           - name: list_open_ports
@@ -127,6 +151,9 @@ steps:
                 ip_hostname: "{{ inputs.target_host }}"
                 command: "/usr/sbin/ss -tunapl"
             on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
               continue: true
 
           # Build Jira-style markup tables for the comments.

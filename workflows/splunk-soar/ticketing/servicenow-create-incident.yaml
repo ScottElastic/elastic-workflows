@@ -4,10 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "ServiceNow — Create Incident"
 description: >
-  Creates a ServiceNow incident populated from upstream alert context.
-  Title is taken from the alert/case name; description from the alert
-  details. Optionally stores the returned incident number back into a
-  Kibana case as a linkage record.
+  Creates a ServiceNow incident from inbound alert context using the native
+  servicenow connector (`pushToService` → ServiceNow Table API POST
+  `/api/now/table/incident`). Title and description default to the alert's
+  rule name and reason but can be overridden. If `kibana_case_id` is set,
+  the returned SNOW incident number is posted as a comment on that case.
 enabled: true
 tags: ["splunk-soar", "ticketing", "servicenow", "translated"]
 
@@ -60,7 +61,7 @@ steps:
           impact: "2"
     on-failure:
       retry:
-        max-attempts: 2
+        max-attempts: 3
         delay: "5s"
 
   - name: log_incident_number

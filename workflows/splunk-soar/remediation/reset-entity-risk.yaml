@@ -4,11 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Splunk ES — Reset Entity Risk"
 description: >
-  Counteracts accumulated entity risk in Splunk Enterprise Security by
-  posting negating risk events. Collects contributing risk rules that have
-  not yet been reset, captures a reason from the operator (input), and
-  writes inverse risk_score entries to the risk index so the entity's
-  total drops back to zero.
+  Negates accumulated entity risk in Splunk Enterprise Security. For
+  every contributing risk_events entry on each provided risk rule,
+  writes an inverse risk_score event into the Splunk `risk` index via
+  the HTTP Event Collector. The original event's per-event score is
+  divided out and posted as a negative, along with reset_reason and
+  owner metadata so the negation is auditable. Use after a notable is
+  determined to be a false positive.
 enabled: true
 tags: ["splunk-soar", "remediation", "splunk-es", "risk-score", "translated"]
 

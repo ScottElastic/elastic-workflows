@@ -4,10 +4,15 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Risk Notable — Block Indicators"
 description: >
-  For a Splunk ES risk notable, finds indicators flagged "marked_for_block"
-  (but not already "blocked" or "safe"), matches them against available
-  block-capable child workflows by indicator type, dispatches the matching
-  block workflows, then waits and emits a summary table.
+  Dispatches block-capable child workflows for indicators on a Splunk
+  ES risk notable. Takes a caller-pre-filtered list of indicators
+  tagged "marked_for_block" plus an array of available block workflows
+  (each with an input_spec declaring which CEF types it handles). The
+  child workflow is responsible for picking matching indicators from
+  the candidate set. Each launch retries on transient errors; persistent
+  failures fail loud since indicator blocks are destructive.
+  Operator wiring: every entry in inputs.block_workflows.full_name must
+  resolve through `/api/workflows/{name}/run`.
 enabled: true
 tags: ["splunk-soar", "remediation", "splunk-es", "risk-notable", "indicator-block", "translated"]
 
@@ -63,11 +68,12 @@ steps:
               # indicators matching each declared contains type.
               candidate_indicators: ${{ inputs.marked_indicators }}
               input_spec: ${{ item.input_spec }}
+        # Block dispatch is destructive — retry transient errors then
+        # fail loud.
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "5s"
-          continue: true
 
   - name: build_summary
     type: data.set

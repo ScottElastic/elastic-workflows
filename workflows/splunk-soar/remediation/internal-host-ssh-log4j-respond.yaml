@@ -4,11 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Log4j — SSH Host Respond"
 description: >
-  Linux/Unix responder for suspected Log4Shell (CVE-2021-44228) exposure.
-  For each provided host and candidate file path, runs a remote shell
-  check, asks an operator to approve deletion of the files that exist,
-  removes them, and optionally restricts outbound traffic or shuts the
-  host down (operator-selected).
+  Destructive Log4Shell (CVE-2021-44228) responder for Linux/Unix
+  hosts. For each host + parallel file_path, probes whether the file
+  exists, removes it when found via SSH, then optionally applies a
+  containment_action: outbound iptables DROP, immediate shutdown,
+  both, or nothing. The probe step is forgiving (retry+continue), the
+  removal and containment steps are fail-loud so the operator sees
+  rm/shutdown failures rather than silent skips.
 enabled: true
 tags: ["splunk-soar", "remediation", "log4j", "cve-2021-44228", "ssh", "translated"]
 
@@ -73,6 +75,7 @@ steps:
             type: if
             condition: '{{ steps.probe_file.output.output | strip | downcase }} == "true"'
             steps:
+              # Destructive — fail loud on rm failure.
               - name: remove_file
                 type: http
                 with:
@@ -88,7 +91,6 @@ steps:
                   retry:
                     max-attempts: 2
                     delay: "3s"
-                  continue: true
 
               - name: log_removal
                 type: console
@@ -109,6 +111,7 @@ steps:
         type: if
         condition: '{{ inputs.containment_action }} == "Restrict Outbound Traffic"'
         steps:
+          # Destructive (host containment) — fail loud.
           - name: iptables_drop
             type: http
             with:
@@ -120,12 +123,15 @@ steps:
                 ip_hostname: "{{ item }}"
                 command: "sudo -S iptables -I OUTPUT -p all 0.0.0.0/0 -j DROP SPLUNK_SOAR_BLOCK"
             on-failure:
-              continue: true
+              retry:
+                max-attempts: 2
+                delay: "3s"
 
       - name: shutdown_host
         type: if
         condition: '{{ inputs.containment_action }} == "Shutdown"'
         steps:
+          # Destructive — fail loud.
           - name: shutdown_now
             type: http
             with:
@@ -137,12 +143,15 @@ steps:
                 ip_hostname: "{{ item }}"
                 command: "shutdown now"
             on-failure:
-              continue: true
+              retry:
+                max-attempts: 2
+                delay: "3s"
 
       - name: block_and_shutdown
         type: if
         condition: '{{ inputs.containment_action }} == "Restrict Outbound Traffic and Shutdown"'
         steps:
+          # Destructive — fail loud.
           - name: drop_then_shutdown
             type: http
             with:
@@ -154,7 +163,9 @@ steps:
                 ip_hostname: "{{ item }}"
                 command: "sudo -S iptables -I OUTPUT -p all 0.0.0.0/0 -j DROP SPLUNK_SOAR_BLOCK && shutdown now"
             on-failure:
-              continue: true
+              retry:
+                max-attempts: 2
+                delay: "3s"
 
   - name: summary_note
     type: console

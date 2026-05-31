@@ -4,11 +4,15 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Risk Notable — Indicator Enrichment Dispatcher"
 description: >
-  Discovers the indicator types present on a risk notable case and
-  delegates enrichment to the matching investigative child workflows.
-  Each child workflow is invoked with the indicator values that match its
-  expected input type, the parent waits for them to finish, and the
-  collected notes are returned.
+  Type-based enrichment router. For every indicator in inputs.indicators
+  (each {cef_value, data_types[]}), walks the indicator's data_types
+  and POSTs to /api/workflows/{id}/run for the workflow mapped to each
+  type in consts.investigate_workflows (ip, domain, url, hash, user).
+  Indicators with unmapped types are skipped. The child workflows are
+  expected to handle their own enrichment caching and return
+  note_title / note_content.
+  Operator wiring: each entry under consts.investigate_workflows must
+  be the workflow id of an imported investigate workflow.
 enabled: true
 tags: ["splunk-soar", "threat-intel", "risk-notable", "dispatcher", "translated"]
 
@@ -78,6 +82,9 @@ steps:
             condition: "{{ steps.resolve_target_workflow.output.workflow_id | size }} > 0"
             steps:
               # TODO: replace with a native sub-workflow invocation when supported.
+              # Enrichment lookups — retry transient errors, continue on
+              # hard failure so the dispatcher keeps walking the indicator
+              # list. Downstream consumers should default missing notes.
               - name: invoke_workflow
                 type: http
                 with:
@@ -91,6 +98,9 @@ steps:
                       indicator: "{{ steps.extract_value_and_types.output.value }}"
                       indicator_type: "{{ item }}"
                 on-failure:
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
                   continue: true
 
               - name: log_dispatch

@@ -4,11 +4,14 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Risk Notable — Mitigate"
 description: >
-  Second-phase mitigation workflow for a Splunk ES risk notable. Calls the
-  review-indicators sub-workflow, then (when indicators are flagged
-  marked_for_block) the block-indicators sub-workflow, then the
-  protect-assets-and-users sub-workflow. Per-stage notes are added as case
-  comments rather than rendered via the SOAR workbook system.
+  Second-phase mitigation orchestrator for a Splunk ES risk notable.
+  Sequential chain of three child workflows via /api/workflows/{id}/run:
+  (1) review-indicators, (2) block-indicators when the review returns
+  any marked_for_block_count > 0, (3) protect-assets-and-users. Each
+  stage records a case comment with the child's note_title/note_content.
+  Operator wiring: the three workflow ids default to slugs that match
+  the sibling files in this repo — change them to match the deployment's
+  workflow uuids if your environment doesn't resolve by name.
 enabled: true
 tags: ["splunk-soar", "remediation", "splunk-es", "risk-notable", "mitigate", "translated"]
 
@@ -46,12 +49,17 @@ steps:
       body:
         inputs: {}
     on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: have_review_result
     type: if
     condition: "{{ steps.run_review.output.marked_for_block_count | default: 0 }} > 0"
     steps:
+      # Block stage is destructive — retry on Kibana transient errors
+      # then fail loud.
       - name: run_block
         type: kibana.request
         with:
@@ -61,7 +69,9 @@ steps:
             inputs:
               indicators: '${{ steps.run_review.output.marked_indicators | default: [] }}'
         on-failure:
-          continue: true
+          retry:
+            max-attempts: 3
+            delay: "5s"
 
       - name: comment_after_block
         type: if
@@ -76,6 +86,8 @@ steps:
                 title={{ steps.run_block.output.note_title | default: 'block result' }}
                 content={{ steps.run_block.output.note_content | default: 'see workflow output' }}
 
+  # Protect-assets-and-users adjusts identity/asset state — retry then
+  # fail loud rather than silently swallow.
   - name: run_protect
     type: kibana.request
     with:
@@ -84,7 +96,9 @@ steps:
       body:
         inputs: {}
     on-failure:
-      continue: true
+      retry:
+        max-attempts: 3
+        delay: "5s"
 
   - name: comment_after_protect
     type: if

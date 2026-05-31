@@ -4,12 +4,14 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Splunk Risk Notable — Manual Merge Events"
 description: >
-  Interactive companion to the auto-merge workflow. Searches Elastic
-  for events sharing the current notable's risk_object/threat_object
-  values over the last 30 days, asks the analyst (via a prompt-style
-  message) whether to merge them all, merge selected events, or skip,
-  then merges the chosen events into the current case and updates the
-  Splunk notable with a comment pointing at the parent case.
+  Interactive merge companion to risk-notable-auto-merge. Searches the
+  Elastic alerts index for events sharing the current notable's
+  risk_object or threat_object values over the past 30 days, then —
+  based on the merge_decision input ("Merge All", "Merge Individually",
+  "Do Nothing") — records each merge as a case comment and pushes a
+  back-reference into the originating Splunk notable. Inputs cover the
+  current case, risk/threat objects, and any analyst-selected container
+  ids when merging individually.
 enabled: true
 tags: ["splunk-soar", "investigation", "splunk", "risk-notable", "merge", "translated"]
 
@@ -156,14 +158,23 @@ steps:
               continue: true
 
       # Push notable update back to Splunk regardless of branch.
+      # Splunk Enterprise Security exposes notable updates via the REST
+      # `notable_update` service; the bearer token is a Splunk session
+      # token or saved API key.
       - name: update_splunk_notable
         type: http
         with:
           url: "{{ consts.splunk_endpoint }}/services/notable_update"
           method: POST
+          headers:
+            Authorization: "Bearer CHANGEME_SPLUNK_TOKEN"
+            Content-Type: "application/x-www-form-urlencoded"
           body:
             comment: "Case {{ inputs.container_id }} - merge decision: {{ inputs.merge_decision }}"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
     else:
       - name: no_related_events_note

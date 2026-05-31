@@ -4,11 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Risk Notable — Auto Undo Containment"
 description: >
-  Reverses earlier auto-containment for a Splunk ES risk notable.
-  Collects indicators tagged with "contained" alongside "known_asset" or
-  "known_identity", and dispatches asset- and identity-undo-containment
-  workflows in parallel. Then updates any Splunk notable event_id with a
-  revert summary.
+  Reverses a prior auto-containment on a Splunk ES risk notable. Splits
+  the provided contained_indicators into known-asset and known-identity
+  buckets (those still tagged "contained"), then invokes the asset- and
+  identity-undo workflows in parallel through the Kibana workflows API.
+  Splunk notable event_ids receive a revert note via notable_update.
+  Operator wiring: asset_undo_workflow_id and identity_undo_workflow_id
+  must point at imported workflow ids.
 enabled: true
 tags: ["splunk-soar", "remediation", "splunk-es", "risk-notable", "undo-containment", "translated"]
 
@@ -51,6 +53,8 @@ steps:
     type: if
     condition: "{{ steps.partition_indicators.output.asset_indicators | size }} > 0"
     steps:
+      # Undo-containment touches network/identity controls — retry then
+      # fail loud if Kibana cannot reach the child workflow.
       - name: dispatch_asset_undo
         type: kibana.request
         with:
@@ -60,7 +64,9 @@ steps:
             inputs:
               indicators: ${{ steps.partition_indicators.output.asset_indicators }}
         on-failure:
-          continue: true
+          retry:
+            max-attempts: 3
+            delay: "5s"
 
   - name: have_identity
     type: if
@@ -75,7 +81,9 @@ steps:
             inputs:
               indicators: ${{ steps.partition_indicators.output.identity_indicators }}
         on-failure:
-          continue: true
+          retry:
+            max-attempts: 3
+            delay: "5s"
 
   - name: build_summary_note
     type: data.set

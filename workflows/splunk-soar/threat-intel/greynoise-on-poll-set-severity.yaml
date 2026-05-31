@@ -4,9 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "GreyNoise — Set Severity From Classification"
 description: >
-  Reads the classification field captured during GreyNoise on-poll ingest
-  and assigns high severity when the IP is classified as malicious. All
-  other classifications fall through to low severity.
+  Tiny severity classifier for alerts ingested via the GreyNoise on-poll
+  feed. Reads the classification (from inputs or
+  event.alerts[0].threat.indicator.classification): "malicious" maps to
+  severity high, everything else (benign, unknown, no value) falls
+  through to low. Persists the new severity to the alert when alert_id
+  is supplied.
 enabled: true
 tags: ["splunk-soar", "threat-intel", "greynoise", "severity", "translated"]
 

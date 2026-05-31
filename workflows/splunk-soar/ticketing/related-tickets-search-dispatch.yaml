@@ -4,10 +4,15 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Related Tickets — Search Dispatch"
 description: >
-  Inspects incoming artifacts/indicators, and when present dispatches each
-  to the appropriate "related tickets" sub-workflow (ServiceNow, Jira,
-  Splunk Notable). Aggregates the per-ticket observables into a single
-  markdown summary and posts it as a note onto the originating case/task.
+  Cross-ticketing-platform related-tickets search dispatcher. When the
+  triggering alert has artifacts or related users, launches the
+  servicenow-, jira-, and splunk-notable-related-tickets-search
+  sibling workflows in parallel through /api/workflows/{id}/run.
+  Concatenates each child's markdown_report into a single comment on
+  inputs.container_id (when supplied). Lookups are enrichment-side
+  (retry+continue) so a single ticket-system outage doesn't block the
+  others.
+  Operator wiring: each sibling workflow id must resolve in this Kibana.
 enabled: true
 tags: ["splunk-soar", "ticketing", "dispatch", "related-tickets", "translated"]
 
@@ -58,6 +63,9 @@ steps:
             inputs:
               search_terms: ${{ steps.derive_search_terms.output.terms }}
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: dispatch_jira
@@ -69,6 +77,9 @@ steps:
             inputs:
               search_terms: ${{ steps.derive_search_terms.output.terms }}
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: dispatch_splunk
@@ -80,6 +91,9 @@ steps:
             inputs:
               search_terms: ${{ steps.derive_search_terms.output.terms }}
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: combine_observables

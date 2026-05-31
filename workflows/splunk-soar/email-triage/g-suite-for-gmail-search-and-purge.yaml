@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "GSuite Gmail — Search and Purge"
 description: >
-  Locates a message across Gmail mailboxes by Internet Message ID,
-  prompts an analyst to confirm deletion, then hard-deletes each
-  matching message. Captures a summary of every mailbox the message
-  was removed from. Pairs an identifier-analysis stage with an
-  eviction stage; without analyst approval the eviction is skipped.
+  Locates a message across all Gmail mailboxes in a Google Workspace
+  tenant by RFC-822 Internet Message-ID and hard-deletes every copy.
+  Enumerates users via the Admin SDK, runs messages.list with the
+  rfc822msgid: search operator per mailbox, then deletes each match.
+  Requires auto_approve=true to actually delete; otherwise stops at
+  the audit stage. Maps to D3FEND EmailRemoval.
 enabled: true
 tags: ["splunk-soar", "email-triage", "search-and-purge", "gmail", "gsuite", "translated"]
 
@@ -24,14 +25,19 @@ inputs:
   - name: auto_approve
     type: boolean
     required: false
+    default: false
     description: "When true, skip the analyst confirmation and proceed directly to deletion."
 
 consts:
-  # Replace with your G Suite admin OAuth credential / proxy endpoint.
-  gsuite_endpoint: "https://gmail.googleapis.com/gmail/v1/users"
-  gsuite_auth_header: "Bearer CHANGEME_TOKEN"
-  # Internal search service that maps an Internet-Message-ID to recipient mailboxes.
-  message_search_endpoint: "https://CHANGEME-mail-search.internal/api/find-recipients"
+  # Gmail API + Google Workspace Admin SDK Directory API. Domain-wide
+  # delegation is required so the service account can impersonate each
+  # mailbox owner ('sub' claim). Scopes:
+  #   - https://www.googleapis.com/auth/admin.directory.user.readonly
+  #   - https://www.googleapis.com/auth/gmail.modify
+  gmail_base: "https://gmail.googleapis.com/gmail/v1/users"
+  admin_base: "https://admin.googleapis.com/admin/directory/v1"
+  gmail_auth_header: "Bearer CHANGEME_TOKEN"
+  max_mailboxes: 500
 
 steps:
   - name: validate_input
@@ -43,27 +49,68 @@ steps:
         with:
           message: "No Internet Message ID supplied — nothing to search."
 
-  # Stand-in for the Message Identifier Activity Analysis sub-playbook,
-  # which inspects audit logs for every mailbox containing the message.
-  - name: locate_recipients
+  # Admin SDK: GET /admin/directory/v1/users
+  # https://developers.google.com/admin-sdk/directory/reference/rest/v1/users/list
+  # customer=my_customer returns users for the tenant of the calling user.
+  - name: list_mailboxes
     type: http
     with:
-      url: "{{ consts.message_search_endpoint }}"
-      method: POST
+      url: "{{ consts.admin_base }}/users"
+      method: GET
       headers:
-        Authorization: "{{ consts.gsuite_auth_header }}"
-        Content-Type: "application/json"
-      body:
-        message_id: "{{ inputs.internet_message_id }}"
+        Authorization: "{{ consts.gmail_auth_header }}"
+        Accept: "application/json"
+      query:
+        customer: "my_customer"
+        maxResults: "{{ consts.max_mailboxes }}"
+        projection: "basic"
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
+        max-attempts: 3
+        delay: "5s"
       continue: true
+
+  # Locate matches in each mailbox.
+  - name: locate_recipients
+    type: foreach
+    with:
+      items: "${{ steps.list_mailboxes.output.users | default: [] }}"
+    steps:
+      # Gmail API: GET /gmail/v1/users/{email}/messages?q=rfc822msgid:{id}
+      # https://developers.google.com/gmail/api/reference/rest/v1/users.messages/list
+      - name: search_mailbox
+        type: http
+        with:
+          url: "{{ consts.gmail_base }}/{{ item.primaryEmail }}/messages"
+          method: GET
+          headers:
+            Authorization: "{{ consts.gmail_auth_header }}"
+            Accept: "application/json"
+          query:
+            q: "rfc822msgid:{{ inputs.internet_message_id }}"
+            includeSpamTrash: "true"
+            maxResults: "10"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: hit_found
+        type: if
+        condition: "{{ steps.search_mailbox.output.messages | size }} > 0"
+        steps:
+          - name: record_target
+            type: data.set
+            with:
+              target:
+                recipient: "{{ item.primaryEmail }}"
+                gmail_id: "{{ steps.search_mailbox.output.messages[0].id }}"
+                thread_id: "{{ steps.search_mailbox.output.messages[0].threadId | default: '' }}"
 
   - name: check_recipients_found
     type: if
-    condition: "{{ steps.locate_recipients.output.recipients | size }} == 0"
+    condition: "{{ steps.locate_recipients.output | size }} == 0"
     steps:
       - name: log_no_recipients
         type: console
@@ -75,8 +122,8 @@ steps:
         with:
           summary:
             message_id: "{{ inputs.internet_message_id }}"
-            mailbox_count: "{{ steps.locate_recipients.output.recipients | size }}"
-            mailboxes: "{{ steps.locate_recipients.output.recipients }}"
+            mailbox_count: "{{ steps.locate_recipients.output | size }}"
+            mailboxes: "${{ steps.locate_recipients.output }}"
 
       - name: log_pending_purge
         type: console
@@ -85,8 +132,8 @@ steps:
             Found {{ steps.summarize_targets.output.summary.mailbox_count }} mailbox(es).
             Hard delete will be permanent and non-recoverable.
 
-      # Manual confirmation gate. The original playbook used phantom.prompt2.
-      # TODO: wire to a Kibana case approval or a webhook prompt connector.
+      # Analyst confirmation gate. Operator must set auto_approve=true to
+      # execute. In production wire to a Kibana case approval or webhook prompt.
       - name: confirm_or_auto
         type: if
         condition: "{{ inputs.auto_approve }} == true"
@@ -94,20 +141,21 @@ steps:
           - name: purge_each_mailbox
             type: foreach
             with:
-              items: ${{ steps.locate_recipients.output.recipients }}
+              items: "${{ steps.locate_recipients.output }}"
             steps:
+              # Gmail API: DELETE /gmail/v1/users/{email}/messages/{id}
+              # Hard delete — bypasses Trash. Returns 204.
               - name: delete_message
                 type: http
                 with:
-                  url: "{{ consts.gsuite_endpoint }}/{{ item.recipient }}/messages/{{ item.gmail_id }}"
+                  url: "{{ consts.gmail_base }}/{{ item.target.recipient }}/messages/{{ item.target.gmail_id }}"
                   method: DELETE
                   headers:
-                    Authorization: "{{ consts.gsuite_auth_header }}"
+                    Authorization: "{{ consts.gmail_auth_header }}"
                 on-failure:
                   retry:
-                    max-attempts: 2
-                    delay: "3s"
-                  continue: true
+                    max-attempts: 3
+                    delay: "5s"
 
               - name: record_observable
                 type: data.set
@@ -115,14 +163,16 @@ steps:
                   observable:
                     type: "Gmail message ID"
                     source: "GSuite for Gmail"
-                    mailbox: "{{ item.recipient }}"
-                    message_id: "{{ item.gmail_id }}"
+                    mailbox: "{{ item.target.recipient }}"
+                    message_id: "{{ item.target.gmail_id }}"
+                    internet_message_id: "{{ inputs.internet_message_id }}"
+                    action: "hard-deleted"
                     status: "{{ steps.delete_message.output.status | default: 'unknown' }}"
 
               - name: log_purge_result
                 type: console
                 with:
-                  message: "Purged {{ item.gmail_id }} from {{ item.recipient }}: {{ steps.delete_message.output.status | default: 'unknown' }}"
+                  message: "Purged {{ item.target.gmail_id }} from {{ item.target.recipient }}: {{ steps.delete_message.output.status | default: 'unknown' }}"
         else:
           - name: log_awaiting_approval
             type: console

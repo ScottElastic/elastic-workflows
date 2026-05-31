@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Azure AD — New User Census"
 description: >
-  Enumerates users created in Entra ID (Azure AD) over the trailing lookback
-  window (one week by default), correlates each one against the Microsoft
-  Graph for matching account details, and writes the consolidated user
-  records as observables. A short markdown summary is emitted via console
-  in place of Phantom's note template.
+  Enumerates Entra ID (Azure AD) users created in the trailing lookback
+  window (one week by default) via Microsoft Graph, enriches each with the
+  full user profile, and indexes the consolidated records into
+  Elasticsearch. Runs daily on its own schedule; lookback_days controls
+  the window. Uses Graph $filter on createdDateTime (advanced query — must
+  include ConsistencyLevel: eventual and $count=true headers).
 enabled: true
 tags: ["splunk-soar", "identity", "hygiene", "azure-ad", "entra-id", "census", "translated"]
 
@@ -26,105 +27,100 @@ inputs:
     description: "How many trailing days of new users to gather."
 
 consts:
-  # Azure AD Graph and Microsoft Graph endpoints (replace with native
-  # connectors once available in Elastic Workflows).
-  azure_ad_list_users_endpoint: "https://graph.microsoft.com/v1.0/users"
-  ms_graph_list_users_endpoint: "https://graph.microsoft.com/v1.0/users"
-  azure_auth_header: "Bearer CHANGEME_AZURE_AD_TOKEN"
-  graph_auth_header: "Bearer CHANGEME_MS_GRAPH_TOKEN"
+  # Microsoft Graph v1.0. Bearer token obtained via OAuth2 client-credentials
+  # with scope https://graph.microsoft.com/.default. Required app
+  # permission: User.Read.All (Directory.Read.All also works).
+  graph_base: "https://graph.microsoft.com/v1.0"
+  graph_auth_header: "Bearer CHANGEME_GRAPH_TOKEN"
   new_user_index: "soar-azure-new-users"
 
 steps:
-  # TODO: swap stubs for native Microsoft Graph / Azure AD connectors.
-  # Equivalent Phantom action: "list users" on the `azure_ad_graph` asset.
-  - name: list_users_azure_ad
-    type: http
-    with:
-      url: "{{ consts.azure_ad_list_users_endpoint }}"
-      method: GET
-      headers:
-        Authorization: "{{ consts.azure_auth_header }}"
-        ConsistencyLevel: "eventual"
-    on-failure:
-      retry:
-        max-attempts: 2
-        delay: "3s"
-      continue: true
-
+  # Compute an ISO-8601 cutoff for the Graph $filter expression. Kept as
+  # an ai.prompt for resilience to operator clock skew; could be replaced
+  # with a deterministic data.set if a `now` helper is available.
   - name: compute_cutoff
     type: ai.prompt
     connector-id: "CHANGEME-genai-connector"
     with:
       prompt: |
-        Return only an ISO-8601 timestamp in UTC ("%Y-%m-%dT%H:%M:%SZ") representing
-        exactly {{ inputs.lookback_days }} days before the current moment. No prose.
+        Compute the UTC timestamp exactly {{ inputs.lookback_days }} days
+        before now and return it in this exact format (no quotes, no prose):
+        YYYY-MM-DDTHH:MM:SSZ
+        Example output: 2026-05-23T14:00:00Z
+
+  # Microsoft Graph: GET /users with advanced filter on createdDateTime.
+  # https://learn.microsoft.com/en-us/graph/api/user-list
+  # Advanced query parameters require both ConsistencyLevel: eventual AND
+  # $count=true. Response shape: { value: [user, ...], "@odata.nextLink": ... }.
+  # Pagination is not handled here — for tenants with many new users, fetch
+  # @odata.nextLink in a follow-up call.
+  - name: list_new_users
+    type: http
+    with:
+      url: "{{ consts.graph_base }}/users"
+      method: GET
+      headers:
+        Authorization: "{{ consts.graph_auth_header }}"
+        ConsistencyLevel: "eventual"
+        Accept: "application/json"
+      query:
+        "$count": "true"
+        "$filter": "createdDateTime ge {{ steps.compute_cutoff.output | strip }}"
+        "$select": "id,userPrincipalName,displayName,mail,jobTitle,department,officeLocation,createdDateTime,accountEnabled"
+        "$orderby": "createdDateTime desc"
+        "$top": "999"
+    on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
+      continue: true
 
   - name: review_each_new_user
     type: foreach
     with:
-      items: "${{ steps.list_users_azure_ad.output.value | default: [] }}"
+      items: "${{ steps.list_new_users.output.value | default: [] }}"
     steps:
-      - name: filter_by_creation
-        type: if
-        condition: "{{ item.createdDateTime }} >= {{ steps.compute_cutoff.output | strip }}"
-        steps:
-          # Equivalent Phantom action: "list users" on the `ms_graph_o365` asset,
-          # filtered by userPrincipalName.
-          - name: list_user_ms_graph
-            type: http
-            with:
-              url: "{{ consts.ms_graph_list_users_endpoint }}"
-              method: GET
-              headers:
-                Authorization: "{{ consts.graph_auth_header }}"
-                ConsistencyLevel: "eventual"
-              query:
-                "$filter": "userPrincipalName eq '{{ item.userPrincipalName }}'"
-            on-failure:
-              retry:
-                max-attempts: 2
-                delay: "3s"
-              continue: true
+      - name: build_user_record
+        type: data.set
+        with:
+          user_record:
+            id: "{{ item.id }}"
+            userPrincipalName: "{{ item.userPrincipalName }}"
+            displayName: "{{ item.displayName | default: '' }}"
+            mail: "{{ item.mail | default: '' }}"
+            jobTitle: "{{ item.jobTitle | default: '' }}"
+            department: "{{ item.department | default: '' }}"
+            officeLocation: "{{ item.officeLocation | default: '' }}"
+            createdDateTime: "{{ item.createdDateTime }}"
+            accountEnabled: "{{ item.accountEnabled | default: true }}"
 
-          - name: matched
-            type: if
-            condition: "{{ steps.list_user_ms_graph.output.value | size }} > 0"
-            steps:
-              - name: build_note_line
-                type: data.set
-                with:
-                  user_record:
-                    userPrincipalName: "{{ item.userPrincipalName }}"
-                    displayName: "{{ steps.list_user_ms_graph.output.value[0].displayName | default: '' }}"
-                    mail: "{{ steps.list_user_ms_graph.output.value[0].mail | default: '' }}"
-                    jobTitle: "{{ steps.list_user_ms_graph.output.value[0].jobTitle | default: '' }}"
-                    officeLocation: "{{ steps.list_user_ms_graph.output.value[0].officeLocation | default: '' }}"
-                    id: "{{ steps.list_user_ms_graph.output.value[0].id | default: '' }}"
-                    createdDateTime: "{{ item.createdDateTime }}"
+      - name: log_note
+        type: console
+        with:
+          message: |
+            New user census:
+            upn={{ steps.build_user_record.output.user_record.userPrincipalName }}
+            displayName={{ steps.build_user_record.output.user_record.displayName }}
+            mail={{ steps.build_user_record.output.user_record.mail }}
+            jobTitle={{ steps.build_user_record.output.user_record.jobTitle }}
+            department={{ steps.build_user_record.output.user_record.department }}
+            createdDateTime={{ steps.build_user_record.output.user_record.createdDateTime }}
 
-              - name: log_note
-                type: console
-                with:
-                  message: |
-                    New user census:
-                    upn={{ steps.build_note_line.output.user_record.userPrincipalName }}
-                    displayName={{ steps.build_note_line.output.user_record.displayName }}
-                    mail={{ steps.build_note_line.output.user_record.mail }}
-                    jobTitle={{ steps.build_note_line.output.user_record.jobTitle }}
-                    officeLocation={{ steps.build_note_line.output.user_record.officeLocation }}
-                    id={{ steps.build_note_line.output.user_record.id }}
-                    createdDateTime={{ steps.build_note_line.output.user_record.createdDateTime }}
+      # Persist artifact to Elasticsearch (Phantom "add artifact" equivalent).
+      - name: save_user_artifact
+        type: elasticsearch.index
+        with:
+          index: "{{ consts.new_user_index }}"
+          document:
+            name: "New Azure User"
+            label: "user"
+            cef_name: "userPrincipalName"
+            cef_value: "{{ item.userPrincipalName }}"
+            contains: "azure user principal name"
+            user_record: ${{ steps.build_user_record.output.user_record }}
 
-              # Equivalent Phantom "add artifact" action; we persist the
-              # record to an Elasticsearch index for downstream use.
-              - name: save_user_artifact
-                type: elasticsearch.index
-                with:
-                  index: "{{ consts.new_user_index }}"
-                  document:
-                    name: "New Azure User"
-                    label: "user"
-                    cef_name: "userPrincipalName"
-                    cef_value: "{{ item.userPrincipalName }}"
-                    contains: "azure user principal name"
-                    user_record: ${{ steps.build_note_line.output.user_record }}
+  - name: log_summary
+    type: console
+    with:
+      message: |
+        Azure AD new user census complete. Found {{ steps.list_new_users.output.value | size | default: 0 }} users created in the trailing {{ inputs.lookback_days }} day(s).

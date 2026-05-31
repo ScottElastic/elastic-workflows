@@ -4,10 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Microsoft Defender for Endpoint — Network Isolation"
 description: >
-  Network-isolates a device managed by Microsoft Defender for Endpoint.
-  Takes a uid (device id or hostname), validates the input, calls the
-  Defender ATP isolate-machine endpoint, and emits a host observable
-  for downstream automation. Maps to MITRE D3FEND d3f:NetworkIsolation.
+  Network-isolates a device managed by Microsoft Defender for Endpoint via
+  POST /api/machines/{id}/isolate. uid must be the Defender machineId
+  (not hostname) — use the Defender devices endpoint to resolve names if
+  needed. Records a host observable with the action id returned by
+  Defender so callers can poll for completion. Maps to MITRE D3FEND
+  d3f:NetworkIsolation.
 enabled: true
 tags: ["splunk-soar", "endpoint-response", "microsoft-defender", "network-isolation", "translated"]
 
@@ -18,11 +20,11 @@ inputs:
   - name: uid
     type: string
     required: true
-    description: "Defender ATP machine id or hostname."
+    description: "Defender for Endpoint machineId (GUID/hash form, not hostname)."
   - name: isolation_type
     type: string
     required: false
-    description: "Defender isolation strength (Full or Selective)."
+    description: "Defender isolation strength. Allowed: Full, Selective, UnManagedDevice."
     default: "Full"
   - name: comment
     type: string
@@ -31,11 +33,15 @@ inputs:
     default: "Isolated by Elastic Workflow network-isolation translation"
 
 consts:
-  # Defender ATP / Microsoft 365 Defender machine actions API.
-  # Authentication is OAuth2 client-credentials against the Microsoft
-  # identity platform; supply a bearer token here.
-  defender_base_url: "https://api.securitycenter.microsoft.com"
-  defender_bearer: "Bearer CHANGEME_DEFENDER_GRAPH_TOKEN"
+  # Microsoft Defender for Endpoint (Microsoft 365 Defender unified API).
+  # NOTE: The historical api.securitycenter.microsoft.com base is being
+  # superseded by api.security.microsoft.com — both currently route to
+  # the same backend. Use the unified host going forward.
+  # Bearer token via OAuth2 client-credentials with scope
+  # https://api.securitycenter.microsoft.com/.default. Required app
+  # permission: Machine.Isolate.
+  defender_base_url: "https://api.security.microsoft.com"
+  defender_bearer: "Bearer CHANGEME_DEFENDER_TOKEN"
 
 steps:
   - name: validate_uid
@@ -45,8 +51,12 @@ steps:
       - name: log_missing
         type: console
         with:
-          message: "A device uid must be supplied to isolate."
+          message: "A Defender machineId must be supplied to isolate."
 
+  # Defender API: POST /api/machines/{id}/isolate
+  # https://learn.microsoft.com/en-us/defender-endpoint/api/isolate-machine
+  # Returns 201 Created with a MachineAction body. Rate limits: 100/min, 1500/hr.
+  # This is a destructive containment action — no continue:true.
   - name: isolate_machine
     type: http
     with:
@@ -60,7 +70,7 @@ steps:
         IsolationType: "{{ inputs.isolation_type }}"
     on-failure:
       retry:
-        max-attempts: 2
+        max-attempts: 3
         delay: "5s"
 
   - name: build_host_observable
@@ -73,7 +83,9 @@ steps:
         action: "isolated"
         isolation_type: "{{ inputs.isolation_type }}"
         defender_action_id: "{{ steps.isolate_machine.output.id | default: '' }}"
-        status: "{{ steps.isolate_machine.output.status | default: 'pending' }}"
+        machine_id: "{{ steps.isolate_machine.output.machineId | default: inputs.uid }}"
+        status: "{{ steps.isolate_machine.output.status | default: 'Pending' }}"
+        requestor_comment: "{{ inputs.comment }}"
 
   - name: log_result
     type: console
@@ -81,3 +93,4 @@ steps:
       message: |
         Defender isolation requested for {{ inputs.uid }} (type={{ inputs.isolation_type }}).
         action_id={{ steps.build_host_observable.output.observable.defender_action_id }}
+        status={{ steps.build_host_observable.output.observable.status }}

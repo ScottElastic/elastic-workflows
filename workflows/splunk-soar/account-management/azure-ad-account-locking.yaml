@@ -4,9 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Azure AD — Account Locking"
 description: >
-  Disables an Entra ID (Azure AD) user account through Microsoft Graph.
-  Validates the input, makes the Graph API call to set accountEnabled to
-  false, and records a normalized observable describing the result.
+  Disables an Entra ID (Azure AD) user account by issuing a Microsoft Graph
+  PATCH /users/{id} that flips accountEnabled to false. Input may be a UPN
+  or object id. Side effect: the user will be unable to sign in or refresh
+  tokens until re-enabled; existing sessions remain valid until tokens
+  expire (use Graph revokeSignInSessions to invalidate immediately).
 enabled: true
 tags: ["splunk-soar", "identity", "account-lock", "azure-ad", "entra-id", "translated"]
 
@@ -20,9 +22,10 @@ inputs:
     description: "Azure AD user id, UPN, or object id of the account to disable."
 
 consts:
-  # Microsoft Graph PATCH /users/{id} expects an OAuth2 access token. Replace
-  # both the endpoint base and the bearer token (or wire to a managed
-  # identity / connector when available).
+  # Microsoft Graph v1.0. Bearer token obtained via OAuth2 client-credentials
+  # against https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token with
+  # scope https://graph.microsoft.com/.default. Required app permission:
+  # User.EnableDisableAccount.All (+ User.Read.All).
   azure_graph_base: "https://graph.microsoft.com/v1.0"
   azure_graph_auth_header: "Bearer CHANGEME_TOKEN"
 
@@ -36,8 +39,9 @@ steps:
         with:
           message: "No user provided — aborting."
 
-  # TODO: switch to a native Microsoft Graph connector when one ships.
-  # Equivalent Phantom action: "disable user" on the `azure_ad_graph` asset.
+  # Microsoft Graph: PATCH /users/{id | userPrincipalName}
+  # https://learn.microsoft.com/en-us/graph/api/user-update
+  # Returns 204 No Content on success.
   - name: disable_user
     type: http
     with:
@@ -50,9 +54,8 @@ steps:
         accountEnabled: false
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
-      continue: true
+        max-attempts: 3
+        delay: "5s"
 
   - name: build_observable
     type: data.set
@@ -60,7 +63,9 @@ steps:
       observable:
         type: "Azure AD Account"
         value: "{{ inputs.user }}"
+        action: "disabled"
         status: "{{ steps.disable_user.output.status | default: 'unknown' }}"
+        http_code: "{{ steps.disable_user.output.code | default: '' }}"
         message: "{{ steps.disable_user.output.message | default: '' }}"
 
   - name: log_result
@@ -69,4 +74,5 @@ steps:
       message: |
         Disable result for {{ inputs.user }}:
         status={{ steps.build_observable.output.observable.status }}
+        http_code={{ steps.build_observable.output.observable.http_code }}
         message={{ steps.build_observable.output.observable.message }}

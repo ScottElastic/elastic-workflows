@@ -97,10 +97,19 @@ steps:
     connector-id: "CHANGEME-llm-connector"
     with:
       prompt: |
-        A possible WannaCry sighting was detected on the following IPs:
+        A possible WannaCry ransomware sighting (Vectra Cognito alert)
+        was detected on these IPs:
         {{ inputs.source_addresses | json }}
-        An outbound block has already been deployed. Should we proceed with
-        a full quarantine of these hosts via Carbon Black? Reply YES or NO.
+
+        Containment posture so far:
+          * NSX has blocked outbound traffic from each IP.
+          * vSphere snapshots have been taken for each affected VM to
+            preserve pre-encryption state.
+
+        Decide whether to proceed with a full Carbon Black quarantine
+        (severs all non-management traffic from those hosts).
+
+        Respond with exactly one word, all uppercase: YES or NO.
 
   - name: apply_quarantine
     type: if

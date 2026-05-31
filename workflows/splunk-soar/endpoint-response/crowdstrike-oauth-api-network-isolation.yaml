@@ -4,10 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "CrowdStrike — Network Isolation"
 description: >
-  Quarantines (network-contains) a CrowdStrike-managed device. Resolves
-  the device id from the supplied hostname or id, calls the host
-  containment endpoint with action_name=contain, and emits a host
-  observable describing the new state.
+  Network-contains a CrowdStrike-managed device. Takes a hostname or
+  device_id, exchanges Falcon API credentials for a short-lived OAuth2
+  bearer, resolves the device, then calls devices-actions with
+  action_name=contain. Destructive: the host will lose network
+  connectivity except for the CrowdStrike sensor channel.
 enabled: true
 tags: ["splunk-soar", "endpoint-response", "crowdstrike", "network-isolation", "quarantine", "translated"]
 
@@ -22,7 +23,8 @@ inputs:
 
 consts:
   crowdstrike_base_url: "https://api.crowdstrike.com"
-  crowdstrike_bearer: "Bearer CHANGEME_FALCON_OAUTH_TOKEN"
+  crowdstrike_client_id: "CHANGEME_FALCON_CLIENT_ID"
+  crowdstrike_client_secret: "CHANGEME_FALCON_CLIENT_SECRET"
 
 steps:
   - name: validate_device
@@ -34,20 +36,34 @@ steps:
         with:
           message: "A device must be supplied for isolation."
 
+  - name: get_token
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/oauth2/token"
+      method: POST
+      headers:
+        Content-Type: "application/x-www-form-urlencoded"
+        Accept: "application/json"
+      body: "client_id={{ consts.crowdstrike_client_id }}&client_secret={{ consts.crowdstrike_client_secret }}"
+    on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
+
   - name: query_device
     type: http
     with:
       url: "{{ consts.crowdstrike_base_url }}/devices/queries/devices/v1"
       method: GET
       headers:
-        Authorization: "{{ consts.crowdstrike_bearer }}"
+        Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
       query:
         limit: 1
         filter: "hostname:'{{ inputs.device }}',device_id:'{{ inputs.device }}'"
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: capture_device_id
@@ -61,7 +77,7 @@ steps:
       url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices-actions/v2"
       method: POST
       headers:
-        Authorization: "{{ consts.crowdstrike_bearer }}"
+        Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
         Content-Type: "application/json"
       query:
         action_name: "contain"
@@ -70,7 +86,7 @@ steps:
           - "{{ steps.capture_device_id.output.device_id }}"
     on-failure:
       retry:
-        max-attempts: 2
+        max-attempts: 3
         delay: "5s"
 
   - name: build_host_observable

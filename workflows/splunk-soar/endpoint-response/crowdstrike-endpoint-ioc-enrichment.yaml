@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "CrowdStrike — Endpoint IOC Enrichment"
 description: >
-  Multi-IOC enrichment workflow. Given an alert with any combination of
-  a file hash, URL, domain or destination IP, it hunts each across the
-  CrowdStrike fleet and pulls reputation data so an analyst gets a
-  consolidated picture before deciding on response actions. Intended
-  to feed into the quarantine-response playbook.
+  Multi-IOC enrichment for CrowdStrike. Given any combination of a file
+  hash, URL, domain or destination IP, exchanges Falcon API credentials
+  for an OAuth2 bearer, hunts each indicator across the fleet
+  (/indicators/queries/devices/v1), pulls Falcon Intel reputation, and
+  resolves device details for any hits. Intended to feed into the
+  quarantine-response workflow.
 enabled: true
 tags: ["splunk-soar", "endpoint-response", "crowdstrike", "ioc", "enrichment", "translated"]
 
@@ -40,9 +41,24 @@ inputs:
 
 consts:
   crowdstrike_base_url: "https://api.crowdstrike.com"
-  crowdstrike_bearer: "Bearer CHANGEME_FALCON_OAUTH_TOKEN"
+  crowdstrike_client_id: "CHANGEME_FALCON_CLIENT_ID"
+  crowdstrike_client_secret: "CHANGEME_FALCON_CLIENT_SECRET"
 
 steps:
+  - name: get_token
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/oauth2/token"
+      method: POST
+      headers:
+        Content-Type: "application/x-www-form-urlencoded"
+        Accept: "application/json"
+      body: "client_id={{ consts.crowdstrike_client_id }}&client_secret={{ consts.crowdstrike_client_secret }}"
+    on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
+
   - name: enrich_file_hash
     type: if
     condition: "{{ inputs.file_hash | size }} > 0"
@@ -53,14 +69,14 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/indicators/queries/devices/v1"
           method: GET
           headers:
-            Authorization: "{{ consts.crowdstrike_bearer }}"
+            Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
           query:
             type: "sha256"
             value: "{{ inputs.file_hash }}"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: file_reputation
@@ -69,7 +85,7 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/intel/entities/reports/v1"
           method: GET
           headers:
-            Authorization: "{{ consts.crowdstrike_bearer }}"
+            Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
           query:
             ids: "{{ inputs.file_hash }}"
         on-failure:
@@ -85,7 +101,7 @@ steps:
               url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices/v2"
               method: GET
               headers:
-                Authorization: "{{ consts.crowdstrike_bearer }}"
+                Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
               query:
                 ids: "${{ steps.hunt_file.output.resources }}"
             on-failure:
@@ -101,7 +117,7 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/intel/queries/indicators/v1"
           method: GET
           headers:
-            Authorization: "{{ consts.crowdstrike_bearer }}"
+            Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
           query:
             filter: "type:'url'+indicator:'{{ inputs.url }}'"
         on-failure:
@@ -117,7 +133,7 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/indicators/queries/devices/v1"
           method: GET
           headers:
-            Authorization: "{{ consts.crowdstrike_bearer }}"
+            Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
           query:
             type: "domain"
             value: "{{ inputs.domain }}"
@@ -134,7 +150,7 @@ steps:
               url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices/v2"
               method: GET
               headers:
-                Authorization: "{{ consts.crowdstrike_bearer }}"
+                Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
               query:
                 ids: "${{ steps.hunt_domain.output.resources }}"
             on-failure:
@@ -150,7 +166,7 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/indicators/queries/devices/v1"
           method: GET
           headers:
-            Authorization: "{{ consts.crowdstrike_bearer }}"
+            Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
           query:
             type: "ipv4"
             value: "{{ inputs.dst_ip }}"
@@ -167,7 +183,7 @@ steps:
               url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices/v2"
               method: GET
               headers:
-                Authorization: "{{ consts.crowdstrike_bearer }}"
+                Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
               query:
                 ids: "${{ steps.hunt_ip.output.resources }}"
             on-failure:
@@ -187,7 +203,7 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/devices/queries/devices/v1"
           method: GET
           headers:
-            Authorization: "{{ consts.crowdstrike_bearer }}"
+            Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
           query:
             limit: 1
             filter: "hostname:'{{ inputs.source_hostname }}'"

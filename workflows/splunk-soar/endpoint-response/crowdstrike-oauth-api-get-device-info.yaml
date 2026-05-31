@@ -4,10 +4,10 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "CrowdStrike — Get Device Info"
 description: >
-  Lightweight helper that resolves a CrowdStrike device identifier
-  given either a hostname or a device_id. Useful as a prelude to
-  other CrowdStrike action playbooks that need the device_id to talk
-  to the API.
+  Resolves a CrowdStrike device identifier given a hostname or
+  device_id. Acquires an OAuth2 bearer token, queries the devices index,
+  then fetches device entity details. Useful as a prelude to other
+  CrowdStrike action workflows that need a Falcon device_id.
 enabled: true
 tags: ["splunk-soar", "endpoint-response", "crowdstrike", "device-info", "helper", "translated"]
 
@@ -22,7 +22,8 @@ inputs:
 
 consts:
   crowdstrike_base_url: "https://api.crowdstrike.com"
-  crowdstrike_bearer: "Bearer CHANGEME_FALCON_OAUTH_TOKEN"
+  crowdstrike_client_id: "CHANGEME_FALCON_CLIENT_ID"
+  crowdstrike_client_secret: "CHANGEME_FALCON_CLIENT_SECRET"
 
 steps:
   - name: validate_device
@@ -34,13 +35,27 @@ steps:
         with:
           message: "Provide a hostname or device_id."
 
+  - name: get_token
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/oauth2/token"
+      method: POST
+      headers:
+        Content-Type: "application/x-www-form-urlencoded"
+        Accept: "application/json"
+      body: "client_id={{ consts.crowdstrike_client_id }}&client_secret={{ consts.crowdstrike_client_secret }}"
+    on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
+
   - name: query_device
     type: http
     with:
       url: "{{ consts.crowdstrike_base_url }}/devices/queries/devices/v1"
       method: GET
       headers:
-        Authorization: "{{ consts.crowdstrike_bearer }}"
+        Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
       query:
         limit: 1
         # Treat short opaque strings as device_ids; quoted hostnames
@@ -48,8 +63,8 @@ steps:
         filter: "hostname:'{{ inputs.device }}',device_id:'{{ inputs.device }}'"
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: fetch_details
@@ -58,13 +73,13 @@ steps:
       url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices/v2"
       method: GET
       headers:
-        Authorization: "{{ consts.crowdstrike_bearer }}"
+        Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
       query:
         ids: "${{ steps.query_device.output.resources }}"
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: build_device_observable

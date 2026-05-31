@@ -4,14 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "CrowdStrike — Endpoint Quarantine Response"
 description: >
-  Orchestrates the analyst-driven response phase after an IOC
-  enrichment run on a CrowdStrike-managed device. The workflow:
-    - Checks that a case owner is assigned (adds a note otherwise).
-    - Surfaces an AI-generated triage prompt summarizing context.
-    - Based on the analyst's three Yes/No selections, runs sub-actions:
-      deny-list executable, isolate the host, and/or evict the file.
-  Each sub-step here is an HTTP stub to the matching CrowdStrike API,
-  mirroring the dedicated translation playbooks in this directory.
+  Orchestrates the analyst-driven response phase after a CrowdStrike
+  IOC enrichment run. Checks for a case owner, exchanges Falcon API
+  credentials for an OAuth2 bearer, surfaces an AI triage prompt, and
+  based on the three boolean inputs (response_deny / response_isolate /
+  response_evict) calls the corresponding Falcon APIs: indicators,
+  devices-actions, and an RTR `rm`. Destructive when any branch fires.
 enabled: true
 tags: ["splunk-soar", "endpoint-response", "crowdstrike", "response", "translated"]
 
@@ -58,10 +56,25 @@ inputs:
 
 consts:
   crowdstrike_base_url: "https://api.crowdstrike.com"
-  crowdstrike_bearer: "Bearer CHANGEME_FALCON_OAUTH_TOKEN"
+  crowdstrike_client_id: "CHANGEME_FALCON_CLIENT_ID"
+  crowdstrike_client_secret: "CHANGEME_FALCON_CLIENT_SECRET"
   llm_connector_id: "CHANGEME-openai-connector"
 
 steps:
+  - name: get_token
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/oauth2/token"
+      method: POST
+      headers:
+        Content-Type: "application/x-www-form-urlencoded"
+        Accept: "application/json"
+      body: "client_id={{ consts.crowdstrike_client_id }}&client_secret={{ consts.crowdstrike_client_secret }}"
+    on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
+
   - name: owner_check
     type: if
     condition: "{{ inputs.case_owner | size }} == 0"
@@ -85,16 +98,22 @@ steps:
     connector-id: "{{ consts.llm_connector_id }}"
     with:
       prompt: |
-        Summarize the context for a CrowdStrike endpoint response decision
-        in 4-6 bullets. Then suggest, on a separate line each, three
-        Yes/No recommendations the analyst must confirm:
-          1) Add file to denylist?
-          2) Network-isolate the host?
-          3) Evict the file from disk?
-        Device: {{ inputs.device }}
-        File hash: {{ inputs.file_hash | default: '(none)' }}
-        File path: {{ inputs.file_path | default: '(none)' }}
-        Case id: {{ inputs.case_id | default: '(none)' }}
+        Summarize the context for an analyst about to choose CrowdStrike
+        response actions. Respond with JSON shaped as:
+        {"summary": "<4-6 bullet summary of evidence>",
+         "deny": "yes|no", "isolate": "yes|no", "evict": "yes|no",
+         "rationale": "<one sentence>"}.
+
+        Recommend deny=yes when the hash is reliably attributed to
+        malware. Recommend isolate=yes when the host shows active
+        execution or lateral indicators. Recommend evict=yes only when
+        you also recommend deny=yes AND a file path is provided.
+
+        Context:
+          device: {{ inputs.device }}
+          file_hash: {{ inputs.file_hash | default: '(none)' }}
+          file_path: {{ inputs.file_path | default: '(none)' }}
+          case_id: {{ inputs.case_id | default: '(none)' }}
     on-failure:
       continue: true
 
@@ -104,7 +123,7 @@ steps:
       url: "{{ consts.crowdstrike_base_url }}/devices/queries/devices/v1"
       method: GET
       headers:
-        Authorization: "{{ consts.crowdstrike_bearer }}"
+        Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
       query:
         limit: 1
         filter: "hostname:'{{ inputs.device }}',device_id:'{{ inputs.device }}'"
@@ -126,7 +145,7 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/iocs/entities/indicators/v1"
           method: POST
           headers:
-            Authorization: "{{ consts.crowdstrike_bearer }}"
+            Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
             Content-Type: "application/json"
           body:
             indicators:
@@ -154,7 +173,7 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices-actions/v2"
           method: POST
           headers:
-            Authorization: "{{ consts.crowdstrike_bearer }}"
+            Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
             Content-Type: "application/json"
           query:
             action_name: "contain"
@@ -177,7 +196,7 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/real-time-response/entities/sessions/v1"
           method: POST
           headers:
-            Authorization: "{{ consts.crowdstrike_bearer }}"
+            Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
             Content-Type: "application/json"
           body:
             device_id: "{{ steps.capture_device_id.output.device_id }}"
@@ -190,7 +209,7 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/real-time-response/entities/admin-command/v1"
           method: POST
           headers:
-            Authorization: "{{ consts.crowdstrike_bearer }}"
+            Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
             Content-Type: "application/json"
           body:
             base_command: "rm"
@@ -205,7 +224,7 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/real-time-response/entities/sessions/v1"
           method: DELETE
           headers:
-            Authorization: "{{ consts.crowdstrike_bearer }}"
+            Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
           query:
             session_id: "{{ steps.open_rtr_session.output.resources[0].session_id | default: '' }}"
         on-failure:

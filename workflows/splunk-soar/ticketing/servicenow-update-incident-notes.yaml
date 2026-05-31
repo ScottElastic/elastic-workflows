@@ -1,0 +1,112 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "ServiceNow — Update Incident with Investigation Notes"
+description: >
+  Designed to run at the end of a response plan. Pulls every note from
+  the Elastic Security investigation (general notes plus any response-plan
+  task notes), renders them as a single HTML block, and posts the result
+  as a comment onto the ServiceNow incident previously linked to the
+  finding via the `snow_incident` custom field.
+enabled: true
+tags: ["splunk-soar", "ticketing", "servicenow", "notes", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: finding_id
+    type: string
+    required: true
+    description: "Elastic Security finding / investigation id to pull notes from."
+
+consts:
+  servicenow_connector_id: "CHANGEME-servicenow-connector"
+  # Endpoint that exposes the finding's notes + custom_fields. In SOAR this
+  # is the Mission Control connector; swap for the appropriate API in your env.
+  finding_api_endpoint: "https://CHANGEME-finding-api.internal/api/findings"
+  finding_api_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  - name: get_finding_notes
+    type: http
+    with:
+      url: "{{ consts.finding_api_endpoint }}/{{ inputs.finding_id }}/notes"
+      method: GET
+      headers:
+        Authorization: "{{ consts.finding_api_auth_header }}"
+        Accept: "application/json"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: get_finding_metadata
+    type: http
+    with:
+      url: "{{ consts.finding_api_endpoint }}/{{ inputs.finding_id }}"
+      method: GET
+      headers:
+        Authorization: "{{ consts.finding_api_auth_header }}"
+        Accept: "application/json"
+    on-failure:
+      continue: true
+
+  - name: have_notes_and_target
+    type: if
+    condition: "{{ steps.get_finding_notes.output.data.items | size }} > 0 and {{ steps.get_finding_metadata.output.data.custom_fields.snow_incident | size }} > 0"
+    steps:
+      # Render the notes into a single HTML block. SOAR concatenates each
+      # note's content, phase name, task name, author, and create time;
+      # we approximate that with a foreach + data.set.
+      - name: render_notes_html
+        type: foreach
+        with:
+          items: ${{ steps.get_finding_notes.output.data.items }}
+        steps:
+          - name: build_note_fragment
+            type: data.set
+            with:
+              fragment: >-
+                <b>Phase</b> {{ item.response_plan_info.response_phase.name | default: '' }}
+                <br/><b>Task</b> {{ item.response_plan_info.response_task.name | default: '' }}
+                <br/><b>Author</b> {{ item.author.realname | default: '' }}
+                <br/><b>Created Time</b> {{ item.create_time | default: '' }}
+                <br/><b>Note Content</b> {{ item.content | default: '' }}
+                <br/><br/>
+
+      - name: assemble_payload
+        type: data.set
+        with:
+          comments: >-
+            [code]<h4>ES Notes</h4>
+            {{ steps.get_finding_notes.output.data.items | size }} note(s) attached. See
+            full content in the workflow execution output.
+            [/code]
+
+      - name: update_servicenow
+        type: servicenow
+        connector-id: "{{ consts.servicenow_connector_id }}"
+        with:
+          subAction: "pushToService"
+          subActionParams:
+            incident:
+              correlation_id: "{{ steps.get_finding_metadata.output.data.custom_fields.snow_incident }}"
+              comments: "{{ steps.assemble_payload.output.comments }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+
+      - name: log_done
+        type: console
+        with:
+          message: "Posted {{ steps.get_finding_notes.output.data.items | size }} investigation note(s) to SNOW incident {{ steps.get_finding_metadata.output.data.custom_fields.snow_incident }}."
+    else:
+      - name: log_skip
+        type: console
+        with:
+          message: "Skipping update — finding {{ inputs.finding_id }} has no notes or no linked SNOW incident."

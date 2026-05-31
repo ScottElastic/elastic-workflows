@@ -1,0 +1,131 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Related Tickets — Search Dispatch"
+description: >
+  Inspects incoming artifacts/indicators, and when present dispatches each
+  to the appropriate "related tickets" sub-workflow (ServiceNow, Jira,
+  Splunk Notable). Aggregates the per-ticket observables into a single
+  markdown summary and posts it as a note onto the originating case/task.
+enabled: true
+tags: ["splunk-soar", "ticketing", "dispatch", "related-tickets", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: artifact_ids
+    type: array
+    required: false
+    description: "Specific artifact ids to act on. If empty, alert context is used."
+  - name: container_id
+    type: string
+    required: false
+    description: "Case / container id used when annotating the parent task with the result."
+
+consts:
+  # Names of the sibling search workflows that this dispatcher fans out to.
+  servicenow_search_workflow: "servicenow-related-tickets-search"
+  jira_search_workflow: "jira-related-tickets-search"
+  splunk_search_workflow: "splunk-notable-related-tickets-search"
+  # Connector for posting the merged report back as a case comment.
+  case_connector_id: "CHANGEME-case-connector"
+
+steps:
+  # Mirror SOAR's first decision: bail out cleanly when no artifacts exist.
+  - name: artifacts_present
+    type: if
+    condition: "{{ inputs.artifact_ids | size }} > 0 or {{ event.alerts | size }} > 0"
+    steps:
+      - name: derive_search_terms
+        type: data.set
+        with:
+          terms: >-
+            ${{ inputs.artifact_ids
+                | default: event.alerts[0].related.user
+                | default: [] }}
+
+      # TODO: native sub-workflow invocation is not yet exposed. We launch
+      # each ticketing search through the Kibana workflows REST API.
+      - name: dispatch_servicenow
+        type: kibana.request
+        with:
+          method: POST
+          path: "/api/workflows/{{ consts.servicenow_search_workflow }}/run"
+          body:
+            inputs:
+              search_terms: ${{ steps.derive_search_terms.output.terms }}
+        on-failure:
+          continue: true
+
+      - name: dispatch_jira
+        type: kibana.request
+        with:
+          method: POST
+          path: "/api/workflows/{{ consts.jira_search_workflow }}/run"
+          body:
+            inputs:
+              search_terms: ${{ steps.derive_search_terms.output.terms }}
+        on-failure:
+          continue: true
+
+      - name: dispatch_splunk
+        type: kibana.request
+        with:
+          method: POST
+          path: "/api/workflows/{{ consts.splunk_search_workflow }}/run"
+          body:
+            inputs:
+              search_terms: ${{ steps.derive_search_terms.output.terms }}
+        on-failure:
+          continue: true
+
+      - name: combine_observables
+        type: data.set
+        with:
+          # Concatenate the observable arrays returned by each sub-workflow.
+          all_observables: >-
+            ${{ steps.dispatch_servicenow.output.observable | default: [] }}
+          snow_report: "{{ steps.dispatch_servicenow.output.markdown_report | default: '' }}"
+          jira_report: "{{ steps.dispatch_jira.output.markdown_report | default: '' }}"
+          splunk_report: "{{ steps.dispatch_splunk.output.markdown_report | default: '' }}"
+
+      - name: have_results
+        type: if
+        condition: "{{ steps.combine_observables.output.snow_report | size }} > 0 or {{ steps.combine_observables.output.jira_report | size }} > 0 or {{ steps.combine_observables.output.splunk_report | size }} > 0"
+        steps:
+          - name: build_merged_report
+            type: data.set
+            with:
+              merged_report: >-
+                ## Dynamic Related Ticket Search Report
+
+                {{ steps.combine_observables.output.snow_report }}
+
+                {{ steps.combine_observables.output.jira_report }}
+
+                {{ steps.combine_observables.output.splunk_report }}
+
+          - name: post_to_case
+            type: if
+            condition: "{{ inputs.container_id | size }} > 0"
+            steps:
+              - name: comment_on_case
+                type: kibana.addCaseComment
+                with:
+                  caseId: "{{ inputs.container_id }}"
+                  comment: "{{ steps.build_merged_report.output.merged_report }}"
+                on-failure:
+                  continue: true
+        else:
+          - name: log_no_observables
+            type: console
+            with:
+              message: "No observable data found from dispatched search workflows."
+    else:
+      - name: log_no_artifacts
+        type: console
+        with:
+          message: "No new artifact data found in the event — nothing to dispatch."

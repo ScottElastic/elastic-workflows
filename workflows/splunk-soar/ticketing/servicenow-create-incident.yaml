@@ -1,0 +1,79 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "ServiceNow — Create Incident"
+description: >
+  Creates a ServiceNow incident populated from upstream alert context.
+  Title is taken from the alert/case name; description from the alert
+  details. Optionally stores the returned incident number back into a
+  Kibana case as a linkage record.
+enabled: true
+tags: ["splunk-soar", "ticketing", "servicenow", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: title
+    type: string
+    required: false
+    description: "Override for incident short_description. Defaults to alert rule name."
+  - name: description
+    type: string
+    required: false
+    description: "Override for incident description. Defaults to alert rendered details."
+  - name: kibana_case_id
+    type: string
+    required: false
+    description: "If set, the returned ServiceNow incident number is posted as a comment on this case."
+
+consts:
+  # Replace with your ServiceNow connector ID configured in Kibana → Stack
+  # Management → Connectors.
+  servicenow_connector_id: "CHANGEME-servicenow-connector"
+
+steps:
+  - name: derive_title
+    type: data.set
+    with:
+      title: "{{ inputs.title | default: event.rule.name | default: 'Incident from Elastic Workflow' }}"
+
+  - name: derive_description
+    type: data.set
+    with:
+      description: >-
+        {{ inputs.description | default: event.alerts[0].kibana.alert.reason | default: 'No description available.' }}
+
+  - name: create_incident
+    type: servicenow
+    connector-id: "{{ consts.servicenow_connector_id }}"
+    with:
+      subAction: "pushToService"
+      subActionParams:
+        incident:
+          short_description: "{{ steps.derive_title.output.title }}"
+          description: "{{ steps.derive_description.output.description }}"
+          urgency: "2"
+          severity: "2"
+          impact: "2"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+
+  - name: log_incident_number
+    type: console
+    with:
+      message: "Created ServiceNow incident: {{ steps.create_incident.output.number | default: 'unknown' }}"
+
+  - name: attach_to_case
+    type: if
+    condition: "{{ inputs.kibana_case_id | size }} > 0"
+    steps:
+      - name: comment_on_case
+        type: kibana.addCaseComment
+        with:
+          caseId: "{{ inputs.kibana_case_id }}"
+          comment: "ServiceNow incident created: {{ steps.create_incident.output.number }}"

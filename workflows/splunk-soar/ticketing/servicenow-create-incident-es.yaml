@@ -1,0 +1,98 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "ServiceNow — Create Incident from ES Finding"
+description: >
+  Creates a ServiceNow incident keyed to an Enterprise Security finding,
+  stores the resulting ticket number back on the finding as a custom field
+  so downstream automation can keep updating the same incident, and posts
+  a note onto the investigation with the new ticket reference.
+enabled: true
+tags: ["splunk-soar", "ticketing", "servicenow", "enterprise-security", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: finding_id
+    type: string
+    required: true
+    description: "The Elastic Security or ES finding identifier to associate with the SNOW incident."
+  - name: short_description
+    type: string
+    required: false
+    description: "Short description for the SNOW incident. Defaults to the finding's rule title."
+  - name: description
+    type: string
+    required: false
+    description: "Long description for the SNOW incident. Defaults to the finding source field."
+
+consts:
+  servicenow_connector_id: "CHANGEME-servicenow-connector"
+  # Endpoint used to write the SNOW number back onto the finding/investigation.
+  # In SOAR this is the builtin Mission Control connector; in Elastic, swap
+  # for the Cases API or the Findings API depending on your environment.
+  finding_api_endpoint: "https://CHANGEME-finding-api.internal/api/findings"
+  finding_api_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  - name: derive_payload
+    type: data.set
+    with:
+      short_description: "{{ inputs.short_description | default: event.alerts[0].kibana.alert.rule.name | default: 'Elastic Security finding' }}"
+      description: "{{ inputs.description | default: event.alerts[0].kibana.alert.reason | default: 'See linked finding for details.' }}"
+
+  - name: create_snow_ticket
+    type: servicenow
+    connector-id: "{{ consts.servicenow_connector_id }}"
+    with:
+      subAction: "pushToService"
+      subActionParams:
+        incident:
+          short_description: "{{ steps.derive_payload.output.short_description }}"
+          description: "{{ steps.derive_payload.output.description }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+
+  # Persist the SNOW incident number back onto the finding so the rest of
+  # the response plan can locate and update the same ticket later.
+  - name: store_snow_field_on_finding
+    type: http
+    with:
+      url: "{{ consts.finding_api_endpoint }}/{{ inputs.finding_id }}/custom-fields"
+      method: PATCH
+      headers:
+        Authorization: "{{ consts.finding_api_auth_header }}"
+        Content-Type: "application/json"
+      body:
+        pairs:
+          - name: "snow_incident"
+            value: "{{ steps.create_snow_ticket.output.number | default: '' }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: add_investigation_note
+    type: http
+    with:
+      url: "{{ consts.finding_api_endpoint }}/{{ inputs.finding_id }}/notes"
+      method: POST
+      headers:
+        Authorization: "{{ consts.finding_api_auth_header }}"
+        Content-Type: "application/json"
+      body:
+        title: "ServiceNow ticket created"
+        content: "ServiceNow ticket created: {{ steps.create_snow_ticket.output.number | default: 'unknown' }}"
+    on-failure:
+      continue: true
+
+  - name: log_outcome
+    type: console
+    with:
+      message: "Created SNOW incident {{ steps.create_snow_ticket.output.number | default: 'unknown' }} for finding {{ inputs.finding_id }}."

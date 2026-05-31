@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Alert De-escalation — Test Machines"
 description: >
-  Lowers the severity of an alert when the source IP is known to be a test
-  machine. The workflow looks up the source against two Elasticsearch
-  allowlists/denylists. A hit on the test-machine list drops severity to
-  low; an unknown IP relies on the `is_test_machine` input as a stand-in
-  for the analyst prompt and updates the lists accordingly.
+  Acknowledges alerts originating from known test machines. Checks the
+  source IP against two Elasticsearch lists (test and non-test); a match
+  on the test list silently acknowledges the alert. An unknown IP uses
+  the `is_test_machine` boolean (stand-in for the analyst prompt) to add
+  the IP to the appropriate list and conditionally acknowledge. Side
+  effect: the two lookup indices are updated for future runs.
 enabled: true
 tags: ["splunk-soar", "triage", "de-escalation", "translated"]
 

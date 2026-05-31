@@ -4,10 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Attribute Lookup — Dispatch"
 description: >
-  Routes available alert entities to downstream attribute lookup workflows
-  (AD LDAP, Azure AD Graph, CrowdStrike, etc.) tagged for attribute lookup.
-  Each returned observable is captured as a new artifact and the response
-  task in the case is closed.
+  Decides which attribute-lookup workflows (AD LDAP, Azure AD Graph,
+  CrowdStrike Falcon, etc.) should run for the artifacts attached to an
+  alert. Inputs: optional explicit artifact id list (defaults to all
+  current alert artifacts) and an optional Kibana case to comment on.
+  Output is a structured recommendation plus a case comment — actual
+  child workflow invocation is performed by the parent enrichment chain.
 enabled: true
 tags: ["splunk-soar", "enrichment", "dispatch", "attribute-lookup", "translated"]
 
@@ -47,18 +49,31 @@ steps:
         type: ai.prompt
         with:
           prompt: |
-            You are an enrichment dispatcher. For each artifact below,
-            identify any users, devices, IPs, domains, URLs, or file hashes,
-            and list which attribute lookup workflows should be run for
-            each entity (AD LDAP, Azure AD Graph, CrowdStrike, etc.).
-            Artifacts: {{ steps.collect_artifacts.output.artifacts | json }}
+            You are an enrichment dispatcher. Given the artifacts below,
+            extract entities and recommend which attribute-lookup
+            workflow should run for each one.
+
+            Allowed workflow ids (lower-snake-case):
+              ad_ldap_entity_attribute_lookup
+              azure_ad_graph_user_attribute_lookup
+              crowdstrike_device_attribute_lookup
+
+            Artifacts (JSON):
+            {{ steps.collect_artifacts.output.artifacts | json }}
+
+            Respond with ONE JSON object on a single line, no prose:
+              {"dispatch":[{"entity":"<value>","entity_type":"user|device|ip|domain|url|hash","workflows":["<id>",...]}]}
+            Use an empty array if no entities are recognised.
         on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
           continue: true
 
       - name: log_dispatch_summary
         type: console
         with:
-          message: "Attribute lookup dispatch suggestions: {{ steps.ai_dispatch_decision.output | default: '(none)' }}"
+          message: "Attribute lookup dispatch suggestions: {{ steps.ai_dispatch_decision.output.dispatch | json | default: '[]' }}"
 
       - name: case_update_branch
         type: if
@@ -68,7 +83,7 @@ steps:
             type: kibana.addCaseComment
             with:
               caseId: "{{ inputs.case_id }}"
-              comment: "Attribute lookup dispatch complete. Suggested follow-ups: {{ steps.ai_dispatch_decision.output | default: '(none)' }}"
+              comment: "Attribute lookup dispatch complete. Suggested follow-ups: {{ steps.ai_dispatch_decision.output.dispatch | json | default: '[]' }}"
     else:
       - name: no_new_artifacts
         type: console

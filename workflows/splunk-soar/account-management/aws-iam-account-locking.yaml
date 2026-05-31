@@ -4,9 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "AWS IAM — Account Locking"
 description: >
-  Disables an AWS IAM user, optionally also disabling any access keys
-  associated with that user. Takes a username, validates it, calls the
-  AWS IAM disable-user API, and reports a normalized observable.
+  Disables a single AWS IAM user via the IAM disable-user API, and
+  optionally deactivates the user's access keys. Inputs: IAM username
+  (required) and `disable_access_keys` (defaults to true). Emits a
+  normalized observable record with status and AWS RequestId for audit.
+  Reversible via the AWS IAM unlocking workflow.
 enabled: true
 tags: ["splunk-soar", "identity", "account-lock", "aws", "iam", "translated"]
 
@@ -54,11 +56,12 @@ steps:
       body:
         username: "{{ inputs.user }}"
         disable_access_keys: ${{ inputs.disable_access_keys }}
+    # Destructive single-user action — retry transient errors but fail
+    # loud so the calling workflow surfaces the failure.
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
-      continue: true
+        max-attempts: 3
+        delay: "5s"
 
   - name: build_observable
     type: data.set

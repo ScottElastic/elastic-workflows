@@ -4,11 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Active Directory — Enable Account Dispatch"
 description: >
-  Orchestrator that invokes downstream "enable account" workflows tagged
-  with active_directory + enable_account (for example AD LDAP, Azure AD,
-  and AWS IAM unlock workflows). Collects each child workflow's outcome,
-  normalizes the records, and writes a short consolidated summary back
-  to the originating case.
+  Fan-out dispatcher that re-enables a user across AD LDAP, Azure AD, and
+  AWS IAM by invoking each provider-specific child workflow. Required
+  input: the user identifier. Optional Kibana case id receives a
+  consolidated status comment. Operator wires the child workflow IDs via
+  the Workflows API consts below.
 enabled: true
 tags:
   - "splunk-soar"
@@ -32,6 +32,9 @@ inputs:
     description: "Optional Kibana case to comment on with the consolidated report."
 
 consts:
+  # NOTE for operator: wire each downstream workflow's slug/id below to the
+  # actual deployed workflow IDs in your Kibana environment, then point
+  # workflows_api_base at your Kibana host.
   workflows_api_base: "https://CHANGEME-kibana.example.com/api/workflows"
   workflows_api_auth_header: "ApiKey CHANGEME_API_KEY"
 
@@ -48,10 +51,13 @@ steps:
       body:
         inputs:
           user: "{{ inputs.user }}"
+    # Dispatch is best-effort across providers — continue so a single
+    # directory failure doesn't prevent unlocks elsewhere. Each child
+    # workflow performs its own write and fails loud internally.
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: dispatch_azure_ad_unlock
@@ -66,10 +72,13 @@ steps:
       body:
         inputs:
           user: "{{ inputs.user }}"
+    # Dispatch is best-effort across providers — continue so a single
+    # directory failure doesn't prevent unlocks elsewhere. Each child
+    # workflow performs its own write and fails loud internally.
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: dispatch_aws_iam_unlock
@@ -84,10 +93,13 @@ steps:
       body:
         inputs:
           user: "{{ inputs.user }}"
+    # Dispatch is best-effort across providers — continue so a single
+    # directory failure doesn't prevent unlocks elsewhere. Each child
+    # workflow performs its own write and fails loud internally.
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: normalize_observables

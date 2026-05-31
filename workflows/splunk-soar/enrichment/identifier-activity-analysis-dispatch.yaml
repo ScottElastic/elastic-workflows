@@ -4,10 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Identifier Activity Analysis — Dispatch"
 description: >
-  Routes alert indicators to downstream identifier-activity analysis
-  workflows (Splunk, Defender ATP, CrowdStrike, etc.) tagged for that
-  purpose. Collects each workflow's markdown summary and observable
-  output and posts a consolidated note back to the case task.
+  Recommends identifier-activity analysis workflows for the indicators
+  on an alert (Splunk searches, Defender ATP, CrowdStrike, mailbox
+  message lookups). Inputs: optional artifact id list (defaults to all
+  current alert artifacts) and an optional Kibana case to comment on.
+  Output is a structured per-indicator plan; downstream invocation is
+  the caller's responsibility.
 enabled: true
 tags: ["splunk-soar", "enrichment", "dispatch", "identifier-activity", "translated"]
 
@@ -45,12 +47,25 @@ steps:
         type: ai.prompt
         with:
           prompt: |
-            For each artifact, identify any URLs, IPs, domains, file
-            hashes, or message ids and suggest which identifier-activity
-            analysis workflows to run (Splunk, Splunk Message,
-            Defender ATP, CrowdStrike, GMail message, O365 message).
-            Artifacts: {{ steps.collect_artifacts.output.artifacts | json }}
+            You are routing indicators to identifier-activity workflows.
+
+            Allowed workflow ids:
+              splunk_identifier_activity_analysis
+              splunk_message_identifier_activity_analysis
+              defender_atp_identifier_activity_analysis
+              crowdstrike_identifier_activity_analysis
+              g_suite_for_gmail_message_identifier_activity_analysis
+              ms_graph_for_office_365_message_identifier_activity_analysis
+
+            Artifacts (JSON): {{ steps.collect_artifacts.output.artifacts | json }}
+
+            Respond with ONE JSON object on a single line, no prose:
+              {"plan":[{"indicator":"<value>","indicator_type":"url|ip|domain|hash|message_id","workflows":["<id>",...]}]}
+            Use an empty array when nothing maps.
         on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
           continue: true
 
       - name: merge_reports
@@ -59,7 +74,7 @@ steps:
           merged_report: |
             Identifier activity analysis dispatch run.
             Artifacts processed: {{ steps.collect_artifacts.output.artifacts | size }}
-            Recommended workflows: {{ steps.ai_dispatch_decision.output | default: '(none)' }}
+            Plan: {{ steps.ai_dispatch_decision.output.plan | json | default: '[]' }}
 
       - name: case_update_branch
         type: if

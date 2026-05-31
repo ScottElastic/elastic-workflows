@@ -4,12 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Splunk Risk Notable — Auto-Merge"
 description: >
-  Looks for other open notables that share a risk_object with this one
-  in the last 24 hours. If any of them are already a case, the new
-  container is merged into that case. If multiple new notables share
-  a risk_object but none is a case yet, this container is promoted to
-  a case and the others are merged into it. Emits a merge_result that
-  the parent workflow can branch on.
+  De-duplicates Splunk risk-notable containers that share the same
+  risk_object inside a 24-hour window. Inputs: this container's id and
+  the risk_object value. If any related notable is already a case, this
+  container is merged into it. Otherwise a new case is auto-created and
+  the other related notables roll into it. Emits a `merge_result` string
+  ("merged into case" / "created case" / "no related events") that the
+  parent workflow branches on.
 enabled: true
 tags: ["splunk-soar", "investigation", "splunk", "risk-notable", "merge", "translated"]
 
@@ -56,6 +57,9 @@ steps:
             - term:
                 kibana.alert.workflow_status: "closed"
     on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
       continue: true
 
   - name: classify_relations

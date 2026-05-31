@@ -4,13 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Splunk Risk Notable — Auto-Investigate"
 description: >
-  Orchestrates the full risk-notable workflow against Splunk Enterprise
-  Security: imports contributing risk events as artifacts, dispatches
-  per-indicator investigate playbooks, merges duplicates if needed,
-  sums the contributing risk score, and either triggers auto-containment
-  (when the threshold is exceeded) or hands the case back for analyst
-  review. Original implementation orchestrates several child Phantom
-  playbooks; this translation models them as sub-workflow placeholders.
+  End-to-end orchestrator for a Splunk ES risk-notable. Inputs: the
+  Kibana case id (container_id), the ES notable event id, an optional
+  risk score threshold (default 250), and the pre-collected risk-rule
+  artifacts. Chains five sub-workflows in order — preprocess, import
+  data, indicator-investigate dispatcher, auto-merge, and (when the
+  summed `_total_risk_score` clears the threshold) auto-containment —
+  then writes the verdict back to the Splunk notable.
 enabled: true
 tags: ["splunk-soar", "investigation", "splunk", "risk-notable", "orchestration", "translated"]
 
@@ -41,8 +41,10 @@ inputs:
 consts:
   splunk_endpoint: "https://CHANGEME-splunk.internal:8089"
   kibana_case_id: "CHANGEME-case-id"
-  # Identifiers of child workflows that this workflow chains. Replace with
-  # the real workflow IDs in your Kibana environment.
+  # NOTE for operator: every workflow id below must match the slug/id
+  # returned by `GET /api/workflows` for the corresponding child
+  # workflow. The chain calls below substitute these directly into
+  # `/api/workflows/{id}/run` — a wrong id will 404.
   child_import_workflow: "CHANGEME-risk-notable-import-data"
   child_preprocess_workflow: "CHANGEME-risk-notable-preprocess"
   child_auto_merge_workflow: "CHANGEME-risk-notable-auto-merge"
@@ -67,6 +69,9 @@ steps:
               caseId: "{{ consts.kibana_case_id }}"
               comment: "Risk Investigation workbook started for event {{ inputs.event_id }}."
             on-failure:
+              retry:
+                max-attempts: 2
+                delay: "5s"
               continue: true
 
           - name: start_preprocess_task
@@ -86,6 +91,9 @@ steps:
                   container_id: "{{ inputs.container_id }}"
                   event_id: "{{ inputs.event_id }}"
             on-failure:
+              retry:
+                max-attempts: 2
+                delay: "5s"
               continue: true
 
           # Chain into import-data child workflow.
@@ -99,6 +107,9 @@ steps:
                   container_id: "{{ inputs.container_id }}"
                   event_id: "{{ inputs.event_id }}"
             on-failure:
+              retry:
+                max-attempts: 2
+                delay: "5s"
               continue: true
 
           - name: record_preprocess_note
@@ -107,6 +118,9 @@ steps:
               caseId: "{{ consts.kibana_case_id }}"
               comment: "{{ steps.run_import_data.output.note_content | default: 'Preprocess note pending.' }}"
             on-failure:
+              retry:
+                max-attempts: 2
+                delay: "5s"
               continue: true
 
           # Switch task to "Investigate" and dispatch tagged child playbooks.
@@ -126,6 +140,9 @@ steps:
                   container_id: "{{ inputs.container_id }}"
                   tags: ["investigate", "risk_notable"]
             on-failure:
+              retry:
+                max-attempts: 2
+                delay: "5s"
               continue: true
 
           - name: auto_merge
@@ -137,6 +154,9 @@ steps:
                 inputs:
                   container_id: "{{ inputs.container_id }}"
             on-failure:
+              retry:
+                max-attempts: 2
+                delay: "5s"
               continue: true
 
           - name: not_merged_branch
@@ -166,6 +186,9 @@ steps:
                       caseId: "{{ consts.kibana_case_id }}"
                       comment: "{{ steps.render_verdict_note.output.summary }}"
                     on-failure:
+                      retry:
+                        max-attempts: 2
+                        delay: "5s"
                       continue: true
 
                   - name: trigger_auto_containment
@@ -176,8 +199,12 @@ steps:
                       body:
                         inputs:
                           container_id: "{{ inputs.container_id }}"
+                    # Destructive — retry transient errors but fail loud
+                    # so the analyst sees that containment did not run.
                     on-failure:
-                      continue: true
+                      retry:
+                        max-attempts: 3
+                        delay: "5s"
                 else:
                   - name: update_investigate_task
                     type: kibana.addCaseComment
@@ -185,6 +212,9 @@ steps:
                       caseId: "{{ consts.kibana_case_id }}"
                       comment: "Investigation notes from dispatched playbooks recorded. Risk score below containment threshold."
                     on-failure:
+                      retry:
+                        max-attempts: 2
+                        delay: "5s"
                       continue: true
 
           # If the dispatcher produced any enrichment notes, push them back
@@ -202,6 +232,9 @@ steps:
                     ruleUIDs: "{{ inputs.event_id }}"
                     comment: "{{ steps.dispatch_investigations.output.sub_playbook_outputs.note_content }}"
                 on-failure:
+                  retry:
+                    max-attempts: 2
+                    delay: "5s"
                   continue: true
 
   - name: log_complete

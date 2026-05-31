@@ -4,10 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Mission Control — Attribute Lookup"
 description: >
-  Mission Control orchestrator that runs the Azure AD Graph user lookup
-  and the CrowdStrike device lookup in parallel, merges the returned
-  observables, and stores each as a new event tied to the originating
-  incident. Closes the response task on completion.
+  Mission Control orchestrator that fans out user and device enrichment.
+  Inputs: optional arrays of user identifiers and device identifiers, and
+  the Mission Control incident id used to scope created events. Calls the
+  Azure AD Graph user lookup per user and the CrowdStrike device lookup
+  per device via the Workflows API, then writes a consolidated event back
+  to the MC incident and closes the playbook task.
 enabled: true
 tags: ["splunk-soar", "enrichment", "mission-control", "attribute-lookup", "translated"]
 
@@ -30,6 +32,10 @@ inputs:
     description: "Mission Control incident id used to associate events."
 
 consts:
+  # NOTE for operator: replace the two workflow ids with the slugs/ids
+  # of the per-vendor lookup workflows in your Kibana environment. The
+  # `kibana.request` steps target /api/workflows/{id}/_run, so the ids
+  # appear directly in the path.
   azure_ad_user_lookup_workflow: "CHANGEME-azure-ad-graph-user-attribute-lookup"
   crowdstrike_device_lookup_workflow: "CHANGEME-crowdstrike-device-attribute-lookup"
   mc_endpoint: "https://CHANGEME-mc.internal/api"
@@ -60,7 +66,12 @@ steps:
           body:
             inputs:
               user: "{{ item }}"
+        # Enrichment fan-out — continue so one bad user lookup doesn't
+        # block the rest of the batch.
         on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
           continue: true
 
   # Fan out across devices.
@@ -77,7 +88,12 @@ steps:
           body:
             inputs:
               device: "{{ item }}"
+        # Enrichment fan-out — continue so one bad device lookup
+        # doesn't block the rest of the batch.
         on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
           continue: true
 
   - name: have_external_id
@@ -96,10 +112,12 @@ steps:
           body:
             user_lookups_run: "{{ steps.collect_user_targets.output.users | size }}"
             device_lookups_run: "{{ steps.collect_device_targets.output.devices | size }}"
+        # Enrichment write-back — retry transient errors, continue on
+        # ultimate failure so the run is logged.
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: close_mc_task
@@ -116,6 +134,9 @@ steps:
               title: "Task Complete"
               content: "MC Attribute Lookup created new events."
         on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
           continue: true
 
   - name: log_completion

@@ -4,10 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Dynamic Analysis — Dispatch"
 description: >
-  Routes URL and file (vault id) artifacts to downstream sandbox detonation
-  workflows tagged for dynamic analysis. After the dispatched workflows
-  return, tags observable indicators with classifications, captures a brief
-  summary, and closes the case task.
+  Recommends sandbox detonation workflows for the URLs and files attached
+  to an alert. Inputs: optional arrays of URLs and vault ids, and an
+  optional Kibana case to comment on. Returns a recommendation summary
+  per indicator (Splunk Attack Analyzer, VirusTotal, UrlScan, etc.) —
+  actual detonation is performed by the named child workflow.
 enabled: true
 tags: ["splunk-soar", "enrichment", "dispatch", "dynamic-analysis", "sandbox", "translated"]
 
@@ -52,14 +53,24 @@ steps:
         type: ai.prompt
         with:
           prompt: |
-            Recommend which sandbox detonation workflow to run for each
-            of the following URLs and files. Possible workflows include
-            Splunk Attack Analyzer, VirusTotal v3, UrlScan IO, and
-            CrowdStrike OAuth API dynamic analysis. URLs:
-            {{ steps.collect_inputs.output.urls | json }}
-            Vault IDs:
-            {{ steps.collect_inputs.output.vault_ids | json }}
+            You are routing indicators to sandbox detonation workflows.
+
+            Allowed workflow ids:
+              splunk_attack_analyzer_dynamic_analysis
+              virustotal_v3_dynamic_analysis
+              urlscan_io_dynamic_analysis
+              crowdstrike_oauth_api_dynamic_analysis
+
+            URLs (JSON array): {{ steps.collect_inputs.output.urls | json }}
+            Vault IDs (JSON array): {{ steps.collect_inputs.output.vault_ids | json }}
+
+            Respond with ONE JSON object on a single line, no prose:
+              {"plan":[{"indicator":"<value>","indicator_type":"url|file","workflows":["<id>",...]}]}
+            If both lists are empty, respond with {"plan":[]}.
         on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
           continue: true
 
       - name: summary_table
@@ -68,7 +79,7 @@ steps:
           summary:
             total_urls: "{{ steps.collect_inputs.output.urls | size }}"
             total_files: "{{ steps.collect_inputs.output.vault_ids | size }}"
-            recommendation: "{{ steps.ai_dispatch_decision.output | default: '(none)' }}"
+            plan: "${{ steps.ai_dispatch_decision.output.plan | default: [] }}"
 
       - name: case_update_branch
         type: if
@@ -78,7 +89,7 @@ steps:
             type: kibana.addCaseComment
             with:
               caseId: "{{ inputs.case_id }}"
-              comment: "Dynamic analysis dispatch complete. Recommendation: {{ steps.ai_dispatch_decision.output | default: '(none)' }}"
+              comment: "Dynamic analysis dispatch complete. Plan: {{ steps.ai_dispatch_decision.output.plan | json | default: '[]' }}"
 
       - name: log_dispatch
         type: console

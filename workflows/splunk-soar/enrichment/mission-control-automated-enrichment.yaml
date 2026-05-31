@@ -4,10 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Mission Control — Automated Enrichment"
 description: >
-  Mission Control orchestrator that chains three Mission Control workflows
-  in sequence: identifier reputation analysis, attribute lookup, and
-  related ticket search. Acts as a one-call enrichment pipeline once a new
-  Mission Control incident is opened.
+  Single-call enrichment pipeline for a new Mission Control incident.
+  Runs three MC-scoped child workflows in sequence: identifier reputation
+  analysis, attribute lookup, and related ticket search. Input: the
+  Mission Control incident `external_id`. Operator must wire the three
+  child workflow IDs in `consts` to their deployed slug/id.
 enabled: true
 tags: ["splunk-soar", "enrichment", "orchestrator", "mission-control", "translated"]
 
@@ -22,6 +23,10 @@ inputs:
     description: "Mission Control incident id to enrich."
 
 consts:
+  # NOTE for operator: each entry must match the workflow id/slug shown
+  # by `GET /api/workflows` for the corresponding MC child workflow.
+  # The `kibana.request` steps drop these directly into the path
+  # /api/workflows/{id}/_run.
   mc_identifier_reputation_workflow: "CHANGEME-mission-control-identifier-reputation-analysis"
   mc_attribute_lookup_workflow: "CHANGEME-mission-control-attribute-lookup"
   mc_related_tickets_workflow: "CHANGEME-mission-control-related-tickets-search"
@@ -36,6 +41,9 @@ steps:
         inputs:
           external_id: "{{ inputs.external_id }}"
     on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
       continue: true
 
   - name: run_attribute_lookup
@@ -47,6 +55,9 @@ steps:
         inputs:
           external_id: "{{ inputs.external_id }}"
     on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
       continue: true
 
   - name: run_related_tickets_search
@@ -58,6 +69,9 @@ steps:
         inputs:
           external_id: "{{ inputs.external_id }}"
     on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
       continue: true
 
   - name: log_completion

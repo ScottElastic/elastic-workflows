@@ -4,10 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Alert Escalation — Attacked Executives"
 description: >
-  Raises alert severity when the affected user belongs to an Executive
-  group in Active Directory. Looks up the user's group membership via
-  the AD LDAP connector and, on a CN=Executive match, marks the alert
-  high severity and tags the case for SOC tier-1 escalation.
+  Re-opens an alert when the affected user is a member of the executive
+  group in Active Directory. Inputs: subject user (or pulled from the
+  triggering alert), alert id, and the CN string identifying the executive
+  group (defaults to "CN=Executive"). Calls the AD LDAP proxy to fetch the
+  user's group list and uses GenAI to decide membership; on a match the
+  alert is moved back to "open" so tier-1 picks it up.
 enabled: true
 tags: ["splunk-soar", "triage", "escalation", "executive-impact", "translated"]
 
@@ -63,10 +65,12 @@ steps:
         Content-Type: "application/json"
       body:
         username: "{{ steps.derive_user.output.user }}"
+    # Enrichment lookup — continue on failure so downstream branch can
+    # safely default to "no match" instead of failing the whole alert.
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: any_groups_returned
@@ -78,13 +82,19 @@ steps:
         connector-id: "CHANGEME-genai-connector"
         with:
           prompt: |
-            Given this list of AD groups: {{ steps.list_user_groups.output.groups | json }}
-            Does it include a group whose DN starts with "{{ inputs.executive_group_cn }}"?
-            Respond with exactly "yes" or "no".
+            You are matching DNs against a CN prefix.
+            Group DN list (JSON array of strings):
+            {{ steps.list_user_groups.output.groups | json }}
+            Target CN prefix: "{{ inputs.executive_group_cn }}"
+            Return a single JSON object on one line, no prose, no code
+            fences, of the form:
+              {"is_member": <true|false>, "matched_dn": "<dn or empty>"}
+            is_member is true only if any DN starts with the target prefix
+            (case-insensitive).
 
       - name: escalate_if_executive
         type: if
-        condition: "{{ steps.check_executive_membership.output | downcase | strip }} == 'yes'"
+        condition: "{{ steps.check_executive_membership.output.is_member | default: false }} == true"
         steps:
           - name: mark_high_severity
             type: kibana.SetAlertsStatus

@@ -4,9 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "AWS IAM — Account Unlocking"
 description: >
-  Re-enables an AWS IAM user. Reattaches a login profile with a freshly
-  set password and optionally restores their access keys. The new
-  password should be changed by the user upon next login.
+  Re-enables a single AWS IAM user. Inputs: username, an initial
+  temporary password (defaults provided — operator should override), and
+  `enable_access_keys` (defaults to true). Side effect: the user's login
+  profile is re-attached with the supplied temporary password, which they
+  must change on next sign-in.
 enabled: true
 tags: ["splunk-soar", "identity", "account-unlock", "aws", "iam", "translated"]
 
@@ -57,11 +59,12 @@ steps:
         username: "{{ inputs.user }}"
         password: "{{ inputs.temporary_password }}"
         enable_access_keys: ${{ inputs.enable_access_keys }}
+    # Identity-mutation — retry transient errors and fail loud so the
+    # caller knows the unlock did not complete.
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
-      continue: true
+        max-attempts: 3
+        delay: "5s"
 
   - name: build_observable
     type: data.set

@@ -4,10 +4,10 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Windows Host — WinRM log4j Sweep (CVE-2021-44228)"
 description: >
-  Walks every filesystem-providing PSDrive on a Windows host and greps the
-  contents of all .jar, .jsp, and .jspx files for the string
-  "JndiLookup.class". Results are emitted as a markdown note that lists the
-  file path and the matching line number for analyst review.
+  Scans a Windows host for evidence of CVE-2021-44228. Input: an IP or
+  hostname reachable by the WinRM proxy. Walks every FileSystem PSDrive
+  and greps .jar, .jsp, and .jspx files for "JndiLookup.class", then
+  renders a markdown note with each match's file path and line number.
 enabled: true
 tags: ["splunk-soar", "investigation", "log4j", "cve-2021-44228", "winrm", "windows", "translated"]
 

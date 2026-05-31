@@ -4,10 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Linux Host — SSH-based Investigation"
 description: >
-  Pulls a snapshot of a Unix host over SSH: process list, current network
-  connections, host firewall rules, plus a deeper sweep via a small bash
-  collector script (OS info, services, login history, open sockets, cron
-  jobs). The collected CSVs are zipped and copied back for analyst review.
+  Live forensic snapshot of a Unix host over SSH. Input: an IP or
+  hostname reachable by the SSH proxy. Collects process list, current
+  netstat connections, iptables rules, then runs a bundled bash
+  collector that exports OS info, service list, login history, open
+  sockets, and cron jobs as CSVs. Outputs are zipped on the target and
+  copied back via the SSH proxy for analyst review.
 enabled: true
 tags: ["splunk-soar", "investigation", "endpoint", "ssh", "linux", "translated"]
 
@@ -38,7 +40,12 @@ steps:
         Authorization: "{{ consts.ssh_proxy_auth }}"
       body:
         host: "{{ inputs.ip_or_hostname }}"
+    # Read-only collection — continue so the analyst still gets partial
+    # data if one command fails.
     on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
       continue: true
 
   - name: list_connections
@@ -50,7 +57,12 @@ steps:
         Authorization: "{{ consts.ssh_proxy_auth }}"
       body:
         host: "{{ inputs.ip_or_hostname }}"
+    # Read-only collection — continue so the analyst still gets partial
+    # data if one command fails.
     on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
       continue: true
 
   - name: list_firewall_rules
@@ -62,7 +74,12 @@ steps:
         Authorization: "{{ consts.ssh_proxy_auth }}"
       body:
         host: "{{ inputs.ip_or_hostname }}"
+    # Read-only collection — continue so the analyst still gets partial
+    # data if one command fails.
     on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
       continue: true
 
   # The original playbook embedded a multi-stage bash script that emitted
@@ -81,7 +98,12 @@ steps:
         host: "{{ inputs.ip_or_hostname }}"
         destination: "{{ consts.remote_output_dir }}/splunk_soar_internal_host_ssh_investigate.sh"
         script_name: "splunk_soar_internal_host_ssh_investigate.sh"
+    # Read-only collection — continue so the analyst still gets partial
+    # data if one command fails.
     on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
       continue: true
 
   - name: run_collector_script
@@ -94,7 +116,12 @@ steps:
       body:
         host: "{{ inputs.ip_or_hostname }}"
         command: "bash {{ consts.remote_output_dir }}/splunk_soar_internal_host_ssh_investigate.sh {{ inputs.ip_or_hostname }}"
+    # Read-only collection — continue so the analyst still gets partial
+    # data if one command fails.
     on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
       continue: true
 
   - name: fetch_output_zip
@@ -107,7 +134,12 @@ steps:
       body:
         host: "{{ inputs.ip_or_hostname }}"
         path: "{{ consts.remote_output_dir }}/{{ inputs.ip_or_hostname }}_ssh_output.zip"
+    # Read-only collection — continue so the analyst still gets partial
+    # data if one command fails.
     on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
       continue: true
 
   - name: investigation_summary

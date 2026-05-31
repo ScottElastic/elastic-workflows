@@ -1,0 +1,52 @@
+NOTICE
+======
+
+This directory contains Elastic Workflow YAML files that were derived from
+the open-source Splunk SOAR (Phantom) community playbooks repository:
+
+    Project:  Phantom Community Playbooks
+    Source:   https://github.com/phantomcyber/playbooks
+    Branch:   8.5
+    License:  Apache License, Version 2.0
+              https://www.apache.org/licenses/LICENSE-2.0
+
+The files here are TRANSLATIONS, not copies. The original playbooks are
+authored in Python with the `phantom.rules` library and a visual Blockly
+graph. The translations in this directory re-implement equivalent logic
+flow as declarative Elastic Workflow YAML, a separate DSL with a different
+runtime, schema, and execution model.
+
+Modifications from the originals
+--------------------------------
+
+- Each playbook was re-expressed as an Elastic Workflow YAML document
+  with its own description, step names, and structure.
+- Phantom `phantom.act(...)` action calls were mapped onto Elastic step
+  types (`http`, vendor connectors, `kibana.*`, `elasticsearch.*`, etc.)
+  per the connector mapping table in `scripts/validator/` notes.
+- Phantom "custom code" blocks were replaced with Elastic primitives
+  (`if`, `foreach`, `data.set`) or `ai.prompt` steps, or marked TODO.
+- Vendor-specific assets that have no first-class Elastic connector are
+  rendered as `http` steps with a TODO comment.
+- Long inline markdown report templates from the originals were
+  replaced with brief `console` logging or omitted.
+- All descriptions, comments, and tags are restated; no docstrings,
+  comments, or report templates were copied verbatim from the source.
+
+Apache 2.0 license terms
+------------------------
+
+The Apache License 2.0 governing the upstream playbooks grants a
+"perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+copyright license to reproduce, prepare Derivative Works of, publicly
+display, publicly perform, sublicense, and distribute the Work and such
+Derivative Works in Source or Object form" (Section 2).
+
+This directory constitutes Derivative Works of the upstream playbooks.
+The full Apache 2.0 license text is included in the repository root
+LICENSE file.
+
+No upstream patent or trademark rights are claimed. References in YAML
+filenames to vendor product names (e.g., CrowdStrike, ServiceNow, AWS,
+Azure, Splunk) are factual identifiers describing what the original
+playbook targeted; they do not imply any endorsement or affiliation.

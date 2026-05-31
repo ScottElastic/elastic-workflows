@@ -1,0 +1,86 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "PhishTank — URL Reputation Analysis"
+description: >
+  Looks up one or more URLs in PhishTank, derives a normalized OCSF
+  reputation score from the response, and produces both a per-URL
+  observable record and a human-readable summary table.
+enabled: true
+tags: ["splunk-soar", "reputation", "url", "phishtank", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: urls
+    type: array
+    required: true
+    description: "List of URLs to check."
+
+consts:
+  phishtank_endpoint: "https://checkurl.phishtank.com/checkurl/"
+  phishtank_app_key: "CHANGEME"   # PhishTank developer key
+  # OCSF reputation score reference: https://schema.ocsf.io/objects/reputation
+
+steps:
+  - name: query_each_url
+    type: foreach
+    with:
+      items: ${{ inputs.urls }}
+    steps:
+      # TODO: PhishTank does not yet have a first-class Elastic connector.
+      # Using http stub against the public PhishTank API.
+      - name: url_reputation
+        type: http
+        with:
+          url: "{{ consts.phishtank_endpoint }}"
+          method: POST
+          headers:
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "url={{ item }}&format=json&app_key={{ consts.phishtank_app_key }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: classify
+        type: if
+        condition: "{{ steps.url_reputation.output.results.in_database }}"
+        steps:
+          - name: score_when_verified_phish
+            type: if
+            condition: "{{ steps.url_reputation.output.results.valid }}"
+            steps:
+              - name: set_malicious
+                type: data.set
+                with:
+                  score_id: 10
+                  score: "Malicious"
+          - name: score_when_unverified
+            type: if
+            condition: "not {{ steps.url_reputation.output.results.verified }}"
+            steps:
+              - name: set_caution
+                type: data.set
+                with:
+                  score_id: 5
+                  score: "May_not_be_Safe"
+        else:
+          - name: set_unknown
+            type: data.set
+            with:
+              score_id: 0
+              score: "Unknown"
+
+      - name: log_observable
+        type: console
+        with:
+          message: |
+            URL={{ item }}
+            in_database={{ steps.url_reputation.output.results.in_database | default: false }}
+            verified={{ steps.url_reputation.output.results.verified | default: false }}
+            valid={{ steps.url_reputation.output.results.valid | default: false }}
+            phish_detail_page={{ steps.url_reputation.output.results.phish_detail_page | default: '' }}

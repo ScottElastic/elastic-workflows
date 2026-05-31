@@ -1,0 +1,146 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Mission Control — Identifier Reputation Analysis"
+description: >
+  Mission-Control-style orchestrator. Extracts indicators (IPs, URLs,
+  domains, file hashes) from an alert, fans out to VirusTotal and
+  PhishTank reputation workflows, merges their markdown reports,
+  attaches the merged report to the response task, and closes the task.
+enabled: true
+tags: ["splunk-soar", "reputation", "mission-control", "orchestrator", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: response_task_id
+    type: string
+    required: false
+    description: "External Mission Control task identifier to update on completion."
+
+consts:
+  # Stand-ins for the Mission Control / Workflows API; replace with your IDs.
+  workflows_api_base: "https://CHANGEME-kibana.example.com/api/workflows"
+  workflows_api_key: "CHANGEME_API_KEY"
+  vt_workflow_id: "CHANGEME-virustotal-identifier-reputation-workflow"
+  phishtank_workflow_id: "CHANGEME-phishtank-url-reputation-workflow"
+  mission_control_api: "https://CHANGEME-mc.example.com/api"
+
+steps:
+  - name: extract_indicators
+    type: data.set
+    with:
+      ips: "{{ event.alerts[0].source.ip | default: [] }}"
+      urls: "{{ event.alerts[0].url.full | default: [] }}"
+      domains: "{{ event.alerts[0].destination.domain | default: [] }}"
+      file_hashes: "{{ event.alerts[0].file.hash.sha256 | default: [] }}"
+
+  - name: run_virustotal_reputation
+    type: http
+    with:
+      url: "{{ consts.workflows_api_base }}/{{ consts.vt_workflow_id }}/run"
+      method: POST
+      headers:
+        Authorization: "ApiKey {{ consts.workflows_api_key }}"
+        kbn-xsrf: "true"
+        Content-Type: "application/json"
+      body:
+        inputs:
+          ip: ${{ steps.extract_indicators.output.ips }}
+          url: ${{ steps.extract_indicators.output.urls }}
+          domain: ${{ steps.extract_indicators.output.domains }}
+          file_hash: ${{ steps.extract_indicators.output.file_hashes }}
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: run_phishtank_reputation
+    type: if
+    condition: "{{ steps.extract_indicators.output.urls | size }} > 0"
+    steps:
+      - name: phishtank_run
+        type: http
+        with:
+          url: "{{ consts.workflows_api_base }}/{{ consts.phishtank_workflow_id }}/run"
+          method: POST
+          headers:
+            Authorization: "ApiKey {{ consts.workflows_api_key }}"
+            kbn-xsrf: "true"
+            Content-Type: "application/json"
+          body:
+            inputs:
+              urls: ${{ steps.extract_indicators.output.urls }}
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+  - name: merge_reports
+    type: data.set
+    with:
+      merged_report:
+        virustotal: "{{ steps.run_virustotal_reputation.output.markdown_report | default: '' }}"
+        phishtank: "{{ steps.phishtank_run.output.markdown_report | default: '' }}"
+
+  - name: has_report
+    type: if
+    condition: "{{ steps.merge_reports.output.merged_report | json | size }} > 0"
+    steps:
+      # TODO: replace with a native Mission Control connector when one exists.
+      - name: update_task_with_report
+        type: if
+        condition: "{{ inputs.response_task_id | size }} > 0"
+        steps:
+          - name: start_task
+            type: http
+            with:
+              url: "{{ consts.mission_control_api }}/tasks/{{ inputs.response_task_id }}"
+              method: PATCH
+              headers:
+                Content-Type: "application/json"
+              body:
+                status: "Started"
+                owner: "soar_automation_user"
+            on-failure:
+              continue: true
+
+          - name: add_task_note
+            type: http
+            with:
+              url: "{{ consts.mission_control_api }}/tasks/{{ inputs.response_task_id }}/notes"
+              method: POST
+              headers:
+                Content-Type: "application/json"
+              body:
+                title: "Reputation Report"
+                content: ${{ steps.merge_reports.output.merged_report }}
+            on-failure:
+              continue: true
+
+          - name: close_task
+            type: http
+            with:
+              url: "{{ consts.mission_control_api }}/tasks/{{ inputs.response_task_id }}"
+              method: PATCH
+              headers:
+                Content-Type: "application/json"
+              body:
+                status: "Ended"
+            on-failure:
+              continue: true
+
+      - name: log_report_built
+        type: console
+        with:
+          message: "Reputation analysis merged report built. virustotal/phishtank outputs combined."
+    else:
+      - name: log_no_data
+        type: console
+        with:
+          message: "Reputation analysis produced no markdown report — skipping task update."

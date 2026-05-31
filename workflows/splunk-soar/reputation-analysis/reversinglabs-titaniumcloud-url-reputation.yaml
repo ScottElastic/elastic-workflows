@@ -1,0 +1,65 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "ReversingLabs TitaniumCloud — URL Reputation"
+description: >
+  Queries ReversingLabs TitaniumCloud for URL reputation. For each URL,
+  records the returned classification.
+enabled: true
+tags: ["splunk-soar", "reputation", "url", "reversinglabs", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: urls
+    type: array
+    required: true
+    description: "URLs to look up."
+
+consts:
+  rl_url_endpoint: "https://data.reversinglabs.com/api/networking/url/v1/report/query/json"
+  rl_auth_header: "Basic CHANGEME_BASE64_CREDENTIAL"
+
+steps:
+  - name: each_url
+    type: foreach
+    with:
+      items: ${{ inputs.urls }}
+    steps:
+      # TODO: replace with a native ReversingLabs connector when available.
+      - name: rl_url_reputation
+        type: http
+        with:
+          url: "{{ consts.rl_url_endpoint }}"
+          method: POST
+          headers:
+            Authorization: "{{ consts.rl_auth_header }}"
+            Content-Type: "application/json"
+          body:
+            rl:
+              query:
+                url: "{{ item }}"
+                response_format: "json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: store_classification
+        type: data.set
+        with:
+          observable:
+            value: "{{ item }}"
+            type: "url"
+            source: "ReversingLabs TitaniumCloud"
+            classification: "{{ steps.rl_url_reputation.output.rl.classification | default: 'UNKNOWN' }}"
+
+      - name: log_url_classification
+        type: console
+        with:
+          message: |
+            URL {{ item }} classification={{ steps.rl_url_reputation.output.rl.classification | default: 'UNKNOWN' }}

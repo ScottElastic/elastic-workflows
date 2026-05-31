@@ -4,10 +4,10 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "GreyNoise — Severity From IP Reputation"
 description: >
-  Queries GreyNoise IP reputation for the source address and sets severity
-  using the returned classification. Anything that is not flagged as
-  noise (i.e. malicious or unknown) is escalated to high; benign noise is
-  downgraded to low.
+  Calls GreyNoise noise context for the alert source IP and maps the
+  returned classification to a severity: `malicious` or `unknown` → high,
+  benign noise → low. Pass source_ip to override the alert default. Sets
+  workflow-local severity output only — no case or alert mutation.
 enabled: true
 tags: ["splunk-soar", "threat-intel", "greynoise", "translated"]
 
@@ -22,7 +22,8 @@ inputs:
     description: "Override IP to query. Defaults to the alert source address."
 
 consts:
-  greynoise_endpoint: "https://api.greynoise.io/v2/noise/context"
+  # GreyNoise v3 noise context endpoint — auth: `key:` header.
+  greynoise_endpoint: "https://api.greynoise.io/v3/noise/context"
   greynoise_api_key: "CHANGEME-greynoise-api-key"
 
 steps:
@@ -31,7 +32,6 @@ steps:
     with:
       ip: "{{ inputs.source_ip | default: event.alerts[0].source.ip | default: '' }}"
 
-  # TODO: replace with native GreyNoise connector when supported.
   - name: ip_reputation
     type: http
     with:
@@ -42,7 +42,7 @@ steps:
         Accept: "application/json"
     on-failure:
       retry:
-        max-attempts: 2
+        max-attempts: 3
         delay: "5s"
       continue: true
 

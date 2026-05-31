@@ -4,11 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Recorded Future — Correlation Response"
 description: >
-  Triggers from a specific Splunk correlation result indicating a possible
-  outbound connection to a Recorded Future-flagged IP and domain. Pulls
-  Recorded Future intel for the indicators, asks an analyst whether to
-  block, and (on approval) blocks the IP at a perimeter firewall and the
-  domain via DNS-layer enforcement.
+  Reacts to a specific Splunk correlation rule indicating outbound
+  traffic to a Recorded Future-flagged IP + domain pair. Pulls IP and
+  domain risk cards from Recorded Future v2, asks an LLM for a
+  structured block / no-block verdict, and on YES blocks the IP at the
+  perimeter firewall and sinkholes the domain via Cisco Umbrella.
+  Destructive: do not enable without verifying the firewall + DNS
+  connectors.
 enabled: true
 tags: ["splunk-soar", "remediation", "recorded-future", "network-block", "translated"]
 
@@ -32,14 +34,15 @@ inputs:
 
 consts:
   expected_rule_name: "Threat - Cisco WSA L4TM Correlation Against Recorded Future IP Threat List - Rule"
+  # Recorded Future v2 — auth: `X-RFToken` header.
   recorded_future_endpoint: "https://api.recordedfuture.com/v2"
-  recorded_future_token: "CHANGEME"
-  # Firewall API used to deny the IP — original playbook used Cisco Firepower.
-  firewall_block_endpoint: "https://CHANGEME-firewall.internal/api/block-ip"
-  firewall_auth_header: "Bearer CHANGEME_TOKEN"
-  # DNS sinkhole — original playbook used Cisco Umbrella.
-  dns_block_endpoint: "https://management.api.umbrella.com/v1/organizations/CHANGEME/policies/sinkhole/domains"
-  dns_auth_header: "Bearer CHANGEME_TOKEN"
+  recorded_future_token: "CHANGEME-recorded-future-token"
+  # Cisco Firepower FMC block-list endpoint. Original playbook used FMC; swap if
+  # your perimeter is Palo Alto / Fortinet / etc.
+  firewall_block_endpoint: "https://CHANGEME-fmc.internal/api/fmc_config/v1/domain/CHANGEME/object/networkgroups/CHANGEME"
+  firewall_auth_header: "Bearer CHANGEME_FMC_TOKEN"
+  # Cisco Umbrella Enforcement API for DNS-layer sinkhole.
+  dns_block_endpoint: "https://s-platform.api.opendns.com/1.0/events?customerKey=CHANGEME_UMBRELLA_KEY"
 
 steps:
   - name: gate_on_rule_name
@@ -62,10 +65,13 @@ steps:
           method: GET
           headers:
             X-RFToken: "{{ consts.recorded_future_token }}"
+            Accept: "application/json"
+          query:
+            fields: "risk,intelCard,timestamps"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: domain_intel
@@ -75,10 +81,13 @@ steps:
           method: GET
           headers:
             X-RFToken: "{{ consts.recorded_future_token }}"
+            Accept: "application/json"
+          query:
+            fields: "risk,intelCard,timestamps"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: build_prompt_context
@@ -87,27 +96,44 @@ steps:
           context:
             rule: "{{ inputs.rule_name }}"
             ip: "{{ inputs.ip }}"
-            ip_intel_card: "{{ steps.ip_intel.output.data.intelCard | default: 'n/a' }}"
+            ip_risk_score: "{{ steps.ip_intel.output.data.risk.score | default: 0 }}"
+            ip_risk_summary: "{{ steps.ip_intel.output.data.risk.riskSummary | default: 'n/a' }}"
+            ip_evidence: "{{ steps.ip_intel.output.data.risk.evidenceDetails | default: [] }}"
             domain: "{{ inputs.domain }}"
-            domain_intel_card: "{{ steps.domain_intel.output.data.intelCard | default: 'n/a' }}"
+            domain_risk_score: "{{ steps.domain_intel.output.data.risk.score | default: 0 }}"
+            domain_risk_summary: "{{ steps.domain_intel.output.data.risk.riskSummary | default: 'n/a' }}"
+            domain_evidence: "{{ steps.domain_intel.output.data.risk.evidenceDetails | default: [] }}"
 
-      # Original used an interactive analyst prompt. Re-implemented here as
-      # an AI judgement step — swap to ai.agent or a manual approval if you
-      # want a human in the loop.
+      # Original playbook used an interactive analyst prompt. Re-implemented
+      # as an LLM judgement step. Replace with a manual approval gate if
+      # you require a human in the loop.
       - name: ai_decision
         type: ai.prompt
         connector-id: "CHANGEME-llm-connector"
         with:
           prompt: |
-            You are deciding whether to block a destination IP and domain
-            flagged by Splunk + Recorded Future correlation.
-            Context: {{ steps.build_prompt_context.output.context | json }}
-            Reply with the single word YES or NO.
+            You are a SOC analyst deciding whether to block an IP and a
+            domain that Splunk has correlated against the Recorded Future
+            threat list.
+
+            Inputs:
+            {{ steps.build_prompt_context.output.context | json }}
+
+            Decide based on the Recorded Future risk scores (0-99) and the
+            evidence list. Scores >= 65 typically warrant a block.
+
+            Respond with a single JSON object (no prose, no markdown
+            fences) using this exact schema:
+              {"verdict": "YES" | "NO",
+               "confidence": <number 0-1>,
+               "evidence": [<short reason strings>]}
 
       - name: execute_block
         type: if
-        condition: '{{ steps.ai_decision.output | strip | upcase }} == "YES"'
+        condition: '{{ steps.ai_decision.output.verdict | default: "" | upcase }} == "YES"'
         steps:
+          # Destructive — no `continue: true`. If the firewall call fails,
+          # we want the workflow to halt so the analyst is notified.
           - name: block_ip
             type: http
             with:
@@ -117,33 +143,47 @@ steps:
                 Authorization: "{{ consts.firewall_auth_header }}"
                 Content-Type: "application/json"
               body:
-                ip: "{{ inputs.ip }}"
+                name: "rf-correlation-block-{{ inputs.ip }}"
+                type: "Host"
+                value: "{{ inputs.ip }}"
+                description: "Auto-blocked: {{ inputs.rule_name }} verdict={{ steps.ai_decision.output.verdict }} confidence={{ steps.ai_decision.output.confidence }}"
             on-failure:
-              continue: true
+              retry:
+                max-attempts: 3
+                delay: "5s"
 
+          # Cisco Umbrella Enforcement API events are POSTed as a list of
+          # malware events. customerKey is in the query string (see consts).
           - name: block_domain
             type: http
             with:
               url: "{{ consts.dns_block_endpoint }}"
               method: POST
               headers:
-                Authorization: "{{ consts.dns_auth_header }}"
                 Content-Type: "application/json"
               body:
-                domain: "{{ inputs.domain }}"
-                disable_safeguards: false
+                - alertTime: "{{ now }}"
+                  deviceId: "elastic-workflows"
+                  deviceVersion: "1.0"
+                  dstDomain: "{{ inputs.domain }}"
+                  dstUrl: "http://{{ inputs.domain }}/"
+                  eventTime: "{{ now }}"
+                  protocolVersion: "1.0a"
+                  providerName: "Security Platform"
             on-failure:
-              continue: true
+              retry:
+                max-attempts: 3
+                delay: "5s"
 
           - name: log_block
             type: console
             with:
-              message: "Blocked {{ inputs.ip }} on perimeter firewall and {{ inputs.domain }} via DNS sinkhole."
+              message: "Blocked {{ inputs.ip }} on perimeter firewall and {{ inputs.domain }} via DNS sinkhole (confidence {{ steps.ai_decision.output.confidence }})."
         else:
           - name: log_no_block
             type: console
             with:
-              message: "Analyst/AI declined blocking; leaving IP and domain in place."
+              message: "Analyst/AI declined blocking ({{ steps.ai_decision.output.verdict | default: 'no-decision' }}); leaving IP and domain in place."
     else:
       - name: rule_mismatch
         type: console

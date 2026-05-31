@@ -4,11 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "GreyNoise — GNQL Government RDNS Match"
 description: >
-  Runs a GreyNoise GNQL query for malicious sources whose reverse DNS
-  matches government domains. When any of the returned IPs is the same as
-  the source IP from the alerting event, the workflow escalates the case
-  severity to high; otherwise the severity is lowered. Useful as a quick
-  triage filter for government-targeted scanning activity.
+  Runs a GreyNoise GNQL query (default: malicious sources with .gov
+  reverse DNS) and decides severity by checking whether the alert source
+  IP appears in the result set. Match = high severity (and optional case
+  comment if case_id is supplied); no match = low. Pass source_ip and/or
+  a custom gnql_query to retarget the hunt.
 enabled: true
 tags: ["splunk-soar", "threat-intel", "greynoise", "gnql", "translated"]
 
@@ -32,7 +32,8 @@ inputs:
     description: "Optional Kibana case to record the verdict against."
 
 consts:
-  greynoise_endpoint: "https://api.greynoise.io/v2/experimental/gnql"
+  # GreyNoise v3 experimental GNQL endpoint — auth: `key:` header.
+  greynoise_endpoint: "https://api.greynoise.io/v3/experimental/gnql"
   greynoise_api_key: "CHANGEME-greynoise-api-key"
 
 steps:
@@ -41,7 +42,6 @@ steps:
     with:
       target_ip: "{{ inputs.source_ip | default: event.alerts[0].source.ip | default: '' }}"
 
-  # TODO: swap to a native GreyNoise GNQL connector when available.
   - name: gnql_query
     type: http
     with:
@@ -55,7 +55,7 @@ steps:
         size: 100
     on-failure:
       retry:
-        max-attempts: 2
+        max-attempts: 3
         delay: "5s"
       continue: true
 

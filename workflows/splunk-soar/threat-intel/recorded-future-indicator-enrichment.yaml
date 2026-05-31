@@ -4,10 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Recorded Future — Indicator Enrichment"
 description: >
-  Pulls Recorded Future threat intelligence for any source IP, destination
-  IP, file hash, source domain, destination domain, or URL surfaced on the
-  triggering alert. Only the fields that are present on the event are
-  enriched, so the workflow is safe to attach broadly.
+  Enriches the source IP, destination IP, file SHA-256, source domain,
+  destination domain and request URL on the alert via the Recorded Future
+  v2 indicator endpoints (/ip, /domain, /hash, /url). Each branch only
+  runs when its field is populated, so attach broadly. Pure read-only
+  enrichment — downstream workflows consume `steps.rf_*.output.data.risk`.
 enabled: true
 tags: ["splunk-soar", "threat-intel", "recorded-future", "enrichment", "translated"]
 
@@ -42,8 +43,11 @@ inputs:
     description: "Override for the requested URL."
 
 consts:
+  # Recorded Future v2 — auth: `X-RFToken` header.
   recorded_future_base: "https://api.recordedfuture.com/v2"
   recorded_future_token: "CHANGEME-recorded-future-token"
+  # Fields requested back. `risk` is the risk score + evidence list.
+  rf_fields: "risk,intelCard,timestamps"
 
 steps:
   - name: derive_indicators
@@ -60,7 +64,6 @@ steps:
     type: if
     condition: "{{ steps.derive_indicators.output.source_ip | size }} > 0"
     steps:
-      # TODO: replace with a native Recorded Future connector when available.
       - name: rf_ip_source
         type: http
         with:
@@ -69,9 +72,11 @@ steps:
           headers:
             X-RFToken: "{{ consts.recorded_future_token }}"
             Accept: "application/json"
+          query:
+            fields: "{{ consts.rf_fields }}"
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "5s"
           continue: true
 
@@ -87,9 +92,11 @@ steps:
           headers:
             X-RFToken: "{{ consts.recorded_future_token }}"
             Accept: "application/json"
+          query:
+            fields: "{{ consts.rf_fields }}"
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "5s"
           continue: true
 
@@ -105,9 +112,11 @@ steps:
           headers:
             X-RFToken: "{{ consts.recorded_future_token }}"
             Accept: "application/json"
+          query:
+            fields: "{{ consts.rf_fields }}"
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "5s"
           continue: true
 
@@ -123,9 +132,11 @@ steps:
           headers:
             X-RFToken: "{{ consts.recorded_future_token }}"
             Accept: "application/json"
+          query:
+            fields: "{{ consts.rf_fields }}"
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "5s"
           continue: true
 
@@ -141,9 +152,11 @@ steps:
           headers:
             X-RFToken: "{{ consts.recorded_future_token }}"
             Accept: "application/json"
+          query:
+            fields: "{{ consts.rf_fields }}"
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "5s"
           continue: true
 
@@ -159,9 +172,11 @@ steps:
           headers:
             X-RFToken: "{{ consts.recorded_future_token }}"
             Accept: "application/json"
+          query:
+            fields: "{{ consts.rf_fields }}"
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "5s"
           continue: true
 

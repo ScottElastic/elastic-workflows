@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "TruSTAR — Network Indicator Enrichment"
 description: >
-  Enriches network indicators (IPs, URLs, domains) on the originating
-  event with TruSTAR threat intelligence. Domains are first resolved to
-  IPs via Google DNS so their related TruSTAR reports can also be pulled.
-  TruSTAR "hunt" calls return a report_id; the workflow then fetches each
-  report for the indicators that produced one.
+  Enriches IPs, URLs and domains against TruSTAR / Splunk Intelligence
+  Management. Domains are first A-resolved via Google DNS so the
+  resulting IPs can also be hunted. Every TruSTAR hit returns a
+  report_id, which the workflow then fetches for full report context.
+  Note: TruSTAR APIs are being deprecated in favour of Splunk Mission
+  Control — the http steps here are stubs.
 enabled: true
 tags: ["splunk-soar", "threat-intel", "trustar", "network", "translated"]
 
@@ -34,6 +35,8 @@ inputs:
     description: "List of domains to enrich and resolve."
 
 consts:
+  # TruSTAR / Splunk Intelligence Management v1.3 — deprecated; replace
+  # with a Splunk Mission Control connector when available.
   trustar_base: "https://api.trustar.co/api/1.3"
   trustar_auth_header: "Bearer CHANGEME_TRUSTAR_TOKEN"
   google_dns_endpoint: "https://dns.google/resolve"
@@ -45,7 +48,6 @@ steps:
     with:
       items: ${{ inputs.ips }}
     steps:
-      # TODO: swap to a native TruSTAR connector when supported.
       - name: trustar_hunt_ip
         type: http
         with:
@@ -58,6 +60,9 @@ steps:
             value: "{{ item }}"
             type: "IP"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: ip_has_report
@@ -98,6 +103,9 @@ steps:
             value: "{{ item }}"
             type: "URL"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: url_has_report
@@ -137,6 +145,9 @@ steps:
             name: "{{ item }}"
             type: "A"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: per_resolved_ip

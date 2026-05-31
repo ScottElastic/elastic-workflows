@@ -1,0 +1,89 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "CrowdStrike — Get Device Info"
+description: >
+  Lightweight helper that resolves a CrowdStrike device identifier
+  given either a hostname or a device_id. Useful as a prelude to
+  other CrowdStrike action playbooks that need the device_id to talk
+  to the API.
+enabled: true
+tags: ["splunk-soar", "endpoint-response", "crowdstrike", "device-info", "helper", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: device
+    type: string
+    required: true
+    description: "Hostname or CrowdStrike agent id to resolve."
+
+consts:
+  crowdstrike_base_url: "https://api.crowdstrike.com"
+  crowdstrike_bearer: "Bearer CHANGEME_FALCON_OAUTH_TOKEN"
+
+steps:
+  - name: validate_device
+    type: if
+    condition: "{{ inputs.device | size }} == 0"
+    steps:
+      - name: log_missing
+        type: console
+        with:
+          message: "Provide a hostname or device_id."
+
+  - name: query_device
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/devices/queries/devices/v1"
+      method: GET
+      headers:
+        Authorization: "{{ consts.crowdstrike_bearer }}"
+      query:
+        limit: 1
+        # Treat short opaque strings as device_ids; quoted hostnames
+        # also pass through fine because the filter accepts either.
+        filter: "hostname:'{{ inputs.device }}',device_id:'{{ inputs.device }}'"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: fetch_details
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices/v2"
+      method: GET
+      headers:
+        Authorization: "{{ consts.crowdstrike_bearer }}"
+      query:
+        ids: "${{ steps.query_device.output.resources }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: build_device_observable
+    type: data.set
+    with:
+      observable:
+        type: "host"
+        value: "{{ inputs.device }}"
+        source: "CrowdStrike OAuth API"
+        attributes:
+          device_id: "{{ steps.fetch_details.output.resources[0].device_id | default: '' }}"
+          hostname: "{{ steps.fetch_details.output.resources[0].hostname | default: '' }}"
+          os: "{{ steps.fetch_details.output.resources[0].os_version | default: '' }}"
+          mac: "{{ steps.fetch_details.output.resources[0].mac_address | default: '' }}"
+          connection_ip: "{{ steps.fetch_details.output.resources[0].connection_ip | default: '' }}"
+          last_seen: "{{ steps.fetch_details.output.resources[0].last_seen | default: '' }}"
+
+  - name: log_result
+    type: console
+    with:
+      message: |
+        Resolved {{ inputs.device }} -> device_id={{ steps.build_device_observable.output.observable.attributes.device_id }}

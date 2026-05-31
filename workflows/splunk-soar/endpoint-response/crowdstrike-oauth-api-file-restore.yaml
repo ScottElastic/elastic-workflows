@@ -1,0 +1,167 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "CrowdStrike — File Restore (RTR put)"
+description: >
+  Pushes a previously collected file back to a CrowdStrike-managed
+  device. Resolves the device, uploads the file to RTR put-files,
+  opens an RTR session, changes into the target directory, runs the
+  put command, and tears the session down. Emits a file observable
+  with the restored path.
+enabled: true
+tags: ["splunk-soar", "endpoint-response", "crowdstrike", "rtr", "file-restore", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: device
+    type: string
+    required: true
+    description: "Hostname or device id that should receive the file."
+  - name: file
+    type: string
+    required: true
+    description: "Name of the file artifact to restore from CrowdStrike put-files."
+  - name: target_directory
+    type: string
+    required: false
+    description: "Directory on the endpoint where the file will be written."
+    default: "C:\\Windows\\Temp"
+
+consts:
+  crowdstrike_base_url: "https://api.crowdstrike.com"
+  crowdstrike_bearer: "Bearer CHANGEME_FALCON_OAUTH_TOKEN"
+
+steps:
+  - name: validate_inputs
+    type: if
+    condition: "{{ inputs.device | size }} == 0 or {{ inputs.file | size }} == 0"
+    steps:
+      - name: log_missing_inputs
+        type: console
+        with:
+          message: "Both device and file artifact name are required."
+
+  - name: query_device
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/devices/queries/devices/v1"
+      method: GET
+      headers:
+        Authorization: "{{ consts.crowdstrike_bearer }}"
+      query:
+        limit: 1
+        filter: "hostname:'{{ inputs.device }}'"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: capture_device_id
+    type: data.set
+    with:
+      device_id: "{{ steps.query_device.output.resources[0] | default: inputs.device }}"
+
+  - name: upload_put_file
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/real-time-response/entities/put-files/v1"
+      method: POST
+      headers:
+        Authorization: "{{ consts.crowdstrike_bearer }}"
+      body:
+        # TODO: this endpoint expects multipart form data. Wire the file
+        # bytes through your own storage / artifact pipeline as needed.
+        file: "{{ inputs.file }}"
+        name: "{{ inputs.file }}"
+        description: "Restored via Elastic Workflow file-restore translation"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+      continue: true
+
+  - name: create_rtr_session
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/real-time-response/entities/sessions/v1"
+      method: POST
+      headers:
+        Authorization: "{{ consts.crowdstrike_bearer }}"
+        Content-Type: "application/json"
+      body:
+        device_id: "{{ steps.capture_device_id.output.device_id }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+      continue: true
+
+  - name: capture_session_id
+    type: data.set
+    with:
+      session_id: "{{ steps.create_rtr_session.output.resources[0].session_id | default: '' }}"
+
+  - name: run_cd_command
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/real-time-response/entities/admin-command/v1"
+      method: POST
+      headers:
+        Authorization: "{{ consts.crowdstrike_bearer }}"
+        Content-Type: "application/json"
+      body:
+        base_command: "cd"
+        command_string: "cd '{{ inputs.target_directory }}'"
+        session_id: "{{ steps.capture_session_id.output.session_id }}"
+    on-failure:
+      continue: true
+
+  - name: run_put_command
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/real-time-response/entities/admin-command/v1"
+      method: POST
+      headers:
+        Authorization: "{{ consts.crowdstrike_bearer }}"
+        Content-Type: "application/json"
+      body:
+        base_command: "put"
+        command_string: "put '{{ inputs.file }}'"
+        session_id: "{{ steps.capture_session_id.output.session_id }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+      continue: true
+
+  - name: delete_rtr_session
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/real-time-response/entities/sessions/v1"
+      method: DELETE
+      headers:
+        Authorization: "{{ consts.crowdstrike_bearer }}"
+      query:
+        session_id: "{{ steps.capture_session_id.output.session_id }}"
+    on-failure:
+      continue: true
+
+  - name: build_file_observable
+    type: data.set
+    with:
+      observable:
+        type: "file"
+        value: "{{ inputs.target_directory }}\\{{ inputs.file }}"
+        source: "CrowdStrike OAuth API"
+        action: "restored"
+        device_id: "{{ steps.capture_device_id.output.device_id }}"
+
+  - name: log_result
+    type: console
+    with:
+      message: |
+        Restored {{ inputs.file }} into {{ inputs.target_directory }} on {{ inputs.device }}.

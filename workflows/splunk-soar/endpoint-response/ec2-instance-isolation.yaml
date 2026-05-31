@@ -1,0 +1,146 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "AWS EC2 — Instance Isolation"
+description: >
+  Network-isolates an EC2 instance by swapping all of its existing
+  security groups for a single quarantine group. Captures the
+  instance's security-group configuration before and after the change
+  so the snapshot can be attached to a case for forensics. Optionally
+  enumerates any open SSH connections to that instance.
+enabled: true
+tags: ["splunk-soar", "endpoint-response", "aws", "ec2", "network-isolation", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: instance_id
+    type: string
+    required: true
+    description: "EC2 instance id (i-...) to isolate."
+  - name: isolation_security_group
+    type: string
+    required: false
+    description: "Security group id to apply as the quarantine SG."
+    default: "sg-CHANGEME-isolation"
+  - name: region
+    type: string
+    required: false
+    description: "AWS region the instance lives in."
+    default: "us-east-1"
+  - name: case_id
+    type: string
+    required: false
+    description: "Optional Kibana case id to attach a before/after comment to."
+
+consts:
+  # AWS calls require SigV4 signing, which the http step does not
+  # natively support. Wire this through an AWS sidecar (Lambda, API GW,
+  # signed proxy) or replace with a native AWS connector once one is
+  # available. Endpoint shown for reference only.
+  ec2_endpoint: "https://ec2.CHANGEME-region.amazonaws.com"
+  aws_auth_header: "AWS4-HMAC-SHA256 CHANGEME_SIGV4_SIGNATURE"
+
+steps:
+  - name: validate_input
+    type: if
+    condition: "{{ inputs.instance_id | size }} == 0"
+    steps:
+      - name: log_missing
+        type: console
+        with:
+          message: "instance_id is required."
+
+  # TODO: replace with a native AWS EC2 connector when one ships.
+  - name: describe_instance_before
+    type: http
+    with:
+      url: "{{ consts.ec2_endpoint }}/?Action=DescribeInstances&Version=2016-11-15&InstanceId.1={{ inputs.instance_id }}"
+      method: GET
+      headers:
+        Authorization: "{{ consts.aws_auth_header }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: capture_existing_sgs
+    type: data.set
+    with:
+      # In a real run, parse the DescribeInstances response and extract
+      # SecurityGroups[*].GroupId into this array.
+      existing_groups: "${{ steps.describe_instance_before.output.Reservations[0].Instances[0].SecurityGroups | default: [] }}"
+
+  - name: assign_isolation_sg
+    type: http
+    with:
+      url: "{{ consts.ec2_endpoint }}/?Action=ModifyInstanceAttribute&Version=2016-11-15&InstanceId={{ inputs.instance_id }}&GroupId.1={{ inputs.isolation_security_group }}"
+      method: POST
+      headers:
+        Authorization: "{{ consts.aws_auth_header }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+
+  - name: remove_existing_sgs
+    type: foreach
+    with:
+      items: ${{ steps.capture_existing_sgs.output.existing_groups }}
+    steps:
+      - name: revoke_old_sg
+        type: http
+        with:
+          # ModifyInstanceAttribute with the post-isolation group set
+          # effectively replaces the existing list; this loop is a
+          # safety belt that mirrors the original Phantom action.
+          url: "{{ consts.ec2_endpoint }}/?Action=RevokeSecurityGroupIngress&Version=2016-11-15&GroupId={{ item.GroupId }}"
+          method: POST
+          headers:
+            Authorization: "{{ consts.aws_auth_header }}"
+        on-failure:
+          continue: true
+
+  - name: describe_instance_after
+    type: http
+    with:
+      url: "{{ consts.ec2_endpoint }}/?Action=DescribeInstances&Version=2016-11-15&InstanceId.1={{ inputs.instance_id }}"
+      method: GET
+      headers:
+        Authorization: "{{ consts.aws_auth_header }}"
+    on-failure:
+      continue: true
+
+  - name: build_change_comment
+    type: data.set
+    with:
+      summary:
+        instance_id: "{{ inputs.instance_id }}"
+        region: "{{ inputs.region }}"
+        before_groups: "${{ steps.capture_existing_sgs.output.existing_groups }}"
+        after_groups: "${{ steps.describe_instance_after.output.Reservations[0].Instances[0].SecurityGroups | default: [] }}"
+        isolation_sg_applied: "{{ inputs.isolation_security_group }}"
+
+  - name: attach_to_case
+    type: if
+    condition: "{{ inputs.case_id | size }} > 0"
+    steps:
+      - name: post_comment
+        type: kibana.addCaseComment
+        with:
+          caseId: "{{ inputs.case_id }}"
+          comment: |
+            EC2 instance {{ inputs.instance_id }} ({{ inputs.region }}) isolated.
+            Before SGs: {{ steps.build_change_comment.output.summary.before_groups | json }}
+            After SGs:  {{ steps.build_change_comment.output.summary.after_groups | json }}
+            Applied isolation SG: {{ inputs.isolation_security_group }}
+
+  - name: log_outcome
+    type: console
+    with:
+      message: |
+        EC2 isolation complete for instance {{ inputs.instance_id }}.

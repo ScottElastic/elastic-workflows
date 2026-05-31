@@ -1,0 +1,104 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "CrowdStrike — Executable Denylisting"
+description: >
+  Adds a file hash to CrowdStrike Falcon as a custom IOC scoped to a
+  specific device. Validates that both a device value and a hash were
+  provided, queries the device to retrieve its device_id, then uploads
+  an indicator (action=prevent) targeted at that device. Emits a file
+  observable describing what was denylisted.
+enabled: true
+tags: ["splunk-soar", "endpoint-response", "crowdstrike", "ioc", "denylist", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: device
+    type: string
+    required: true
+    description: "Hostname or device id to scope the indicator to."
+  - name: hash
+    type: string
+    required: true
+    description: "File hash (typically SHA256 or MD5) to add as a deny indicator."
+
+consts:
+  crowdstrike_base_url: "https://api.crowdstrike.com"
+  crowdstrike_bearer: "Bearer CHANGEME_FALCON_OAUTH_TOKEN"
+
+steps:
+  - name: validate_inputs
+    type: if
+    condition: "{{ inputs.device | size }} == 0 or {{ inputs.hash | size }} == 0"
+    steps:
+      - name: log_missing_inputs
+        type: console
+        with:
+          message: "Both device and hash must be supplied to denylist an executable."
+
+  - name: query_device
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/devices/queries/devices/v1"
+      method: GET
+      headers:
+        Authorization: "{{ consts.crowdstrike_bearer }}"
+      query:
+        limit: 1
+        filter: "hostname:'{{ inputs.device }}'"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: capture_device_id
+    type: data.set
+    with:
+      device_id: "{{ steps.query_device.output.resources[0] | default: inputs.device }}"
+
+  - name: upload_indicator
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/iocs/entities/indicators/v1"
+      method: POST
+      headers:
+        Authorization: "{{ consts.crowdstrike_bearer }}"
+        Content-Type: "application/json"
+      body:
+        indicators:
+          - value: "{{ inputs.hash }}"
+            type: "sha256"
+            action: "prevent"
+            platforms: ["windows", "mac", "linux"]
+            severity: "high"
+            applied_globally: false
+            host_groups: []
+            description: "Added by Elastic Workflow translation of CrowdStrike denylist playbook"
+            source: "Elastic Workflow"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+      continue: true
+
+  - name: build_file_observable
+    type: data.set
+    with:
+      observable:
+        type: "hash"
+        value: "{{ inputs.hash }}"
+        source: "CrowdStrike OAuth API"
+        action: "prevent"
+        scoped_device: "{{ steps.capture_device_id.output.device_id }}"
+        status: "{{ steps.upload_indicator.output.resources[0] | default: 'unknown' }}"
+
+  - name: log_result
+    type: console
+    with:
+      message: |
+        Denylist indicator submitted for hash={{ inputs.hash }}
+        device_id={{ steps.capture_device_id.output.device_id }}

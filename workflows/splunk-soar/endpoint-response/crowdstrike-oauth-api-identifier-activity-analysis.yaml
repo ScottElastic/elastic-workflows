@@ -1,0 +1,130 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "CrowdStrike — Identifier Activity Analysis"
+description: >
+  Takes a file hash or a domain and asks CrowdStrike which devices in
+  the environment have interacted with it. For each match the device
+  is enriched via the system-info endpoint, and a normalized
+  observable plus a brief summary record is produced.
+enabled: true
+tags: ["splunk-soar", "endpoint-response", "crowdstrike", "hunt", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: file
+    type: string
+    required: false
+    description: "File hash to hunt across CrowdStrike-managed endpoints."
+  - name: domain
+    type: string
+    required: false
+    description: "Domain name to hunt across CrowdStrike-managed endpoints."
+
+consts:
+  crowdstrike_base_url: "https://api.crowdstrike.com"
+  crowdstrike_bearer: "Bearer CHANGEME_FALCON_OAUTH_TOKEN"
+
+steps:
+  - name: branch_file
+    type: if
+    condition: "{{ inputs.file | size }} > 0"
+    steps:
+      - name: hunt_file
+        type: http
+        with:
+          url: "{{ consts.crowdstrike_base_url }}/indicators/queries/devices/v1"
+          method: GET
+          headers:
+            Authorization: "{{ consts.crowdstrike_bearer }}"
+          query:
+            type: "sha256"
+            value: "{{ inputs.file }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: any_file_hits
+        type: if
+        condition: "{{ steps.hunt_file.output.resources | size }} > 0"
+        steps:
+          - name: get_systems_from_file
+            type: http
+            with:
+              url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices/v2"
+              method: GET
+              headers:
+                Authorization: "{{ consts.crowdstrike_bearer }}"
+              query:
+                ids: "${{ steps.hunt_file.output.resources }}"
+            on-failure:
+              continue: true
+
+          - name: build_file_observable
+            type: data.set
+            with:
+              observable:
+                type: "hash"
+                value: "{{ inputs.file }}"
+                source: "CrowdStrike OAuth API"
+                devices_seen: "${{ steps.hunt_file.output.resources | default: [] }}"
+                device_count: "{{ steps.hunt_file.output.resources | size }}"
+
+  - name: branch_domain
+    type: if
+    condition: "{{ inputs.domain | size }} > 0"
+    steps:
+      - name: hunt_domain
+        type: http
+        with:
+          url: "{{ consts.crowdstrike_base_url }}/indicators/queries/devices/v1"
+          method: GET
+          headers:
+            Authorization: "{{ consts.crowdstrike_bearer }}"
+          query:
+            type: "domain"
+            value: "{{ inputs.domain }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: any_domain_hits
+        type: if
+        condition: "{{ steps.hunt_domain.output.resources | size }} > 0"
+        steps:
+          - name: get_systems_from_domain
+            type: http
+            with:
+              url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices/v2"
+              method: GET
+              headers:
+                Authorization: "{{ consts.crowdstrike_bearer }}"
+              query:
+                ids: "${{ steps.hunt_domain.output.resources }}"
+            on-failure:
+              continue: true
+
+          - name: build_domain_observable
+            type: data.set
+            with:
+              observable:
+                type: "domain"
+                value: "{{ inputs.domain }}"
+                source: "CrowdStrike OAuth API"
+                devices_seen: "${{ steps.hunt_domain.output.resources | default: [] }}"
+                device_count: "{{ steps.hunt_domain.output.resources | size }}"
+
+  - name: log_summary
+    type: console
+    with:
+      message: |
+        Identifier activity analysis complete.
+        file={{ inputs.file | default: '(none)' }} hits={{ steps.hunt_file.output.resources | size | default: 0 }}
+        domain={{ inputs.domain | default: '(none)' }} hits={{ steps.hunt_domain.output.resources | size | default: 0 }}

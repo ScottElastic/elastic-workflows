@@ -1,0 +1,152 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "CrowdStrike — Device Attribute Lookup"
+description: >
+  Takes a device value (either an IP address or a hostname) and queries
+  the CrowdStrike Falcon API for the latest attributes for that device.
+  When the input looks like an IPv4 address the workflow searches by
+  local/external IP; otherwise it falls back to a hostname filter. The
+  result is shaped into a normalized OCSF-style device observable.
+enabled: true
+tags: ["splunk-soar", "endpoint-response", "crowdstrike", "device-info", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: device
+    type: string
+    required: true
+    description: "Hostname, IP address, or device identifier to look up in CrowdStrike."
+
+consts:
+  # CrowdStrike Falcon OAuth API. Replace base URL with your tenant's host
+  # (e.g. api.crowdstrike.com, api.us-2.crowdstrike.com, etc.) and provide
+  # a bearer token from the OAuth2 token endpoint.
+  crowdstrike_base_url: "https://api.crowdstrike.com"
+  crowdstrike_bearer: "Bearer CHANGEME_FALCON_OAUTH_TOKEN"
+
+steps:
+  - name: validate_device
+    type: if
+    condition: "{{ inputs.device | size }} == 0"
+    steps:
+      - name: log_missing_device
+        type: console
+        with:
+          message: "No device value supplied; nothing to query."
+
+  - name: detect_ipv4
+    type: data.set
+    with:
+      # Naive IPv4 detection — Liquid does not expose regex, so we check
+      # for three dots and a digit prefix. Good enough as a router.
+      is_ip: "{{ inputs.device | split: '.' | size }} == 4"
+
+  - name: lookup_by_ip
+    type: if
+    condition: "{{ steps.detect_ipv4.output.is_ip }}"
+    steps:
+      # TODO: replace with a native CrowdStrike connector when available.
+      - name: query_device_by_ip
+        type: http
+        with:
+          url: "{{ consts.crowdstrike_base_url }}/devices/queries/devices/v1"
+          method: GET
+          headers:
+            Authorization: "{{ consts.crowdstrike_bearer }}"
+            Accept: "application/json"
+          query:
+            limit: 10
+            filter: "local_ip:'{{ inputs.device }}',external_ip:'{{ inputs.device }}'"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: get_ip_device_details
+        type: http
+        with:
+          url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices/v2"
+          method: GET
+          headers:
+            Authorization: "{{ consts.crowdstrike_bearer }}"
+          query:
+            ids: "${{ steps.query_device_by_ip.output.resources }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: build_ip_observable
+        type: data.set
+        with:
+          observable:
+            type: "ip"
+            value: "{{ inputs.device }}"
+            source: "CrowdStrike OAuth API"
+            attributes:
+              hostname: "{{ steps.get_ip_device_details.output.resources[0].hostname | default: '' }}"
+              connection_ip: "{{ steps.get_ip_device_details.output.resources[0].connection_ip | default: '' }}"
+              mac: "{{ steps.get_ip_device_details.output.resources[0].mac_address | default: '' }}"
+              os: "{{ steps.get_ip_device_details.output.resources[0].os_version | default: '' }}"
+              uid: "{{ steps.get_ip_device_details.output.resources[0].device_id | default: '' }}"
+              product_type: "{{ steps.get_ip_device_details.output.resources[0].product_type_desc | default: 'Unknown' }}"
+    else:
+      - name: query_device_by_hostname
+        type: http
+        with:
+          url: "{{ consts.crowdstrike_base_url }}/devices/queries/devices/v1"
+          method: GET
+          headers:
+            Authorization: "{{ consts.crowdstrike_bearer }}"
+            Accept: "application/json"
+          query:
+            limit: 10
+            filter: "hostname:'{{ inputs.device }}'"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: get_hostname_device_details
+        type: http
+        with:
+          url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices/v2"
+          method: GET
+          headers:
+            Authorization: "{{ consts.crowdstrike_bearer }}"
+          query:
+            ids: "${{ steps.query_device_by_hostname.output.resources }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: build_hostname_observable
+        type: data.set
+        with:
+          observable:
+            type: "host name"
+            value: "{{ inputs.device }}"
+            source: "CrowdStrike OAuth API"
+            attributes:
+              hostname: "{{ steps.get_hostname_device_details.output.resources[0].hostname | default: '' }}"
+              connection_ip: "{{ steps.get_hostname_device_details.output.resources[0].connection_ip | default: '' }}"
+              mac: "{{ steps.get_hostname_device_details.output.resources[0].mac_address | default: '' }}"
+              os: "{{ steps.get_hostname_device_details.output.resources[0].os_version | default: '' }}"
+              uid: "{{ steps.get_hostname_device_details.output.resources[0].device_id | default: '' }}"
+              product_type: "{{ steps.get_hostname_device_details.output.resources[0].product_type_desc | default: 'Unknown' }}"
+
+  - name: log_summary
+    type: console
+    with:
+      message: |
+        CrowdStrike device lookup completed for {{ inputs.device }}.
+        Branch taken: {{ steps.detect_ipv4.output.is_ip | default: false }} (ip-based)

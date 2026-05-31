@@ -1,0 +1,219 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "CrowdStrike — Endpoint Quarantine Response"
+description: >
+  Orchestrates the analyst-driven response phase after an IOC
+  enrichment run on a CrowdStrike-managed device. The workflow:
+    - Checks that a case owner is assigned (adds a note otherwise).
+    - Surfaces an AI-generated triage prompt summarizing context.
+    - Based on the analyst's three Yes/No selections, runs sub-actions:
+      deny-list executable, isolate the host, and/or evict the file.
+  Each sub-step here is an HTTP stub to the matching CrowdStrike API,
+  mirroring the dedicated translation playbooks in this directory.
+enabled: true
+tags: ["splunk-soar", "endpoint-response", "crowdstrike", "response", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: device
+    type: string
+    required: true
+    description: "Hostname or device id of the affected endpoint."
+  - name: file_hash
+    type: string
+    required: false
+    description: "File hash to consider for denylisting / eviction."
+  - name: file_path
+    type: string
+    required: false
+    description: "Absolute file path on the endpoint, for eviction."
+  - name: case_owner
+    type: string
+    required: false
+    description: "Owner of the Kibana case driving this response (empty triggers a reminder note)."
+  - name: case_id
+    type: string
+    required: false
+    description: "Kibana case id to attach commentary to."
+  - name: response_deny
+    type: boolean
+    required: false
+    description: "Skip the analyst prompt and force the denylist branch."
+    default: false
+  - name: response_isolate
+    type: boolean
+    required: false
+    description: "Skip the analyst prompt and force the isolation branch."
+    default: false
+  - name: response_evict
+    type: boolean
+    required: false
+    description: "Skip the analyst prompt and force the file-eviction branch."
+    default: false
+
+consts:
+  crowdstrike_base_url: "https://api.crowdstrike.com"
+  crowdstrike_bearer: "Bearer CHANGEME_FALCON_OAUTH_TOKEN"
+  llm_connector_id: "CHANGEME-openai-connector"
+
+steps:
+  - name: owner_check
+    type: if
+    condition: "{{ inputs.case_owner | size }} == 0"
+    steps:
+      - name: log_owner_missing
+        type: console
+        with:
+          message: "No case owner assigned — analyst should claim this case before continuing."
+      - name: comment_owner_missing
+        type: if
+        condition: "{{ inputs.case_id | size }} > 0"
+        steps:
+          - name: post_owner_reminder
+            type: kibana.addCaseComment
+            with:
+              caseId: "{{ inputs.case_id }}"
+              comment: "Please assign a case owner before performing response actions."
+
+  - name: triage_summary
+    type: ai.prompt
+    connector-id: "{{ consts.llm_connector_id }}"
+    with:
+      prompt: |
+        Summarize the context for a CrowdStrike endpoint response decision
+        in 4-6 bullets. Then suggest, on a separate line each, three
+        Yes/No recommendations the analyst must confirm:
+          1) Add file to denylist?
+          2) Network-isolate the host?
+          3) Evict the file from disk?
+        Device: {{ inputs.device }}
+        File hash: {{ inputs.file_hash | default: '(none)' }}
+        File path: {{ inputs.file_path | default: '(none)' }}
+        Case id: {{ inputs.case_id | default: '(none)' }}
+    on-failure:
+      continue: true
+
+  - name: resolve_device
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/devices/queries/devices/v1"
+      method: GET
+      headers:
+        Authorization: "{{ consts.crowdstrike_bearer }}"
+      query:
+        limit: 1
+        filter: "hostname:'{{ inputs.device }}',device_id:'{{ inputs.device }}'"
+    on-failure:
+      continue: true
+
+  - name: capture_device_id
+    type: data.set
+    with:
+      device_id: "{{ steps.resolve_device.output.resources[0] | default: inputs.device }}"
+
+  - name: maybe_denylist
+    type: if
+    condition: "{{ inputs.response_deny }} and {{ inputs.file_hash | size }} > 0"
+    steps:
+      - name: upload_deny_indicator
+        type: http
+        with:
+          url: "{{ consts.crowdstrike_base_url }}/iocs/entities/indicators/v1"
+          method: POST
+          headers:
+            Authorization: "{{ consts.crowdstrike_bearer }}"
+            Content-Type: "application/json"
+          body:
+            indicators:
+              - value: "{{ inputs.file_hash }}"
+                type: "sha256"
+                action: "prevent"
+                platforms: ["windows", "mac", "linux"]
+                severity: "high"
+                applied_globally: false
+                host_groups: []
+                description: "Denylisted via Elastic Workflow quarantine-response translation"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+
+  - name: maybe_isolate
+    type: if
+    condition: "{{ inputs.response_isolate }}"
+    steps:
+      - name: contain_device
+        type: http
+        with:
+          url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices-actions/v2"
+          method: POST
+          headers:
+            Authorization: "{{ consts.crowdstrike_bearer }}"
+            Content-Type: "application/json"
+          query:
+            action_name: "contain"
+          body:
+            ids:
+              - "{{ steps.capture_device_id.output.device_id }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+
+  - name: maybe_evict
+    type: if
+    condition: "{{ inputs.response_evict }} and {{ inputs.file_path | size }} > 0"
+    steps:
+      - name: open_rtr_session
+        type: http
+        with:
+          url: "{{ consts.crowdstrike_base_url }}/real-time-response/entities/sessions/v1"
+          method: POST
+          headers:
+            Authorization: "{{ consts.crowdstrike_bearer }}"
+            Content-Type: "application/json"
+          body:
+            device_id: "{{ steps.capture_device_id.output.device_id }}"
+        on-failure:
+          continue: true
+
+      - name: run_rm
+        type: http
+        with:
+          url: "{{ consts.crowdstrike_base_url }}/real-time-response/entities/admin-command/v1"
+          method: POST
+          headers:
+            Authorization: "{{ consts.crowdstrike_bearer }}"
+            Content-Type: "application/json"
+          body:
+            base_command: "rm"
+            command_string: "rm '{{ inputs.file_path }}'"
+            session_id: "{{ steps.open_rtr_session.output.resources[0].session_id | default: '' }}"
+        on-failure:
+          continue: true
+
+      - name: close_rtr_session
+        type: http
+        with:
+          url: "{{ consts.crowdstrike_base_url }}/real-time-response/entities/sessions/v1"
+          method: DELETE
+          headers:
+            Authorization: "{{ consts.crowdstrike_bearer }}"
+          query:
+            session_id: "{{ steps.open_rtr_session.output.resources[0].session_id | default: '' }}"
+        on-failure:
+          continue: true
+
+  - name: log_outcome
+    type: console
+    with:
+      message: |
+        Quarantine response complete on device {{ steps.capture_device_id.output.device_id }}.
+        deny={{ inputs.response_deny }} isolate={{ inputs.response_isolate }} evict={{ inputs.response_evict }}

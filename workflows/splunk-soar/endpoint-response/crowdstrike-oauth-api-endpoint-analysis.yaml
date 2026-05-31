@@ -1,0 +1,198 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "CrowdStrike — Endpoint Analysis (Processes / Netstat / System)"
+description: >
+  Performs an in-depth on-host inspection for a CrowdStrike-managed
+  device. Looks up the device, opens a Real-Time Response (RTR)
+  session, runs a small set of admin commands (process list, netstat,
+  services, system info), and emits process / network / system / host
+  observables for each. Closes the RTR session when finished.
+enabled: true
+tags: ["splunk-soar", "endpoint-response", "crowdstrike", "rtr", "live-response", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: device
+    type: string
+    required: true
+    description: "Hostname or device id to inspect via CrowdStrike RTR."
+
+consts:
+  crowdstrike_base_url: "https://api.crowdstrike.com"
+  crowdstrike_bearer: "Bearer CHANGEME_FALCON_OAUTH_TOKEN"
+
+steps:
+  - name: validate_device
+    type: if
+    condition: "{{ inputs.device | size }} == 0"
+    steps:
+      - name: log_missing_device
+        type: console
+        with:
+          message: "Cannot run endpoint analysis without a device value."
+
+  - name: query_device
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/devices/queries/devices/v1"
+      method: GET
+      headers:
+        Authorization: "{{ consts.crowdstrike_bearer }}"
+      query:
+        limit: 1
+        filter: "hostname:'{{ inputs.device }}'"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: capture_device_id
+    type: data.set
+    with:
+      device_id: "{{ steps.query_device.output.resources[0] | default: inputs.device }}"
+
+  - name: create_rtr_session
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/real-time-response/entities/sessions/v1"
+      method: POST
+      headers:
+        Authorization: "{{ consts.crowdstrike_bearer }}"
+        Content-Type: "application/json"
+      body:
+        device_id: "{{ steps.capture_device_id.output.device_id }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+      continue: true
+
+  - name: capture_session_id
+    type: data.set
+    with:
+      session_id: "{{ steps.create_rtr_session.output.resources[0].session_id | default: '' }}"
+
+  - name: run_admin_ps
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/real-time-response/entities/admin-command/v1"
+      method: POST
+      headers:
+        Authorization: "{{ consts.crowdstrike_bearer }}"
+        Content-Type: "application/json"
+      body:
+        base_command: "ps"
+        command_string: "ps"
+        session_id: "{{ steps.capture_session_id.output.session_id }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+      continue: true
+
+  - name: build_process_observables
+    type: data.set
+    with:
+      process_output: "{{ steps.run_admin_ps.output.resources[0].stdout | default: '' }}"
+      observable_type: "process listing"
+      source: "CrowdStrike OAuth API"
+
+  - name: run_admin_netstat
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/real-time-response/entities/admin-command/v1"
+      method: POST
+      headers:
+        Authorization: "{{ consts.crowdstrike_bearer }}"
+        Content-Type: "application/json"
+      body:
+        base_command: "netstat"
+        command_string: "netstat"
+        session_id: "{{ steps.capture_session_id.output.session_id }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+      continue: true
+
+  - name: build_network_observables
+    type: data.set
+    with:
+      netstat_output: "{{ steps.run_admin_netstat.output.resources[0].stdout | default: '' }}"
+      observable_type: "network connections"
+
+  - name: run_admin_services
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/real-time-response/entities/admin-command/v1"
+      method: POST
+      headers:
+        Authorization: "{{ consts.crowdstrike_bearer }}"
+        Content-Type: "application/json"
+      body:
+        base_command: "services"
+        command_string: "runscript -CloudFile='List Services'"
+        session_id: "{{ steps.capture_session_id.output.session_id }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+      continue: true
+
+  - name: build_service_observables
+    type: data.set
+    with:
+      services_output: "{{ steps.run_admin_services.output.resources[0].stdout | default: '' }}"
+      observable_type: "services"
+
+  - name: get_system_info
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices/v2"
+      method: GET
+      headers:
+        Authorization: "{{ consts.crowdstrike_bearer }}"
+      query:
+        ids: "${{ steps.query_device.output.resources }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: build_system_observables
+    type: data.set
+    with:
+      host_observable:
+        type: "host"
+        value: "{{ inputs.device }}"
+        source: "CrowdStrike OAuth API"
+        attributes:
+          hostname: "{{ steps.get_system_info.output.resources[0].hostname | default: '' }}"
+          os: "{{ steps.get_system_info.output.resources[0].os_version | default: '' }}"
+          mac: "{{ steps.get_system_info.output.resources[0].mac_address | default: '' }}"
+          uid: "{{ steps.capture_device_id.output.device_id }}"
+
+  - name: delete_rtr_session
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/real-time-response/entities/sessions/v1"
+      method: DELETE
+      headers:
+        Authorization: "{{ consts.crowdstrike_bearer }}"
+      query:
+        session_id: "{{ steps.capture_session_id.output.session_id }}"
+    on-failure:
+      continue: true
+
+  - name: log_summary
+    type: console
+    with:
+      message: |
+        Endpoint analysis for {{ inputs.device }} (device_id={{ steps.capture_device_id.output.device_id }}) finished.
+        Session {{ steps.capture_session_id.output.session_id }} closed.

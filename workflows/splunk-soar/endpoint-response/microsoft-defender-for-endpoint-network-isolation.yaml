@@ -1,0 +1,83 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Microsoft Defender for Endpoint — Network Isolation"
+description: >
+  Network-isolates a device managed by Microsoft Defender for Endpoint.
+  Takes a uid (device id or hostname), validates the input, calls the
+  Defender ATP isolate-machine endpoint, and emits a host observable
+  for downstream automation. Maps to MITRE D3FEND d3f:NetworkIsolation.
+enabled: true
+tags: ["splunk-soar", "endpoint-response", "microsoft-defender", "network-isolation", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: uid
+    type: string
+    required: true
+    description: "Defender ATP machine id or hostname."
+  - name: isolation_type
+    type: string
+    required: false
+    description: "Defender isolation strength (Full or Selective)."
+    default: "Full"
+  - name: comment
+    type: string
+    required: false
+    description: "Free-text justification recorded with the action."
+    default: "Isolated by Elastic Workflow network-isolation translation"
+
+consts:
+  # Defender ATP / Microsoft 365 Defender machine actions API.
+  # Authentication is OAuth2 client-credentials against the Microsoft
+  # identity platform; supply a bearer token here.
+  defender_base_url: "https://api.securitycenter.microsoft.com"
+  defender_bearer: "Bearer CHANGEME_DEFENDER_GRAPH_TOKEN"
+
+steps:
+  - name: validate_uid
+    type: if
+    condition: "{{ inputs.uid | size }} == 0"
+    steps:
+      - name: log_missing
+        type: console
+        with:
+          message: "A device uid must be supplied to isolate."
+
+  - name: isolate_machine
+    type: http
+    with:
+      url: "{{ consts.defender_base_url }}/api/machines/{{ inputs.uid }}/isolate"
+      method: POST
+      headers:
+        Authorization: "{{ consts.defender_bearer }}"
+        Content-Type: "application/json"
+      body:
+        Comment: "{{ inputs.comment }}"
+        IsolationType: "{{ inputs.isolation_type }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+
+  - name: build_host_observable
+    type: data.set
+    with:
+      observable:
+        type: "host"
+        value: "{{ inputs.uid }}"
+        source: "Microsoft Defender for Endpoint"
+        action: "isolated"
+        isolation_type: "{{ inputs.isolation_type }}"
+        defender_action_id: "{{ steps.isolate_machine.output.id | default: '' }}"
+        status: "{{ steps.isolate_machine.output.status | default: 'pending' }}"
+
+  - name: log_result
+    type: console
+    with:
+      message: |
+        Defender isolation requested for {{ inputs.uid }} (type={{ inputs.isolation_type }}).
+        action_id={{ steps.build_host_observable.output.observable.defender_action_id }}

@@ -5,12 +5,12 @@
 name: "EndaceProbe — Splunk Search and Conditional PCAP Download"
 description: >
   Triggered from a forwarded Splunk syslog event. Converts the event's epoch
-  timestamp to ISO-8601, asks EndaceProbe for the flow of interest, and:
-  if the result has a real PCAP (byteCount > 27), proceeds; otherwise records
-  the failure as a case note. When a high-severity event is involved the
-  PCAP is downloaded automatically. Otherwise, a size check is applied —
-  PCAPs at or below 10 MB are downloaded directly, while larger PCAPs return
-  an EndaceP2P link that is captured as a markdown case note for an analyst.
+  timestamp to ISO-8601, queries an EndaceProbe appliance for the matching
+  flow (host1/host2/port1/port2/protocol), and decides what to do with the
+  resulting PCAP. High-severity events always download the PCAP. Otherwise,
+  PCAPs at or under 10 MB download directly while larger ones return an
+  EndaceP2P link that is attached to the linked Kibana case for analyst
+  retrieval. Empty searches (byteCount <= 27) are logged as case notes.
 enabled: true
 tags: ["splunk-soar", "misc", "pcap", "endace", "splunk", "translated"]
 
@@ -54,8 +54,10 @@ inputs:
     description: "Optional case to attach notes/comments to."
 
 consts:
-  # EndaceProbe REST endpoint and an API token. Original Phantom asset was
-  # named "endace_probe" — substitute your appliance and credentials.
+  # EndaceProbe REST — see https://endace.com/api-docs (vendor-internal).
+  # Auth uses an API token via the Authorization header. TODO: confirm
+  # the actual /flow/search vs /api/v3/flow path on your appliance build;
+  # the shape below tracks the legacy Phantom integration.
   endace_endpoint: "https://CHANGEME-endace.example.com/api"
   endace_token: "Bearer CHANGEME_TOKEN"
   span_before_seconds: 3600

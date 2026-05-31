@@ -4,11 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "VMWorld — C2 Response"
 description: >
-  Demo-style response to a command-and-control alert in a VMware-managed
-  estate. Threat-hunts the file hashes and destination IPs via VirusTotal
-  / PhishMe / Protectwise, blocks malicious file hashes on Carbon Black,
-  classifies severity, blocks malicious IPs via VMware NSX, snapshots
-  affected vSphere VMs for forensics, and closes out the container.
+  Demo-style multi-vendor response to a command-and-control alert in a
+  VMware-managed estate. Threat-hunts destination IPs and file hashes via
+  Cofense/PhishMe, ProtectWise, and VirusTotal; blocks high-confidence
+  malicious IPs on VMware NSX, blocks high-confidence malicious MD5 hashes
+  on Carbon Black, snapshots vSphere VMs whose IP matches a source address,
+  and uses an LLM to classify the overall incident severity (HIGH | LOW).
+  All block actions are destructive and fail loudly.
 enabled: true
 tags: ["splunk-soar", "remediation", "vmware", "c2", "nsx", "carbonblack", "translated"]
 
@@ -38,21 +40,29 @@ inputs:
     required: false
 
 consts:
+  virustotal_connector_id: "CHANGEME-virustotal-connector"
   virustotal_endpoint: "https://www.virustotal.com/api/v3"
   virustotal_api_key: "CHANGEME"
+  # Cofense Intelligence — HTTP Basic auth.
   phishme_endpoint: "https://www.threathq.com/apiv1"
-  phishme_api_key: "CHANGEME"
+  phishme_auth: "Basic CHANGEME"
+  # ProtectWise (legacy). TODO: re-point if migrated to a successor NDR.
   protectwise_endpoint: "https://api.protectwise.com/api"
-  protectwise_token: "CHANGEME"
-  carbonblack_endpoint: "https://CHANGEME-carbonblack.internal/api/v1"
+  protectwise_token: "Bearer CHANGEME"
+  # Carbon Black Response.
+  carbonblack_endpoint: "https://CHANGEME-carbonblack.internal"
   carbonblack_token: "CHANGEME"
-  vsphere_endpoint: "https://CHANGEME-vsphere.internal/api"
-  vsphere_auth_header: "Bearer CHANGEME_TOKEN"
-  nsx_endpoint: "https://CHANGEME-nsx.internal/api"
-  nsx_auth_header: "Bearer CHANGEME_TOKEN"
+  # vSphere REST (vCenter Automation API) — session token via vmware-api-session-id.
+  vsphere_endpoint: "https://CHANGEME-vsphere.internal"
+  vsphere_session_token: "CHANGEME_SESSION_ID"
+  # NSX-T Policy API — POST /policy/api/v1/infra/domains/default/groups/{id}
+  # with X-NSX-Username/Password (or Bearer for federation). TODO: confirm.
+  nsx_endpoint: "https://CHANGEME-nsx.internal"
+  nsx_auth_header: "Basic CHANGEME"
+  nsx_block_group: "SOAR_BLOCK"
+  llm_connector_id: "CHANGEME-llm-connector"
   vt_block_threshold: 20
   ip_positives_threshold: 15
-  ip_threatscore_threshold: 60
 
 steps:
   # IP intel + reputation in parallel
@@ -71,15 +81,19 @@ steps:
               url: "{{ consts.phishme_endpoint }}/threat/search"
               method: GET
               headers:
-                X-PhishMe-Token: "{{ consts.phishme_api_key }}"
-              body:
+                Authorization: "{{ consts.phishme_auth }}"
+                Accept: "application/json"
+              query:
                 ip: "{{ item }}"
             on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
               continue: true
 
           - name: ip_reputation
             type: virustotal.scanIp
-            connector-id: "CHANGEME-virustotal-connector"
+            connector-id: "{{ consts.virustotal_connector_id }}"
             with:
               ip: "{{ item }}"
             on-failure:
@@ -92,18 +106,25 @@ steps:
             type: if
             condition: "{{ steps.ip_reputation.output.data.attributes.last_analysis_stats.malicious | default: 0 }} >= {{ consts.ip_positives_threshold }}"
             steps:
+              # NSX-T Policy: PATCH a group, adding the IP via IPAddressExpression.
+              # Destructive — fail loudly.
               - name: nsx_block
                 type: http
                 with:
-                  url: "{{ consts.nsx_endpoint }}/firewall/block-ip"
-                  method: POST
+                  url: "{{ consts.nsx_endpoint }}/policy/api/v1/infra/domains/default/groups/{{ consts.nsx_block_group }}"
+                  method: PATCH
                   headers:
                     Authorization: "{{ consts.nsx_auth_header }}"
                     Content-Type: "application/json"
                   body:
-                    ip: "{{ item }}"
+                    expression:
+                      - resource_type: "IPAddressExpression"
+                        ip_addresses:
+                          - "{{ item }}"
                 on-failure:
-                  continue: true
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
 
   # MD5 hashes
   - name: md5_branch
@@ -121,15 +142,19 @@ steps:
               url: "{{ consts.phishme_endpoint }}/threat/search"
               method: GET
               headers:
-                X-PhishMe-Token: "{{ consts.phishme_api_key }}"
-              body:
+                Authorization: "{{ consts.phishme_auth }}"
+                Accept: "application/json"
+              query:
                 hash: "{{ item }}"
             on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
               continue: true
 
           - name: file_reputation_md5
             type: virustotal.scanFileHash
-            connector-id: "CHANGEME-virustotal-connector"
+            connector-id: "{{ consts.virustotal_connector_id }}"
             with:
               hash: "{{ item }}"
             on-failure:
@@ -142,18 +167,23 @@ steps:
             type: if
             condition: "{{ steps.file_reputation_md5.output.data.attributes.last_analysis_stats.malicious | default: 0 }} >= {{ consts.vt_block_threshold }}"
             steps:
+              # Carbon Black Response: ban the hash. Destructive.
               - name: carbonblack_block_hash
                 type: http
                 with:
-                  url: "{{ consts.carbonblack_endpoint }}/banning/blacklist"
+                  url: "{{ consts.carbonblack_endpoint }}/api/v1/banning/blacklist"
                   method: POST
                   headers:
                     X-Auth-Token: "{{ consts.carbonblack_token }}"
                     Content-Type: "application/json"
                   body:
                     md5hash: "{{ item }}"
+                    text: "Elastic Workflows — vmworld_c2_response block"
+                    enabled: true
                 on-failure:
-                  continue: true
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
 
   # SHA-256 hashes — query Protectwise observations only
   - name: sha256_branch
@@ -171,10 +201,14 @@ steps:
               url: "{{ consts.protectwise_endpoint }}/observations/by-hash"
               method: GET
               headers:
-                X-Access-Token: "{{ consts.protectwise_token }}"
-              body:
+                Authorization: "{{ consts.protectwise_token }}"
+                Accept: "application/json"
+              query:
                 hash: "{{ item }}"
             on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
               continue: true
 
   # VM snapshots — list VMs, pick those whose IP matches a source address.
@@ -182,14 +216,19 @@ steps:
     type: if
     condition: "{{ inputs.source_addresses | size }} > 0"
     steps:
+      # vSphere REST: GET /api/vcenter/vm returns the inventory.
       - name: list_vms
         type: http
         with:
-          url: "{{ consts.vsphere_endpoint }}/vms"
+          url: "{{ consts.vsphere_endpoint }}/api/vcenter/vm"
           method: GET
           headers:
-            Authorization: "{{ consts.vsphere_auth_header }}"
+            vmware-api-session-id: "{{ consts.vsphere_session_token }}"
+            Accept: "application/json"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: matching_vms
@@ -204,29 +243,57 @@ steps:
         with:
           items: ${{ steps.matching_vms.output.matches }}
         steps:
+          # vSphere REST: POST /api/vcenter/vm/{vm}/snapshot.
           - name: snapshot_vm
             type: http
             with:
-              url: "{{ consts.vsphere_endpoint }}/snapshot"
+              url: "{{ consts.vsphere_endpoint }}/api/vcenter/vm/{{ item.vm }}/snapshot"
               method: POST
               headers:
-                Authorization: "{{ consts.vsphere_auth_header }}"
+                vmware-api-session-id: "{{ consts.vsphere_session_token }}"
                 Content-Type: "application/json"
               body:
-                vmx_path: "{{ item.vmx_path }}"
+                name: "vmworld-c2-{{ item.vm }}"
+                description: "Snapshot captured by Elastic Workflows C2 response"
+                memory: true
+                quiesce: false
             on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
               continue: true
 
-  # Severity classification — if either VT positives high OR Threatstream
-  # threatscore high, mark high; otherwise low. Use AI to weigh signals.
+  # Use an LLM to classify the overall incident severity from the
+  # collected intel. Output must be a single word so the if-step can route on it.
   - name: classify_severity
     type: ai.prompt
-    connector-id: "CHANGEME-llm-connector"
+    connector-id: "{{ consts.llm_connector_id }}"
     with:
       prompt: |
-        Based on the reputation results below, return either HIGH or LOW.
-        ip_reputation: {{ steps.ip_reputation.output | default: {} | json }}
-        Reply with the single word HIGH or LOW.
+        You are a SOC severity classifier for a command-and-control alert.
+
+        Reply with EXACTLY one word — either HIGH or LOW. No punctuation, no
+        explanation.
+
+        Classify HIGH if ANY of these conditions hold:
+          - VirusTotal IP malicious count >= {{ consts.ip_positives_threshold }}
+          - VirusTotal file MD5 malicious count >= {{ consts.vt_block_threshold }}
+          - PhishMe or ProtectWise hunt result contains the strings
+            "Beacon", "C2", "command-and-control", or "malicious"
+        Otherwise classify LOW.
+
+        Evidence:
+          VirusTotal IP last result: {{ steps.ip_reputation.output | default: {} | json | truncate: 1500 }}
+          VirusTotal MD5 last result: {{ steps.file_reputation_md5.output | default: {} | json | truncate: 1500 }}
+          PhishMe IP last result: {{ steps.hunt_ip_phishme.output | default: {} | json | truncate: 1500 }}
+          ProtectWise hash last result: {{ steps.hunt_file_protectwise.output | default: {} | json | truncate: 1500 }}
+
+        Output: HIGH or LOW.
+    on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
+      continue: true
 
   - name: apply_severity_high
     type: if

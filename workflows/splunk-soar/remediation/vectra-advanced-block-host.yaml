@@ -4,10 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Vectra — Advanced Block Host"
 description: >
-  Handles Vectra block/unblock requests against a Palo Alto NGFW. On a
-  block request, if the target is a virtual machine, snapshot it first;
-  if the threat category is lateral movement, also suspend the VM.
-  On an unblock request, remove the source IP from the firewall.
+  Handles Vectra Detect block/unblock requests against a Palo Alto NGFW. On a
+  block request, if the target is a virtual machine, take a vSphere snapshot
+  first, and if the Vectra threat category is "lateral", also suspend the VM
+  for forensic capture. On an unblock request, the source IP is removed from
+  the SOAR address group. Destructive actions (block, suspend) fail loudly.
 enabled: true
 tags: ["splunk-soar", "remediation", "vectra", "panw", "vmware", "translated"]
 
@@ -39,11 +40,15 @@ inputs:
     description: "Vectra category — when 'lateral', VM is also suspended."
 
 consts:
+  # PAN-OS XML API — auth via key= query param.
   panw_endpoint: "https://CHANGEME-panw.internal/api"
   panw_api_key: "CHANGEME"
   panw_vsys: "vsys1"
-  vsphere_endpoint: "https://CHANGEME-vsphere.internal/api"
-  vsphere_auth_header: "Bearer CHANGEME_TOKEN"
+  panw_block_group: "SOAR_BLOCK"
+  # vSphere REST API — see https://developer.vmware.com/apis/vsphere-automation
+  # Auth: POST /api/session returns session token; pass via vmware-api-session-id.
+  vsphere_endpoint: "https://CHANGEME-vsphere.internal"
+  vsphere_session_token: "CHANGEME_SESSION_ID"
 
 steps:
   - name: route_block
@@ -54,52 +59,74 @@ steps:
         type: if
         condition: "{{ inputs.is_virtual }} == true and {{ inputs.vmx_path | size }} > 0"
         steps:
+          # vSphere REST: POST /api/vcenter/vm/{vm}/snapshot — destructive in
+          # the sense that it consumes datastore; no continue: true.
           - name: snapshot_vm
             type: http
             with:
-              url: "{{ consts.vsphere_endpoint }}/snapshot"
+              url: "{{ consts.vsphere_endpoint }}/api/vcenter/vm/{{ inputs.vmx_path }}/snapshot"
               method: POST
               headers:
-                Authorization: "{{ consts.vsphere_auth_header }}"
+                vmware-api-session-id: "{{ consts.vsphere_session_token }}"
                 Content-Type: "application/json"
               body:
-                vmx_path: "{{ inputs.vmx_path }}"
-                download: true
+                name: "vectra-soar-{{ inputs.dvc_ip }}"
+                description: "Snapshot captured by Vectra SOAR workflow"
+                memory: true
+                quiesce: false
             on-failure:
-              continue: true
+              retry:
+                max-attempts: 3
+                delay: "5s"
 
           - name: maybe_suspend
             type: if
             condition: '"{{ inputs.threat_category }}" == "lateral"'
             steps:
+              # vSphere REST: POST /api/vcenter/vm/{vm}/power?action=suspend
               - name: suspend_vm
                 type: http
                 with:
-                  url: "{{ consts.vsphere_endpoint }}/suspend"
+                  url: "{{ consts.vsphere_endpoint }}/api/vcenter/vm/{{ inputs.vmx_path }}/power"
                   method: POST
                   headers:
-                    Authorization: "{{ consts.vsphere_auth_header }}"
-                    Content-Type: "application/json"
-                  body:
-                    vmx_path: "{{ inputs.vmx_path }}"
+                    vmware-api-session-id: "{{ consts.vsphere_session_token }}"
+                  query:
+                    action: "suspend"
                 on-failure:
-                  continue: true
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
 
+      # PAN-OS: add the IP to the configured block address group.
       - name: block_ip
         type: http
         with:
-          url: "{{ consts.panw_endpoint }}/block-ip"
+          url: "{{ consts.panw_endpoint }}/"
           method: POST
-          headers:
-            X-API-Key: "{{ consts.panw_api_key }}"
-            Content-Type: "application/json"
-          body:
-            ip: "{{ inputs.dvc_ip }}"
-            vsys: "{{ consts.panw_vsys }}"
-            is_source_address: true
+          query:
+            type: "config"
+            action: "set"
+            xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.panw_vsys }}']/address-group/entry[@name='{{ consts.panw_block_group }}']/static"
+            element: "<member>{{ inputs.dvc_ip }}</member>"
+            key: "{{ consts.panw_api_key }}"
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
+            delay: "5s"
+
+      - name: commit_block
+        type: http
+        with:
+          url: "{{ consts.panw_endpoint }}/"
+          method: POST
+          query:
+            type: "commit"
+            cmd: "<commit></commit>"
+            key: "{{ consts.panw_api_key }}"
+        on-failure:
+          retry:
+            max-attempts: 3
             delay: "5s"
 
   - name: route_unblock
@@ -109,18 +136,30 @@ steps:
       - name: unblock_ip
         type: http
         with:
-          url: "{{ consts.panw_endpoint }}/unblock-ip"
+          url: "{{ consts.panw_endpoint }}/"
           method: POST
-          headers:
-            X-API-Key: "{{ consts.panw_api_key }}"
-            Content-Type: "application/json"
-          body:
-            ip: "{{ inputs.dvc_ip }}"
-            vsys: "{{ consts.panw_vsys }}"
-            is_source_address: true
+          query:
+            type: "config"
+            action: "delete"
+            xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.panw_vsys }}']/address-group/entry[@name='{{ consts.panw_block_group }}']/static/member[text()='{{ inputs.dvc_ip }}']"
+            key: "{{ consts.panw_api_key }}"
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
+            delay: "5s"
+
+      - name: commit_unblock
+        type: http
+        with:
+          url: "{{ consts.panw_endpoint }}/"
+          method: POST
+          query:
+            type: "commit"
+            cmd: "<commit></commit>"
+            key: "{{ consts.panw_api_key }}"
+        on-failure:
+          retry:
+            max-attempts: 3
             delay: "5s"
 
   - name: log_complete

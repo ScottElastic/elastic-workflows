@@ -4,10 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "ExtraHop — Data Exfiltration Investigation"
 description: >
-  Reacts to an ExtraHop "data_exfiltration" anomaly: pulls the device profile,
-  enumerates external client peers over the past 30 minutes, filters out
-  RFC1918 addresses, scores the remaining IPs through Anomali ThreatStream,
-  and on hits tags the device "bad_ip_reputation" and creates an analyst task.
+  Reacts to an ExtraHop "data_exfiltration" detection: looks up the source
+  device via the ExtraHop REST API, enumerates external client peers over the
+  past 30 minutes via an activity map query, filters out RFC1918 addresses,
+  scores remaining IPs through Anomali ThreatStream, and on hits tags the
+  device "bad_ip_reputation" and emits an analyst follow-up task. Requires the
+  source_address artifact field; only runs when the label is "data_exfiltration".
 enabled: true
 tags: ["splunk-soar", "investigation", "extrahop", "data-exfiltration", "translated"]
 
@@ -26,20 +28,25 @@ inputs:
     description: "Source IP of the device that fired the anomaly."
 
 consts:
+  # ExtraHop REST API — see https://docs.extrahop.com/current/rest-api-guide/.
+  # Auth header format: `ExtraHop apikey=<key>` for on-premises appliances.
+  # Activity maps are queried via POST /activitymaps/query with a from/until
+  # window in milliseconds since epoch (negative numbers mean relative).
   extrahop_endpoint: "https://CHANGEME-extrahop/api/v1"
   extrahop_auth: "ExtraHop apikey=CHANGEME"
   threatstream_endpoint: "https://api.threatstream.com/api/v2"
   threatstream_auth: "Bearer CHANGEME"
   threat_score_threshold: 1
   threat_confidence_threshold: 1
-  lookback_minutes: 30
+  # Negative ms = relative to now. -1800000 = last 30 minutes.
+  lookback_ms: -1800000
 
 steps:
   - name: only_handle_exfil_label
     type: if
     condition: "'{{ inputs.label }}' == 'data_exfiltration'"
     steps:
-      # TODO: replace http stubs with a native ExtraHop connector when added.
+      # POST /devices/search resolves the device by IPv4 address.
       - name: get_device_info
         type: http
         with:
@@ -55,39 +62,61 @@ steps:
               operator: "="
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
+      # POST /activitymaps/query — protocol distribution for the device.
       - name: get_protocols
         type: http
         with:
-          url: "{{ consts.extrahop_endpoint }}/activitymaps"
+          url: "{{ consts.extrahop_endpoint }}/activitymaps/query"
           method: POST
           headers:
             Authorization: "{{ consts.extrahop_auth }}"
             Content-Type: "application/json"
           body:
-            device_id: "{{ steps.get_device_info.output[0].id }}"
-            from_time_minutes: "{{ consts.lookback_minutes }}"
-            mode: "protocols"
+            from: "{{ consts.lookback_ms }}"
+            until: 0
+            edge_annotations: ["protocols"]
+            sources:
+              - origins:
+                  - object_type: "device"
+                    object_id: "{{ steps.get_device_info.output[0].id }}"
+                steps:
+                  - relationships:
+                      - role: "any"
+                        protocol: "any"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
+      # POST /activitymaps/query — client peers of the device.
       - name: get_client_peers
         type: http
         with:
-          url: "{{ consts.extrahop_endpoint }}/activitymaps"
+          url: "{{ consts.extrahop_endpoint }}/activitymaps/query"
           method: POST
           headers:
             Authorization: "{{ consts.extrahop_auth }}"
             Content-Type: "application/json"
           body:
-            device_id: "{{ steps.get_device_info.output[0].id }}"
-            from_time_minutes: "{{ consts.lookback_minutes }}"
-            peer_role: "client"
-            protocol: "any"
+            from: "{{ consts.lookback_ms }}"
+            until: 0
+            sources:
+              - origins:
+                  - object_type: "device"
+                    object_id: "{{ steps.get_device_info.output[0].id }}"
+                steps:
+                  - relationships:
+                      - role: "client"
+                        protocol: "any"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: lookup_each_external_peer
@@ -100,6 +129,8 @@ steps:
             # Process only external IPs (NOT in 10/8, 172.16/12, 192.168/16).
             condition: "not (('{{ item.ipaddr4 }}' contains_prefix '10.') or ('{{ item.ipaddr4 }}' contains_prefix '192.168.') or ('{{ item.ipaddr4 }}' contains_prefix '172.16.') or ('{{ item.ipaddr4 }}' contains_prefix '172.17.') or ('{{ item.ipaddr4 }}' contains_prefix '172.18.') or ('{{ item.ipaddr4 }}' contains_prefix '172.19.') or ('{{ item.ipaddr4 }}' contains_prefix '172.2') or ('{{ item.ipaddr4 }}' contains_prefix '172.30.') or ('{{ item.ipaddr4 }}' contains_prefix '172.31.'))"
             steps:
+              # Anomali ThreatStream: GET /api/v2/intelligence/ with apikey auth.
+              # See https://www.anomali.com/resources/threatstream-api.
               - name: threatstream_ip_lookup
                 type: http
                 with:
@@ -109,13 +140,20 @@ steps:
                     Authorization: "{{ consts.threatstream_auth }}"
                   query:
                     value: "{{ item.ipaddr4 }}"
+                    type: "ip"
+                    status: "active"
                 on-failure:
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
                   continue: true
 
               - name: handle_bad_reputation
                 type: if
                 condition: "({{ steps.threatstream_ip_lookup.output.threatscore | default: 0 }} > {{ consts.threat_score_threshold }}) and ({{ steps.threatstream_ip_lookup.output.confidence | default: 0 }} > {{ consts.threat_confidence_threshold }})"
                 steps:
+                  # POST /devices/{id}/tags — assign the tag.
+                  # Tag must already exist (create via POST /tags first).
                   - name: tag_extrahop_device
                     type: http
                     with:
@@ -125,8 +163,12 @@ steps:
                         Authorization: "{{ consts.extrahop_auth }}"
                         Content-Type: "application/json"
                       body:
-                        name: "bad_ip_reputation"
+                        assign:
+                          - 1   # CHANGEME: replace with the actual `bad_ip_reputation` tag id.
                     on-failure:
+                      retry:
+                        max-attempts: 3
+                        delay: "5s"
                       continue: true
 
                   - name: create_analyst_task

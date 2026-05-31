@@ -4,10 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "DNS Hijack — Enrichment"
 description: >
-  Enriches a suspected DNS-record-change notable event with attributes from
-  MaxMind, whois, Censys, Malware Domain List, and PassiveTotal. Posts a
-  consolidated comment to Kibana cases and back to Splunk ES as a notable
-  event update so the analyst sees expected vs observed values side by side.
+  Enriches a suspected DNS hijack notable event by geolocating the new answer
+  IP (MaxMind), pulling whois (WhoisXMLAPI), fetching host details and TLS
+  certificate metadata from Censys v2, querying PassiveTotal for IP and domain
+  classifications, and checking Malware Domain List. Builds a single comment
+  posted to an optional Kibana case and the originating Splunk ES notable.
 enabled: true
 tags: ["splunk-soar", "investigation", "dns", "enrichment", "splunk-es", "translated"]
 
@@ -34,17 +35,20 @@ inputs:
     description: "Optional Kibana case to append the enrichment summary to."
 
 consts:
-  # All four of these still rely on external SaaS lookups; once first-party
-  # connectors are available, swap the http stubs for them.
+  # MaxMind GeoIP2 Web Service — Basic auth user:license-key.
   maxmind_endpoint: "https://geoip.maxmind.com/geoip/v2.1/city/"
   maxmind_auth: "Basic CHANGEME"
+  # WhoisXML API — `apiKey` query parameter on the WhoisService endpoint.
   whois_endpoint: "https://www.whoisxmlapi.com/whoisserver/WhoisService"
   whois_api_key: "CHANGEME"
-  censys_endpoint: "https://search.censys.io/api/v2/hosts/"
+  # Censys v2 — Basic auth with api_id:api_secret.
+  censys_endpoint: "https://search.censys.io/api/v2"
   censys_auth: "Basic CHANGEME"
+  # PassiveTotal (RiskIQ) — Basic auth with username:api_key.
   passivetotal_endpoint: "https://api.passivetotal.org/v2"
   passivetotal_auth: "Basic CHANGEME"
   malware_domain_list_endpoint: "https://www.malwaredomainlist.com/mdl.php"
+  # Splunk ES notable update — POST /services/notable_update.
   splunk_endpoint: "https://CHANGEME-splunk.example.com:8089"
   splunk_auth: "Bearer CHANGEME"
 
@@ -56,7 +60,11 @@ steps:
       method: GET
       headers:
         Authorization: "{{ consts.maxmind_auth }}"
+        Accept: "application/json"
     on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: whois_ip
@@ -69,30 +77,43 @@ steps:
         ipAddress: "{{ inputs.current_answer }}"
         outputFormat: "JSON"
     on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
+  # Censys v2: GET /api/v2/hosts/{ip} returns services + cert fingerprints.
   - name: censys_ip_lookup
     type: http
     with:
-      url: "{{ consts.censys_endpoint }}{{ inputs.current_answer }}"
+      url: "{{ consts.censys_endpoint }}/hosts/{{ inputs.current_answer }}"
       method: GET
       headers:
         Authorization: "{{ consts.censys_auth }}"
+        Accept: "application/json"
     on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: tls_certificate_present
     type: if
     condition: "{{ steps.censys_ip_lookup.output.result.services | size }} > 0"
     steps:
+      # Censys v2 certificates lookup: GET /api/v2/certificates/{sha256_fp}.
       - name: censys_lookup_certificate
         type: http
         with:
-          url: "https://search.censys.io/api/v1/view/certificates/{{ steps.censys_ip_lookup.output.result.services[0].tls.certificates.leaf_fp_sha_256 }}"
+          url: "{{ consts.censys_endpoint }}/certificates/{{ steps.censys_ip_lookup.output.result.services[0].tls.certificates.leaf_fp_sha_256 }}"
           method: GET
           headers:
             Authorization: "{{ consts.censys_auth }}"
+            Accept: "application/json"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
   - name: passivetotal_ip_reputation
@@ -105,6 +126,9 @@ steps:
       query:
         query: "{{ inputs.current_answer }}"
     on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: passivetotal_domain_reputation
@@ -117,6 +141,9 @@ steps:
       query:
         query: "{{ inputs.domain }}"
     on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: malware_domain_list_check
@@ -127,6 +154,9 @@ steps:
       query:
         search: "{{ inputs.domain }}"
     on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: build_summary
@@ -173,4 +203,7 @@ steps:
             Content-Type: "application/x-www-form-urlencoded"
           body: "ruleUIDs={{ inputs.notable_event_id }}&comment=Enrichment+attached"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true

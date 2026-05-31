@@ -4,8 +4,10 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Vectra — Basic Block Host"
 description: >
-  Reads a Vectra block or unblock request and applies the corresponding
-  source-IP action on a Palo Alto NGFW.
+  Reads a Vectra Detect block or unblock request (from the source_data_identifier
+  on the artifact) and adds or removes the offending source IP from a Palo Alto
+  Networks PAN-OS address group used for SOAR-driven blocking. Destructive — runs
+  without continue: true so a failed PAN-OS call surfaces immediately.
 enabled: true
 tags: ["splunk-soar", "remediation", "vectra", "panw", "translated"]
 
@@ -24,9 +26,14 @@ inputs:
     description: "Source IP from the Vectra detection."
 
 consts:
+  # PAN-OS XML API — see https://docs.paloaltonetworks.com/pan-os/api.
+  # The API key authenticates via the `key=` query parameter; address-group
+  # membership is updated with type=config + action=set | action=delete.
   panw_endpoint: "https://CHANGEME-panw.internal/api"
   panw_api_key: "CHANGEME"
   panw_vsys: "vsys1"
+  # Pre-existing dynamic/static address group referenced by a deny rule.
+  panw_block_group: "SOAR_BLOCK"
 
 steps:
   - name: route_block
@@ -36,18 +43,33 @@ steps:
       - name: block_ip
         type: http
         with:
-          url: "{{ consts.panw_endpoint }}/block-ip"
+          url: "{{ consts.panw_endpoint }}/"
           method: POST
           headers:
-            X-API-Key: "{{ consts.panw_api_key }}"
-            Content-Type: "application/json"
-          body:
-            ip: "{{ inputs.dvc_ip }}"
-            vsys: "{{ consts.panw_vsys }}"
-            is_source_address: true
+            Content-Type: "application/x-www-form-urlencoded"
+          query:
+            type: "config"
+            action: "set"
+            xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.panw_vsys }}']/address-group/entry[@name='{{ consts.panw_block_group }}']/static"
+            element: "<member>{{ inputs.dvc_ip }}</member>"
+            key: "{{ consts.panw_api_key }}"
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
+            delay: "5s"
+
+      - name: commit_block
+        type: http
+        with:
+          url: "{{ consts.panw_endpoint }}/"
+          method: POST
+          query:
+            type: "commit"
+            cmd: "<commit></commit>"
+            key: "{{ consts.panw_api_key }}"
+        on-failure:
+          retry:
+            max-attempts: 3
             delay: "5s"
 
   - name: route_unblock
@@ -57,18 +79,32 @@ steps:
       - name: unblock_ip
         type: http
         with:
-          url: "{{ consts.panw_endpoint }}/unblock-ip"
+          url: "{{ consts.panw_endpoint }}/"
           method: POST
           headers:
-            X-API-Key: "{{ consts.panw_api_key }}"
-            Content-Type: "application/json"
-          body:
-            ip: "{{ inputs.dvc_ip }}"
-            vsys: "{{ consts.panw_vsys }}"
-            is_source_address: true
+            Content-Type: "application/x-www-form-urlencoded"
+          query:
+            type: "config"
+            action: "delete"
+            xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.panw_vsys }}']/address-group/entry[@name='{{ consts.panw_block_group }}']/static/member[text()='{{ inputs.dvc_ip }}']"
+            key: "{{ consts.panw_api_key }}"
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
+            delay: "5s"
+
+      - name: commit_unblock
+        type: http
+        with:
+          url: "{{ consts.panw_endpoint }}/"
+          method: POST
+          query:
+            type: "commit"
+            cmd: "<commit></commit>"
+            key: "{{ consts.panw_api_key }}"
+        on-failure:
+          retry:
+            max-attempts: 3
             delay: "5s"
 
   - name: log_complete

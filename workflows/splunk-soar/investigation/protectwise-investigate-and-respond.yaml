@@ -4,12 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "ProtectWise — Investigate and Respond"
 description: >
-  Investigates a file hash and destination IP from an alert using
-  VirusTotal reputation, ProtectWise hunt/PCAP retrieval, MaxMind
-  geolocation, and WHOIS. Confirmed-malicious file hashes are blocked
-  via Carbon Black; IPs flagged as beacons are blocked via the
-  Palo Alto firewall. Outcomes are summarized into a Jira ticket and
-  the case is closed.
+  Investigates a file hash and destination IP from an alert. Runs VirusTotal
+  reputation on the hash and the IP, queries the ProtectWise observations and
+  PCAP APIs, geolocates the IP via MaxMind, and runs whois. If VirusTotal
+  positives meet the threshold, blocks the hash in Carbon Black and closes the
+  case. If ProtectWise flags the IP as a beacon, blocks it on the Palo Alto
+  firewall and opens a Jira ticket. Blocks are destructive (no continue: true).
 enabled: true
 tags: ["splunk-soar", "investigation", "protectwise", "virustotal", "carbonblack", "translated"]
 
@@ -36,10 +36,21 @@ inputs:
     description: "ProtectWise sensor ID for PCAP retrieval."
 
 consts:
+  # ProtectWise was acquired by Verizon and shut down its public API in 2018.
+  # TODO: re-point to your replacement NDR (e.g. Stellar Cyber, Vectra, etc.)
+  # if migrating. The endpoint shape below matches the original asset.
   protectwise_endpoint: "https://api.protectwise.net"
+  protectwise_token: "Bearer CHANGEME"
+  # Carbon Black Response (legacy) — POST /api/v1/banning/blacklist.
   carbonblack_endpoint: "https://CHANGEME-carbonblack.internal"
-  panorama_endpoint: "https://CHANGEME-panorama.internal"
+  carbonblack_token: "CHANGEME"
+  # PAN-OS XML API — key= query parameter auth.
+  panorama_endpoint: "https://CHANGEME-panorama.internal/api"
+  panorama_api_key: "CHANGEME"
+  panorama_vsys: "vsys1"
+  panorama_block_group: "SOAR_BLOCK"
   maxmind_endpoint: "https://geoip.maxmind.com/geoip/v2.1"
+  maxmind_auth: "Basic CHANGEME"
   whois_endpoint: "https://CHANGEME-whois.internal/lookup"
   virustotal_connector_id: "CHANGEME-virustotal-connector"
   jira_connector_id: "CHANGEME-jira-connector"
@@ -68,23 +79,24 @@ steps:
         type: if
         condition: "${{ steps.file_reputation.output.positives | default: 0 }} >= ${{ consts.vt_positives_threshold }}"
         steps:
-          # TODO: replace with a native Carbon Black connector when available.
+          # Carbon Black Response: POST /api/v1/banning/blacklist with
+          # X-Auth-Token. Destructive — fail loudly.
           - name: block_hash
             type: http
             with:
               url: "{{ consts.carbonblack_endpoint }}/api/v1/banning/blacklist"
               method: POST
               headers:
+                X-Auth-Token: "{{ consts.carbonblack_token }}"
                 Content-Type: "application/json"
               body:
                 md5hash: "{{ inputs.file_hash }}"
-                text: "Phantom translated workflow — blocked from ProtectWise investigation"
+                text: "Elastic Workflows — blocked from ProtectWise investigation"
                 enabled: true
             on-failure:
               retry:
-                max-attempts: 2
+                max-attempts: 3
                 delay: "5s"
-              continue: true
 
           - name: raise_severity_high
             type: data.set
@@ -104,17 +116,20 @@ steps:
     type: if
     condition: "{{ inputs.destination_address | size }} > 0"
     steps:
-      # TODO: replace with native ProtectWise connector if/when available.
       - name: hunt_ip
         type: http
         with:
           url: "{{ consts.protectwise_endpoint }}/api/v1/observations/threats/search"
           method: POST
           headers:
+            Authorization: "{{ consts.protectwise_token }}"
             Content-Type: "application/json"
           body:
             destinationAddress: "{{ inputs.destination_address }}"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: ip_reputation
@@ -130,7 +145,12 @@ steps:
         with:
           url: "{{ consts.maxmind_endpoint }}/city/{{ inputs.destination_address }}"
           method: GET
+          headers:
+            Authorization: "{{ consts.maxmind_auth }}"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: whois_ip
@@ -141,6 +161,9 @@ steps:
           body:
             ip: "{{ inputs.destination_address }}"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: get_pcap
@@ -152,31 +175,54 @@ steps:
             with:
               url: "{{ consts.protectwise_endpoint }}/api/v1/pcap"
               method: POST
+              headers:
+                Authorization: "{{ consts.protectwise_token }}"
+                Content-Type: "application/json"
               body:
                 id: "{{ inputs.observation_id }}"
                 type: "Observation"
                 sensorid: "{{ inputs.sensor_id }}"
             on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
               continue: true
 
       - name: beacon_detected
         type: if
         condition: "{{ steps.hunt_ip.output | json | contains: 'Beacon' }}"
         steps:
-          # TODO: replace with a Palo Alto Networks connector when available.
+          # Panorama XML API: add destination IP to SOAR_BLOCK address group.
+          # Destructive — fail loudly.
           - name: block_ip
             type: http
             with:
-              url: "{{ consts.panorama_endpoint }}/api/?type=op"
+              url: "{{ consts.panorama_endpoint }}/"
               method: POST
-              headers:
-                Content-Type: "application/x-www-form-urlencoded"
-              body: "cmd=block_ip&ip={{ inputs.destination_address }}&vsys=vsys1"
+              query:
+                type: "config"
+                action: "set"
+                xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.panorama_vsys }}']/address-group/entry[@name='{{ consts.panorama_block_group }}']/static"
+                element: "<member>{{ inputs.destination_address }}</member>"
+                key: "{{ consts.panorama_api_key }}"
             on-failure:
               retry:
-                max-attempts: 2
+                max-attempts: 3
                 delay: "5s"
-              continue: true
+
+          - name: commit_block
+            type: http
+            with:
+              url: "{{ consts.panorama_endpoint }}/"
+              method: POST
+              query:
+                type: "commit"
+                cmd: "<commit></commit>"
+                key: "{{ consts.panorama_api_key }}"
+            on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
 
           - name: open_jira_ticket
             type: jira

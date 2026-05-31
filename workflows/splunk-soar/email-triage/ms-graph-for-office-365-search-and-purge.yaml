@@ -1,0 +1,149 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "MS Graph O365 — Search and Purge"
+description: >
+  Hunts a phishing message across O365 mailboxes by Internet Message
+  ID, surfaces the affected mailboxes to an analyst for approval,
+  and soft-deletes the matching items (recoverable from Recoverable
+  Items). Saves a per-mailbox audit observable that can later be
+  consumed by the matching Search-and-Restore workflow.
+enabled: true
+tags: ["splunk-soar", "email-triage", "search-and-purge", "o365", "ms-graph", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: internet_message_id
+    type: string
+    required: true
+    description: "Internet Message-ID header to find and remove from O365 mailboxes."
+  - name: auto_approve
+    type: boolean
+    required: false
+    description: "Bypass analyst confirmation when true. Defaults to false."
+
+consts:
+  graph_endpoint: "https://graph.microsoft.com/v1.0"
+  graph_auth_header: "Bearer CHANGEME_TOKEN"
+  # Internal helper that resolves an Internet-Message-ID to recipient mailboxes,
+  # mirroring Phantom's MS_Graph_for_Office_365_Message_Identifier_Activity_Analysis.
+  recipient_lookup_endpoint: "https://CHANGEME-mail-search.internal/api/find-recipients"
+
+steps:
+  - name: validate_input
+    type: if
+    condition: "{{ inputs.internet_message_id | size }} == 0"
+    steps:
+      - name: log_missing
+        type: console
+        with:
+          message: "No Internet Message ID supplied — aborting."
+
+  - name: locate_recipients
+    type: http
+    with:
+      url: "{{ consts.recipient_lookup_endpoint }}"
+      method: POST
+      headers:
+        Authorization: "{{ consts.graph_auth_header }}"
+        Content-Type: "application/json"
+      body:
+        message_id: "{{ inputs.internet_message_id }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: handle_results
+    type: if
+    condition: "{{ steps.locate_recipients.output.observables | size }} > 0"
+    steps:
+      - name: summarize_targets
+        type: data.set
+        with:
+          summary:
+            message_id: "{{ inputs.internet_message_id }}"
+            mailbox_count: "{{ steps.locate_recipients.output.observables | size }}"
+            observables: "{{ steps.locate_recipients.output.observables }}"
+
+      - name: log_targets
+        type: console
+        with:
+          message: |
+            {{ steps.summarize_targets.output.summary.mailbox_count }} mailbox(es) hold
+            message {{ inputs.internet_message_id }}. Soft delete is recoverable.
+
+      # Analyst confirmation gate.
+      # TODO: replace with Kibana case approval or a webhook prompt when available.
+      - name: confirm_purge
+        type: if
+        condition: "{{ inputs.auto_approve }} == true"
+        steps:
+          - name: purge_each_mailbox
+            type: foreach
+            with:
+              items: ${{ steps.locate_recipients.output.observables }}
+            steps:
+              - name: find_message_id
+                type: http
+                with:
+                  url: "{{ consts.graph_endpoint }}/users/{{ item.recipient }}/messages"
+                  method: GET
+                  headers:
+                    Authorization: "{{ consts.graph_auth_header }}"
+                  query:
+                    $filter: "internetMessageId eq '{{ item.value }}'"
+                    $select: "id"
+                on-failure:
+                  retry:
+                    max-attempts: 2
+                    delay: "3s"
+                  continue: true
+
+              - name: delete_if_found
+                type: if
+                condition: "{{ steps.find_message_id.output.value | size }} >= 1"
+                steps:
+                  - name: delete_message
+                    type: http
+                    with:
+                      url: "{{ consts.graph_endpoint }}/users/{{ item.recipient }}/messages/{{ steps.find_message_id.output.value[0].id }}"
+                      method: DELETE
+                      headers:
+                        Authorization: "{{ consts.graph_auth_header }}"
+                    on-failure:
+                      retry:
+                        max-attempts: 2
+                        delay: "3s"
+                      continue: true
+
+                  - name: record_purge_observable
+                    type: data.set
+                    with:
+                      observable:
+                        type: "Internet Message ID"
+                        source: "MS Graph for Office365"
+                        value: "{{ item.value }}"
+                        mailbox: "{{ item.recipient }}"
+                        status: "{{ steps.delete_message.output.status | default: 'deleted' }}"
+                        message: "Soft-deleted; recoverable via Search-and-Restore."
+
+                  - name: log_each_purge
+                    type: console
+                    with:
+                      message: "Purged {{ item.value }} from {{ item.recipient }}"
+        else:
+          - name: log_awaiting_approval
+            type: console
+            with:
+              message: "Analyst approval required — set auto_approve=true to proceed."
+    else:
+      - name: log_no_recipients
+        type: console
+        with:
+          message: "No mailbox holds this Internet Message ID."

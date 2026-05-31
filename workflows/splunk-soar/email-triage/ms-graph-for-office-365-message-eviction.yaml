@@ -1,0 +1,104 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "MS Graph O365 — Message Eviction"
+description: >
+  Removes a message identified by Internet Message ID from a single
+  Office 365 mailbox. Uses Microsoft Graph to first locate the
+  message across well-known folders, then issues a soft-delete that
+  moves the item to Recoverable Items. Records a normalized
+  observable per evicted message. Maps to D3FEND EmailRemoval.
+enabled: true
+tags: ["splunk-soar", "email-triage", "email-removal", "o365", "ms-graph", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: email
+    type: array
+    required: true
+    description: "Mailbox addresses to evict from."
+  - name: message_id
+    type: array
+    required: true
+    description: "Internet Message IDs to evict. Paired by position with email."
+
+consts:
+  # Microsoft Graph endpoint. Replace the token with an OAuth bearer
+  # obtained via the client_credentials flow with Mail.ReadWrite scope.
+  graph_endpoint: "https://graph.microsoft.com/v1.0"
+  graph_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  - name: validate_inputs
+    type: if
+    condition: "{{ inputs.email | size }} == 0 or {{ inputs.message_id | size }} == 0"
+    steps:
+      - name: log_missing_input
+        type: console
+        with:
+          message: "Either email or message_id input is empty — aborting."
+
+  - name: process_each_target
+    type: foreach
+    with:
+      items: ${{ inputs.message_id }}
+    steps:
+      # TODO: replace with a Microsoft Graph mail connector when available.
+      # Phantom asset: ms_graph_for_office_365 — "run query".
+      - name: search_for_message
+        type: http
+        with:
+          url: "{{ consts.graph_endpoint }}/users/{{ inputs.email[loop.index0] }}/messages"
+          method: GET
+          headers:
+            Authorization: "{{ consts.graph_auth_header }}"
+          query:
+            $filter: "internetMessageId eq '{{ item }}'"
+            $select: "id,subject,internetMessageId"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: check_message_found
+        type: if
+        condition: "{{ steps.search_for_message.output.value | size }} >= 1"
+        steps:
+          # Phantom asset: ms_graph_for_office_365 — "delete email".
+          - name: delete_message
+            type: http
+            with:
+              url: "{{ consts.graph_endpoint }}/users/{{ inputs.email[loop.index0] }}/messages/{{ steps.search_for_message.output.value[0].id }}"
+              method: DELETE
+              headers:
+                Authorization: "{{ consts.graph_auth_header }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+          - name: record_observable
+            type: data.set
+            with:
+              observable:
+                type: "Internet Message ID"
+                source: "MS Graph for Office365"
+                value: "{{ item }}"
+                mailbox: "{{ inputs.email[loop.index0] }}"
+                status: "{{ steps.delete_message.output.status | default: 'deleted' }}"
+                message: "{{ steps.delete_message.output.message | default: 'soft-deleted; recoverable from Recoverable Items' }}"
+
+          - name: log_eviction
+            type: console
+            with:
+              message: "Evicted {{ item }} from {{ inputs.email[loop.index0] }}: {{ steps.record_observable.output.observable.status }}"
+        else:
+          - name: log_no_match
+            type: console
+            with:
+              message: "Message {{ item }} not found in {{ inputs.email[loop.index0] }} — skipping eviction."

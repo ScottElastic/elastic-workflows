@@ -1,0 +1,373 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "PhishMe — Investigate and Respond"
+description: >
+  Reacts to high-impact phishing indicators imported from
+  Cofense/PhishMe. Pulls the PhishMe threat report, opens a
+  ServiceNow ticket as the case of record, then enriches IP,
+  domain, URL, and file-hash indicators via VirusTotal. Anything
+  scoring ten or more positives triggers blocking actions
+  (firewall block IP/URL, DNS block domain, EDR block hash) plus
+  an EDR hash hunt, and each response is appended back to the
+  ServiceNow ticket as a work note. The container is then escalated
+  to high severity and closed.
+enabled: true
+tags: ["splunk-soar", "email-triage", "phishme", "cofense", "virustotal", "servicenow", "carbonblack", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: severity
+    type: string
+    required: false
+    description: "Incoming artifact severity. When 'high', PhishMe report retrieval and ticketing are performed."
+  - name: phishme_threat_id
+    type: string
+    required: false
+    description: "Cofense/PhishMe threat identifier that drives the get-report call."
+  - name: destination_ip
+    type: string
+    required: false
+    description: "Destination IP indicator to reputation-check and block on PAN."
+  - name: destination_domain
+    type: string
+    required: false
+    description: "DNS domain indicator to reputation-check and block on OpenDNS Umbrella."
+  - name: destination_url
+    type: string
+    required: false
+    description: "URL indicator to reputation-check and block on PAN."
+  - name: file_hash_md5
+    type: string
+    required: false
+    description: "File hash to reputation-check, block in EDR, and hunt across endpoints."
+  - name: source_ip
+    type: string
+    required: false
+    description: "Origin IP captured from the artifact; included in ServiceNow work notes."
+
+consts:
+  virustotal_connector_id: "CHANGEME-virustotal-connector"
+  servicenow_connector_id: "CHANGEME-servicenow-connector"
+  phishme_endpoint: "https://CHANGEME-phishme.cofense.com"
+  phishme_token: "Token CHANGEME"
+  pan_endpoint: "https://CHANGEME-pan.example.com"
+  pan_api_key: "CHANGEME"
+  opendns_umbrella_endpoint: "https://management.api.umbrella.com"
+  opendns_umbrella_token: "Bearer CHANGEME"
+  carbonblack_endpoint: "https://CHANGEME-cb.example.com"
+  carbonblack_token: "CHANGEME"
+  positives_threshold: 10
+
+steps:
+  - name: gate_on_severity
+    type: if
+    condition: "'{{ inputs.severity | default: '' }}' == 'high'"
+    steps:
+      # Pull the PhishMe threat report — phantom asset: phishme.
+      - name: get_phishme_report
+        type: http
+        with:
+          url: "{{ consts.phishme_endpoint }}/apiv1/threat/malware/{{ inputs.phishme_threat_id }}"
+          method: GET
+          headers:
+            Authorization: "{{ consts.phishme_token }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      # Create the ServiceNow incident that subsequent blocks update.
+      - name: create_servicenow_incident
+        type: servicenow
+        connector-id: "{{ consts.servicenow_connector_id }}"
+        with:
+          subAction: "pushToService"
+          subActionParams:
+            incident:
+              short_description: "PhishMe high-severity threat {{ inputs.phishme_threat_id }}"
+              description: "{{ steps.get_phishme_report.output.description | default: 'PhishMe report unavailable.' }}"
+              urgency: "1"
+              severity: "1"
+              impact: "1"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+
+      # ── IP track ────────────────────────────────────────────────
+      - name: ip_track
+        type: if
+        condition: "{{ inputs.destination_ip | size }} > 0"
+        steps:
+          # phantom asset: virustotal — "ip reputation".
+          - name: ip_reputation
+            type: virustotal.scanIp
+            connector-id: "{{ consts.virustotal_connector_id }}"
+            with:
+              subAction: "ipReputation"
+              subActionParams:
+                ip: "{{ inputs.destination_ip }}"
+            on-failure:
+              continue: true
+
+          - name: ip_actionable
+            type: if
+            condition: "{{ steps.ip_reputation.output.summary.total_positives | default: 0 }} >= {{ consts.positives_threshold }}"
+            steps:
+              # phantom asset: pan — "block ip".
+              - name: block_ip
+                type: http
+                with:
+                  url: "{{ consts.pan_endpoint }}/api/?type=op"
+                  method: POST
+                  headers:
+                    X-PAN-KEY: "{{ consts.pan_api_key }}"
+                  body:
+                    cmd: "<request><system><block><ip>{{ inputs.destination_ip }}</ip></block></system></request>"
+                on-failure:
+                  continue: true
+
+              - name: note_ip_block_to_servicenow
+                type: servicenow
+                connector-id: "{{ consts.servicenow_connector_id }}"
+                with:
+                  subAction: "addComment"
+                  subActionParams:
+                    incident:
+                      id: "{{ steps.create_servicenow_incident.output.number }}"
+                    comment: "Blocked IP {{ inputs.destination_ip }}. Source IP observed: {{ inputs.source_ip | default: 'unknown' }}."
+                on-failure:
+                  continue: true
+
+      # ── Domain track ────────────────────────────────────────────
+      - name: domain_track
+        type: if
+        condition: "{{ inputs.destination_domain | size }} > 0"
+        steps:
+          - name: domain_reputation
+            type: virustotal.scanDomain
+            connector-id: "{{ consts.virustotal_connector_id }}"
+            with:
+              subAction: "domainReputation"
+              subActionParams:
+                domain: "{{ inputs.destination_domain }}"
+            on-failure:
+              continue: true
+
+          - name: domain_actionable
+            type: if
+            condition: "{{ steps.domain_reputation.output.summary.total_positives | default: 0 }} >= {{ consts.positives_threshold }}"
+            steps:
+              # phantom asset: opendns_umbrella — "block domain".
+              - name: block_domain
+                type: http
+                with:
+                  url: "{{ consts.opendns_umbrella_endpoint }}/policies/v2/domains"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.opendns_umbrella_token }}"
+                    Content-Type: "application/json"
+                  body:
+                    name: "{{ inputs.destination_domain }}"
+                    type: "blocked"
+                on-failure:
+                  continue: true
+
+              - name: note_domain_block_to_servicenow
+                type: servicenow
+                connector-id: "{{ consts.servicenow_connector_id }}"
+                with:
+                  subAction: "addComment"
+                  subActionParams:
+                    incident:
+                      id: "{{ steps.create_servicenow_incident.output.number }}"
+                    comment: "Blocked domain {{ inputs.destination_domain }}. Source IP observed: {{ inputs.source_ip | default: 'unknown' }}."
+                on-failure:
+                  continue: true
+
+      # ── URL track ───────────────────────────────────────────────
+      - name: url_track
+        type: if
+        condition: "{{ inputs.destination_url | size }} > 0"
+        steps:
+          - name: url_reputation
+            type: virustotal.scanUrl
+            connector-id: "{{ consts.virustotal_connector_id }}"
+            with:
+              subAction: "urlReputation"
+              subActionParams:
+                url: "{{ inputs.destination_url }}"
+            on-failure:
+              continue: true
+
+          - name: url_actionable
+            type: if
+            condition: "{{ steps.url_reputation.output.summary.total_positives | default: 0 }} >= {{ consts.positives_threshold }}"
+            steps:
+              # phantom asset: pan — "block url".
+              - name: block_url
+                type: http
+                with:
+                  url: "{{ consts.pan_endpoint }}/api/?type=op"
+                  method: POST
+                  headers:
+                    X-PAN-KEY: "{{ consts.pan_api_key }}"
+                  body:
+                    cmd: "<request><system><block><url>{{ inputs.destination_url }}</url></block></system></request>"
+                on-failure:
+                  continue: true
+
+              - name: note_url_block_to_servicenow
+                type: servicenow
+                connector-id: "{{ consts.servicenow_connector_id }}"
+                with:
+                  subAction: "addComment"
+                  subActionParams:
+                    incident:
+                      id: "{{ steps.create_servicenow_incident.output.number }}"
+                    comment: "Blocked URL {{ inputs.destination_url }}. Source IP observed: {{ inputs.source_ip | default: 'unknown' }}."
+                on-failure:
+                  continue: true
+
+      # ── File hash track ─────────────────────────────────────────
+      - name: hash_track
+        type: if
+        condition: "{{ inputs.file_hash_md5 | size }} > 0"
+        steps:
+          - name: hash_reputation
+            type: virustotal.scanFileHash
+            connector-id: "{{ consts.virustotal_connector_id }}"
+            with:
+              subAction: "fileReputation"
+              subActionParams:
+                hash: "{{ inputs.file_hash_md5 }}"
+            on-failure:
+              continue: true
+
+          - name: hash_actionable
+            type: if
+            condition: "{{ steps.hash_reputation.output.summary.total_positives | default: 0 }} >= {{ consts.positives_threshold }}"
+            steps:
+              # phantom asset: carbonblack — "block hash".
+              - name: block_hash_in_edr
+                type: http
+                with:
+                  url: "{{ consts.carbonblack_endpoint }}/api/v1/threatreport/blocklist"
+                  method: POST
+                  headers:
+                    X-Auth-Token: "{{ consts.carbonblack_token }}"
+                  body:
+                    md5: "{{ inputs.file_hash_md5 }}"
+                on-failure:
+                  continue: true
+
+              # phantom asset: carbonblack — "hunt file".
+              - name: hunt_hash_in_edr
+                type: http
+                with:
+                  url: "{{ consts.carbonblack_endpoint }}/api/v6/orgs/CHANGEME/processes/search_jobs"
+                  method: POST
+                  headers:
+                    X-Auth-Token: "{{ consts.carbonblack_token }}"
+                    Content-Type: "application/json"
+                  body:
+                    query: "hash:{{ inputs.file_hash_md5 }}"
+                on-failure:
+                  continue: true
+
+              - name: note_hash_actions_to_servicenow
+                type: servicenow
+                connector-id: "{{ consts.servicenow_connector_id }}"
+                with:
+                  subAction: "addComment"
+                  subActionParams:
+                    incident:
+                      id: "{{ steps.create_servicenow_incident.output.number }}"
+                    comment: |
+                      Blocked hash {{ inputs.file_hash_md5 }} in EDR.
+                      Hosts seen running the file: {{ steps.hunt_hash_in_edr.output.results | size | default: 0 }}.
+                on-failure:
+                  continue: true
+
+      # Container finalization: set severity high and close.
+      - name: finalize_container
+        type: data.set
+        with:
+          container:
+            severity: "high"
+            status: "closed"
+            servicenow_id: "{{ steps.create_servicenow_incident.output.number | default: 'unknown' }}"
+
+      - name: log_finalized
+        type: console
+        with:
+          message: "PhishMe response finished. ServiceNow incident: {{ steps.finalize_container.output.container.servicenow_id }}"
+    else:
+      # Non-high severity: still reputation-check what we have but skip ticketing.
+      - name: passive_enrichment
+        type: console
+        with:
+          message: "Severity is not high — running reputation-only enrichment."
+
+      - name: ip_only
+        type: if
+        condition: "{{ inputs.destination_ip | size }} > 0"
+        steps:
+          - name: ip_reputation_only
+            type: virustotal.scanIp
+            connector-id: "{{ consts.virustotal_connector_id }}"
+            with:
+              subAction: "ipReputation"
+              subActionParams:
+                ip: "{{ inputs.destination_ip }}"
+            on-failure:
+              continue: true
+
+      - name: domain_only
+        type: if
+        condition: "{{ inputs.destination_domain | size }} > 0"
+        steps:
+          - name: domain_reputation_only
+            type: virustotal.scanDomain
+            connector-id: "{{ consts.virustotal_connector_id }}"
+            with:
+              subAction: "domainReputation"
+              subActionParams:
+                domain: "{{ inputs.destination_domain }}"
+            on-failure:
+              continue: true
+
+      - name: url_only
+        type: if
+        condition: "{{ inputs.destination_url | size }} > 0"
+        steps:
+          - name: url_reputation_only
+            type: virustotal.scanUrl
+            connector-id: "{{ consts.virustotal_connector_id }}"
+            with:
+              subAction: "urlReputation"
+              subActionParams:
+                url: "{{ inputs.destination_url }}"
+            on-failure:
+              continue: true
+
+      - name: hash_only
+        type: if
+        condition: "{{ inputs.file_hash_md5 | size }} > 0"
+        steps:
+          - name: hash_reputation_only
+            type: virustotal.scanFileHash
+            connector-id: "{{ consts.virustotal_connector_id }}"
+            with:
+              subAction: "fileReputation"
+              subActionParams:
+                hash: "{{ inputs.file_hash_md5 }}"
+            on-failure:
+              continue: true

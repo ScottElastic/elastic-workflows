@@ -1,0 +1,211 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Splunk — Automated Email Investigation"
+description: >
+  End-to-end triage for a reported phishing email stored as an .eml
+  or .msg artifact in the vault. Detonates the message in Splunk
+  Attack Analyzer, splits the related observables, and for any
+  url/file indicator with an OCSF score above suspicious it pivots
+  into Splunk to find every identity that interacted with the
+  indicator. Aggregates per-IoC reputation observables and per-
+  identity interaction observables into a single set of findings,
+  and merges all sub-reports into a final analyst note.
+enabled: true
+tags: ["splunk-soar", "email-triage", "investigation", "splunk", "ocsf", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: vault_id
+    type: string
+    required: false
+    description: "Specific vault item to investigate. When empty, every .eml/.msg item in the container vault is processed."
+  - name: container_id
+    type: string
+    required: false
+    description: "Optional vault container scope."
+
+consts:
+  splunk_attack_analyzer_endpoint: "https://CHANGEME-saa.api.splunk.com"
+  splunk_attack_analyzer_token: "Bearer CHANGEME"
+  splunk_search_endpoint: "https://CHANGEME-splunk.example.com:8089"
+  splunk_search_token: "Bearer CHANGEME"
+  # OCSF reputation score above which indicators are considered actionable.
+  malicious_score_threshold: 5
+
+steps:
+  # Phantom community function: vault_list — enumerate vault items.
+  - name: list_vault_items
+    type: http
+    with:
+      url: "https://CHANGEME-soar.local/rest/container_attachment"
+      method: GET
+      headers:
+        Authorization: "Bearer CHANGEME_TOKEN"
+      query:
+        vault_id: "{{ inputs.vault_id | default: '' }}"
+        container_id: "{{ inputs.container_id | default: '' }}"
+    on-failure:
+      continue: true
+
+  # Phantom block: fiter_email_items — keep only .eml/.msg items.
+  - name: select_email_items
+    type: data.set
+    with:
+      email_vault_items: >-
+        {{ steps.list_vault_items.output.data | where: 'file_name', 'contains', '.eml' }}
+
+  # Stand-in for Splunk_Attack_Analyzer_Dynamic_Analysis sub-playbook.
+  - name: detonate_in_attack_analyzer
+    type: http
+    with:
+      url: "{{ consts.splunk_attack_analyzer_endpoint }}/v1/jobs"
+      method: POST
+      headers:
+        Authorization: "{{ consts.splunk_attack_analyzer_token }}"
+        Content-Type: "application/json"
+      body:
+        vault_ids: "{{ steps.select_email_items.output.email_vault_items }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+      continue: true
+
+  # Either the parent observable or any related observable scoring above 5
+  # triggers identity-activity hunting; everything else is just noted.
+  - name: classify_score
+    type: if
+    condition: "{{ steps.detonate_in_attack_analyzer.output.observable.reputation.score_id | default: 0 }} > {{ consts.malicious_score_threshold }} or ({{ steps.detonate_in_attack_analyzer.output.observable.related_observables | size }} > 0 and {{ steps.detonate_in_attack_analyzer.output.observable.related_observables[0].reputation.score_id | default: 0 }} > {{ consts.malicious_score_threshold }})"
+    steps:
+      # Phantom community function: list_demux — split related observables array.
+      - name: split_related_observables
+        type: data.set
+        with:
+          related: "{{ steps.detonate_in_attack_analyzer.output.observable.related_observables | default: [] }}"
+
+      # filter_malicious_indicators: condition_1 — type=url & score>threshold.
+      - name: hunt_url_interactions
+        type: foreach
+        with:
+          items: ${{ steps.split_related_observables.output.related }}
+        steps:
+          - name: gate_url
+            type: if
+            condition: "'{{ item.type }}' == 'url' and {{ item.reputation.score_id | default: 0 }} > {{ consts.malicious_score_threshold }}"
+            steps:
+              # Sub-playbook: Splunk_Identifier_Activity_Analysis (url).
+              - name: who_clicked_url
+                type: http
+                with:
+                  url: "{{ consts.splunk_search_endpoint }}/services/search/jobs/export"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.splunk_search_token }}"
+                  body:
+                    search: "search index=proxy url=\"{{ item.value }}\" | stats count by user, src_ip"
+                    output_mode: "json"
+                on-failure:
+                  retry:
+                    max-attempts: 2
+                    delay: "3s"
+                  continue: true
+
+              - name: record_url_interaction
+                type: data.set
+                with:
+                  url_interaction:
+                    type: "url"
+                    value: "{{ item.value }}"
+                    identifier_activity: "{{ steps.who_clicked_url.output.results | default: [] }}"
+
+      # filter_malicious_indicators: condition_2 — type=file & score>threshold.
+      - name: hunt_file_interactions
+        type: foreach
+        with:
+          items: ${{ steps.split_related_observables.output.related }}
+        steps:
+          - name: gate_file
+            type: if
+            condition: "'{{ item.type }}' == 'file' and {{ item.reputation.score_id | default: 0 }} > {{ consts.malicious_score_threshold }}"
+            steps:
+              # Sub-playbook: Splunk_Identifier_Activity_Analysis (file sha256).
+              - name: who_executed_file
+                type: http
+                with:
+                  url: "{{ consts.splunk_search_endpoint }}/services/search/jobs/export"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.splunk_search_token }}"
+                  body:
+                    search: "search index=edr sha256=\"{{ item.attributes.sha256 }}\" | stats count by user, host"
+                    output_mode: "json"
+                on-failure:
+                  retry:
+                    max-attempts: 2
+                    delay: "3s"
+                  continue: true
+
+              - name: record_file_interaction
+                type: data.set
+                with:
+                  file_interaction:
+                    type: "file"
+                    sha256: "{{ item.attributes.sha256 }}"
+                    identifier_activity: "{{ steps.who_executed_file.output.results | default: [] }}"
+
+      # Sub-playbook: Splunk_Message_Identifier_Activity_Analysis — recipients.
+      - name: who_received_email
+        type: http
+        with:
+          url: "{{ consts.splunk_search_endpoint }}/services/search/jobs/export"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_search_token }}"
+          body:
+            search: "search index=email message_id=\"{{ steps.detonate_in_attack_analyzer.output.observable.message_id | default: '' }}\" | stats count by recipient"
+            output_mode: "json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      # convert_to_artifacts: build a single artifact array from reputation
+      # findings and identity-activity findings (the Phantom playbook
+      # categorizes these under saa_* and splunk_*_interaction labels).
+      - name: build_artifact_payload
+        type: data.set
+        with:
+          artifacts:
+            email_reputation:
+              source: "Splunk Attack Analyzer"
+              observable: "{{ steps.detonate_in_attack_analyzer.output.observable | default: {} }}"
+              label: "saa_email_report"
+            message_recipients: "{{ steps.who_received_email.output.results | default: [] }}"
+            url_activity: "{{ steps.hunt_url_interactions.output | default: [] }}"
+            file_activity: "{{ steps.hunt_file_interactions.output | default: [] }}"
+
+      - name: log_artifact_summary
+        type: console
+        with:
+          message: |
+            Splunk investigation finished.
+            email reputation score_id: {{ steps.detonate_in_attack_analyzer.output.observable.reputation.score_id | default: 0 }}
+            related malicious observables: {{ steps.split_related_observables.output.related | size }}
+
+      # Replaces phantom.add_note(title="Analysis report", note_format="markdown")
+      - name: append_analyst_note
+        type: console
+        with:
+          message: |
+            Final analysis written to investigation record.
+    else:
+      - name: log_below_threshold
+        type: console
+        with:
+          message: "Observable scored at or below threshold — no identifier hunting performed."

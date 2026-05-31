@@ -1,0 +1,348 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Excessive Account Lockouts — Enrichment & Response"
+description: >
+  Triage helper for the Splunk "Detect Excessive Account Lockouts From
+  Endpoint" analytic story. When an alert with the matching signature
+  fires, runs a bundle of Splunk searches to characterise the host and
+  its users, queries the affected machine over WinRM for live state
+  (sessions, connections, processes), and lets an analyst optionally
+  approve a remote shutdown.
+enabled: true
+tags:
+  - "splunk-soar"
+  - "identity"
+  - "lockouts"
+  - "enrichment"
+  - "containment"
+  - "translated"
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: destination_address
+    type: string
+    required: false
+    description: "Endpoint causing the lockouts. Defaults to event.alerts[0].destination.ip."
+  - name: signature
+    type: string
+    required: false
+    description: "Detection signature on the originating alert. Defaults to event.alerts[0].rule.name."
+  - name: approve_shutdown
+    type: boolean
+    required: false
+    default: false
+    description: "Set to true to actually issue the WinRM shutdown — stand-in for the analyst prompt."
+  - name: kibana_case_id
+    type: string
+    required: false
+    description: "Optional case id to record progress on."
+  - name: splunk_event_id
+    type: string
+    required: false
+    description: "Splunk notable event id, used when posting back to Splunk."
+
+consts:
+  # Splunk REST API. The original Phantom playbook used the `splunk`
+  # asset's "run query" / "update event" actions.
+  splunk_search_endpoint: "https://CHANGEME-splunk.example.com/services/search/jobs"
+  splunk_event_endpoint: "https://CHANGEME-splunk.example.com/services/notable_update"
+  splunk_auth_header: "Bearer CHANGEME_SPLUNK_TOKEN"
+  # WinRM proxy that bridges to the affected Windows host.
+  winrm_endpoint: "https://CHANGEME-winrm-proxy.internal/api"
+  winrm_auth_header: "Bearer CHANGEME_WINRM_TOKEN"
+  expected_signature: "A user account was locked out"
+
+steps:
+  - name: derive_destination
+    type: data.set
+    with:
+      dest: "{{ inputs.destination_address | default: event.alerts[0].destination.ip | default: '' }}"
+      signature: "{{ inputs.signature | default: event.alerts[0].kibana.alert.rule.name | default: '' }}"
+
+  - name: gate_on_signature
+    type: if
+    condition: "{{ steps.derive_destination.output.signature }} == '{{ consts.expected_signature }}'"
+    steps:
+      # Splunk context queries. Each one mirrors a `phantom.act("run query")`
+      # block from the source playbook. We capture the SPL inline.
+      - name: query_endpoint_auth_logs
+        type: http
+        with:
+          url: "{{ consts.splunk_search_endpoint }}"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search=| tstats count from datamodel=Authentication where Authentication.dest={{ steps.derive_destination.output.dest }} earliest=-15m by _time, Authentication.dest, Authentication.user, Authentication.app, Authentication.action&output_mode=json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: query_notable_history
+        type: http
+        with:
+          url: "{{ consts.splunk_search_endpoint }}"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search=| search `notable` | search dest={{ steps.derive_destination.output.dest }} | table _time, rule_name, owner, priority, severity, status_description, event_id&output_mode=json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: query_notable_info
+        type: http
+        with:
+          url: "{{ consts.splunk_search_endpoint }}"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search=| search `notable_by_id({{ steps.query_notable_history.output.results[0].event_id | default: '' }})` | table time, rule_name, dest, dest_asset_id, dest_owner, priority, severity, owner, status_description&output_mode=json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: query_endpoint_risk
+        type: http
+        with:
+          url: "{{ consts.splunk_search_endpoint }}"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search=| from datamodel:Risk.All_Risk | search risk_object_type=system risk_object={{ steps.derive_destination.output.dest }} | stats count sum(risk_score) as risk_score values(search_name) min(_time) as firstTime max(_time) as lastTime by risk_object&output_mode=json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: query_user_identity_info
+        type: http
+        with:
+          url: "{{ consts.splunk_search_endpoint }}"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search=| `identities` | search identity IN ({{ steps.query_endpoint_auth_logs.output.results | map: 'user' | join: ',' }}) | table _time, identity, first, last, email, category, watchlist&output_mode=json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: query_user_risk
+        type: http
+        with:
+          url: "{{ consts.splunk_search_endpoint }}"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search=| from datamodel:Risk.All_Risk | search risk_object_type=user risk_object IN ({{ steps.query_endpoint_auth_logs.output.results | map: 'user' | join: ',' }}) earliest=-15m | stats count sum(risk_score) as risk_score by risk_object&output_mode=json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: query_endpoint_rights
+        type: http
+        with:
+          url: "{{ consts.splunk_search_endpoint }}"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search=| search index=wineventlog (EventCode=4718 OR EventCode=4717) dest={{ steps.derive_destination.output.dest }} | rename user as Account_Modified | table _time, dest, Account_Modified, Access_Right, signature&output_mode=json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: query_user_rights
+        type: http
+        with:
+          url: "{{ consts.splunk_search_endpoint }}"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search=| search index=wineventlog (EventCode=4718 OR EventCode=4717) user=* | rename user as Account_Modified | table _time, dest, Account_Modified, Access_Right, signature&output_mode=json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: log_splunk_phase_complete
+        type: console
+        with:
+          message: "Splunk enrichment searches finished; pivoting to WinRM investigation against {{ steps.derive_destination.output.dest }}."
+
+      # WinRM live-investigation calls (mirroring the four parallel branches
+      # of the source playbook).
+      - name: list_sessions
+        type: http
+        with:
+          url: "{{ consts.winrm_endpoint }}/list-sessions"
+          method: POST
+          headers:
+            Authorization: "{{ consts.winrm_auth_header }}"
+            Content-Type: "application/json"
+          body:
+            ip_hostname: "{{ steps.derive_destination.output.dest }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: list_connections
+        type: http
+        with:
+          url: "{{ consts.winrm_endpoint }}/list-connections"
+          method: POST
+          headers:
+            Authorization: "{{ consts.winrm_auth_header }}"
+            Content-Type: "application/json"
+          body:
+            ip_hostname: "{{ steps.derive_destination.output.dest }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: list_logged_on_users
+        type: http
+        with:
+          url: "{{ consts.winrm_endpoint }}/run-script"
+          method: POST
+          headers:
+            Authorization: "{{ consts.winrm_auth_header }}"
+            Content-Type: "application/json"
+          body:
+            ip_hostname: "{{ steps.derive_destination.output.dest }}"
+            script_str: "Get-CimInstance Win32_LoggedOnUser | Select-Object -ExpandProperty Antecedent | Get-Unique | Select-Object Name, Domain | ConvertTo-JSON"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: list_processes
+        type: http
+        with:
+          url: "{{ consts.winrm_endpoint }}/list-processes"
+          method: POST
+          headers:
+            Authorization: "{{ consts.winrm_auth_header }}"
+            Content-Type: "application/json"
+          body:
+            ip_hostname: "{{ steps.derive_destination.output.dest }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: log_prompt_pending
+        type: console
+        with:
+          message: "Waiting for analyst decision on shutting down {{ steps.derive_destination.output.dest }}."
+
+      # Phantom prompt → boolean input gate.
+      - name: shutdown_branch
+        type: if
+        condition: "{{ inputs.approve_shutdown }} == true"
+        steps:
+          - name: shutdown_system
+            type: http
+            with:
+              url: "{{ consts.winrm_endpoint }}/shutdown-system"
+              method: POST
+              headers:
+                Authorization: "{{ consts.winrm_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                ip_hostname: "{{ steps.derive_destination.output.dest }}"
+                comment: "Remote shutdown issued by Elastic workflow excessive-account-lockouts-enrichment-and-response."
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "5s"
+              continue: true
+
+          - name: shutdown_comment_splunk
+            type: http
+            with:
+              url: "{{ consts.splunk_event_endpoint }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.splunk_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                event_ids: "{{ inputs.splunk_event_id | default: steps.query_notable_history.output.results[0].event_id | default: '' }}"
+                comment: "Elastic workflow shut down the affected Windows machine with analyst approval."
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+        else:
+          - name: log_no_shutdown
+            type: console
+            with:
+              message: "Analyst declined the shutdown — endpoint left in place."
+
+          - name: no_shutdown_comment_splunk
+            type: http
+            with:
+              url: "{{ consts.splunk_event_endpoint }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.splunk_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                event_ids: "{{ inputs.splunk_event_id | default: steps.query_notable_history.output.results[0].event_id | default: '' }}"
+                comment: "Analyst decided not to shut down the affected Windows machine — no action taken."
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+      - name: attach_to_case
+        type: if
+        condition: "{{ inputs.kibana_case_id | size }} > 0"
+        steps:
+          - name: post_case_summary
+            type: kibana.addCaseComment
+            with:
+              caseId: "{{ inputs.kibana_case_id }}"
+              comment: |
+                Excessive lockouts enrichment for {{ steps.derive_destination.output.dest }} completed.
+                Splunk searches captured authentication, identity, risk, and rights-change context.
+                WinRM gathered sessions, connections, logged-on users, and processes.
+                Shutdown approved: {{ inputs.approve_shutdown }}.
+    else:
+      - name: log_signature_mismatch
+        type: console
+        with:
+          message: "Alert signature does not match '{{ consts.expected_signature }}' — exiting."

@@ -1,0 +1,76 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "AD LDAP — Account Unlocking"
+description: >
+  Re-enables a Microsoft AD user account via the LDAP connector. Takes a
+  username, verifies it is not blank, invokes the AD LDAP "enable account"
+  action against the sAMAccountName, and surfaces a normalized observable
+  with the outcome.
+enabled: true
+tags: ["splunk-soar", "identity", "account-unlock", "ad-ldap", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: user
+    type: string
+    required: true
+    description: "AD sAMAccountName of the user to re-enable."
+
+consts:
+  # Point this at your AD LDAP integration. The original Phantom playbook
+  # talked to a SOAR asset; in Elastic, wire this to whatever bridges to
+  # AD (LDAP proxy, webhook-backed automation, or LDAPS endpoint).
+  ad_ldap_endpoint: "https://CHANGEME-ldap-proxy.internal/api/enable-account"
+  ad_ldap_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  - name: validate_input
+    type: if
+    condition: "{{ inputs.user | size }} == 0"
+    steps:
+      - name: log_missing_user
+        type: console
+        with:
+          message: "No user provided — aborting."
+
+  # TODO: replace this http stub with a real AD LDAP connector once available
+  # in Elastic Workflows. The original Phantom playbook used the
+  # `microsoft ad ldap` asset's "enable account" action.
+  - name: enable_account
+    type: http
+    with:
+      url: "{{ consts.ad_ldap_endpoint }}"
+      method: POST
+      headers:
+        Authorization: "{{ consts.ad_ldap_auth_header }}"
+        Content-Type: "application/json"
+      body:
+        user: "{{ inputs.user }}"
+        use_samaccountname: true
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: build_observable
+    type: data.set
+    with:
+      observable:
+        type: "Microsoft AD LDAP user name"
+        value: "{{ inputs.user }}"
+        status: "{{ steps.enable_account.output.status | default: 'unknown' }}"
+        message: "{{ steps.enable_account.output.message | default: '' }}"
+        user_dn: "{{ steps.enable_account.output.user_dn | default: '' }}"
+
+  - name: log_result
+    type: console
+    with:
+      message: |
+        Enable result for {{ inputs.user }}:
+        status={{ steps.build_observable.output.observable.status }}
+        message={{ steps.build_observable.output.observable.message }}

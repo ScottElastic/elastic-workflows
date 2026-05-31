@@ -1,0 +1,72 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Azure AD — Account Locking"
+description: >
+  Disables an Entra ID (Azure AD) user account through Microsoft Graph.
+  Validates the input, makes the Graph API call to set accountEnabled to
+  false, and records a normalized observable describing the result.
+enabled: true
+tags: ["splunk-soar", "identity", "account-lock", "azure-ad", "entra-id", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: user
+    type: string
+    required: true
+    description: "Azure AD user id, UPN, or object id of the account to disable."
+
+consts:
+  # Microsoft Graph PATCH /users/{id} expects an OAuth2 access token. Replace
+  # both the endpoint base and the bearer token (or wire to a managed
+  # identity / connector when available).
+  azure_graph_base: "https://graph.microsoft.com/v1.0"
+  azure_graph_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  - name: validate_input
+    type: if
+    condition: "{{ inputs.user | size }} == 0"
+    steps:
+      - name: log_missing_user
+        type: console
+        with:
+          message: "No user provided — aborting."
+
+  # TODO: switch to a native Microsoft Graph connector when one ships.
+  # Equivalent Phantom action: "disable user" on the `azure_ad_graph` asset.
+  - name: disable_user
+    type: http
+    with:
+      url: "{{ consts.azure_graph_base }}/users/{{ inputs.user }}"
+      method: PATCH
+      headers:
+        Authorization: "{{ consts.azure_graph_auth_header }}"
+        Content-Type: "application/json"
+      body:
+        accountEnabled: false
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: build_observable
+    type: data.set
+    with:
+      observable:
+        type: "Azure AD Account"
+        value: "{{ inputs.user }}"
+        status: "{{ steps.disable_user.output.status | default: 'unknown' }}"
+        message: "{{ steps.disable_user.output.message | default: '' }}"
+
+  - name: log_result
+    type: console
+    with:
+      message: |
+        Disable result for {{ inputs.user }}:
+        status={{ steps.build_observable.output.observable.status }}
+        message={{ steps.build_observable.output.observable.message }}

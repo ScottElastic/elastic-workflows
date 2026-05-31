@@ -1,0 +1,103 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Alert Escalation — Attacked Executives"
+description: >
+  Raises alert severity when the affected user belongs to an Executive
+  group in Active Directory. Looks up the user's group membership via
+  the AD LDAP connector and, on a CN=Executive match, marks the alert
+  high severity and tags the case for SOC tier-1 escalation.
+enabled: true
+tags: ["splunk-soar", "triage", "escalation", "executive-impact", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: suser
+    type: string
+    required: false
+    description: "Subject user whose AD groups are checked. Defaults to event.alerts[0].user.name."
+  - name: alert_id
+    type: string
+    required: false
+    description: "Alert document id that should be escalated."
+  - name: executive_group_cn
+    type: string
+    required: false
+    default: "CN=Executive"
+    description: "AD group CN whose members should trigger escalation."
+
+consts:
+  # Stub endpoint that fronts the AD LDAP `list user groups` action.
+  ad_ldap_groups_endpoint: "https://CHANGEME-ldap-proxy.internal/api/list-user-groups"
+  ad_ldap_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  - name: derive_user
+    type: data.set
+    with:
+      user: "{{ inputs.suser | default: event.alerts[0].user.name | default: '' }}"
+
+  - name: guard_empty_user
+    type: if
+    condition: "{{ steps.derive_user.output.user | size }} == 0"
+    steps:
+      - name: log_empty_user
+        type: console
+        with:
+          message: "No subject user available — exiting."
+
+  # TODO: replace stub with a native AD connector when available.
+  # Equivalent Phantom action: "list user groups" on the
+  # `active directory` asset.
+  - name: list_user_groups
+    type: http
+    with:
+      url: "{{ consts.ad_ldap_groups_endpoint }}"
+      method: POST
+      headers:
+        Authorization: "{{ consts.ad_ldap_auth_header }}"
+        Content-Type: "application/json"
+      body:
+        username: "{{ steps.derive_user.output.user }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: any_groups_returned
+    type: if
+    condition: "{{ steps.list_user_groups.output.total_groups | default: 0 }} > 0"
+    steps:
+      - name: check_executive_membership
+        type: ai.prompt
+        connector-id: "CHANGEME-genai-connector"
+        with:
+          prompt: |
+            Given this list of AD groups: {{ steps.list_user_groups.output.groups | json }}
+            Does it include a group whose DN starts with "{{ inputs.executive_group_cn }}"?
+            Respond with exactly "yes" or "no".
+
+      - name: escalate_if_executive
+        type: if
+        condition: "{{ steps.check_executive_membership.output | downcase | strip }} == 'yes'"
+        steps:
+          - name: mark_high_severity
+            type: kibana.SetAlertsStatus
+            with:
+              ids:
+                - "{{ inputs.alert_id | default: event.alerts[0]._id }}"
+              status: "open"
+          - name: log_escalation
+            type: console
+            with:
+              message: "Escalated alert: {{ steps.derive_user.output.user }} is in the executives group."
+        else:
+          - name: log_no_executive_match
+            type: console
+            with:
+              message: "{{ steps.derive_user.output.user }} is not in the executives group — no escalation."

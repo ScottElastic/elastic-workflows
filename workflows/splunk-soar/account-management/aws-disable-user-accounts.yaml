@@ -1,0 +1,102 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "AWS IAM — Disable Inactive Users (Bulk)"
+description: >
+  Takes a list of AWS IAM usernames flagged as inactive, drops anyone that
+  is on the inactive-user allowlist (those are tagged for tracking but not
+  disabled), and disables the remaining accounts (including their access
+  keys) once the `approve` input is set. Reversible via the AWS IAM unlock
+  workflow.
+enabled: true
+tags: ["splunk-soar", "identity", "account-lock", "aws", "iam", "bulk", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: aws_usernames
+    type: array
+    required: true
+    description: "List of IAM usernames flagged as inactive."
+  - name: approve
+    type: boolean
+    required: false
+    default: false
+    description: "Stand-in for the SOAR analyst prompt. Set to true to actually disable."
+
+consts:
+  # Index that stores the inactive-user allowlist. Documents shaped like:
+  # { username: "alice", tags: ["aws_inactive_user_allowlist"] }.
+  allowlist_index: "soar-aws-inactive-user-allowlist"
+  aws_iam_endpoint: "https://CHANGEME-aws-proxy.internal/iam/disable-user"
+  aws_iam_auth_header: "Bearer CHANGEME_TOKEN"
+  # Used to dispatch the tag-indicator side-effect through the Workflows API.
+  workflows_api_base: "https://CHANGEME-kibana.example.com/api/workflows"
+  workflows_api_auth_header: "ApiKey CHANGEME_API_KEY"
+
+steps:
+  - name: process_each_username
+    type: foreach
+    with:
+      items: ${{ inputs.aws_usernames }}
+    steps:
+      - name: check_allowlist
+        type: elasticsearch.search
+        with:
+          index: "{{ consts.allowlist_index }}"
+          size: 1
+          query:
+            term:
+              username: "{{ item }}"
+
+      - name: route_user
+        type: if
+        condition: "{{ steps.check_allowlist.output.hits.total.value }} > 0"
+        steps:
+          - name: tag_allowlisted_indicator
+            type: elasticsearch.index
+            with:
+              index: "{{ consts.allowlist_index }}"
+              document:
+                username: "{{ item }}"
+                tags:
+                  - "aws_inactive_user_allowlist"
+                source: "workflow"
+          - name: log_skip_allowlisted
+            type: console
+            with:
+              message: "{{ item }} is allowlisted — skipping disable, tagged for tracking."
+        else:
+          - name: maybe_disable
+            type: if
+            condition: "{{ inputs.approve }} == true"
+            steps:
+              # TODO: swap stub for a native AWS IAM connector once available.
+              # Equivalent Phantom action: "disable user" on the `aws_iam` asset.
+              - name: disable_user_account
+                type: http
+                with:
+                  url: "{{ consts.aws_iam_endpoint }}"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.aws_iam_auth_header }}"
+                    Content-Type: "application/json"
+                  body:
+                    username: "{{ item }}"
+                    disable_access_keys: true
+                on-failure:
+                  retry:
+                    max-attempts: 2
+                    delay: "3s"
+                  continue: true
+              - name: log_disabled
+                type: console
+                with:
+                  message: "Disabled IAM user {{ item }} (status={{ steps.disable_user_account.output.status | default: 'unknown' }})."
+            else:
+              - name: log_pending_approval
+                type: console
+                with:
+                  message: "{{ item }} would be disabled but `approve` is false."

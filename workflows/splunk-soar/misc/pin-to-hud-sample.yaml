@@ -1,0 +1,118 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Heads-Up Display Pinning Sample"
+description: >
+  Demonstration playbook for Phantom's pinned HUD cards. The original adds
+  four pin tiles to the case banner: affected IP count, affected user count,
+  most recent destination domain, and an IOC roll-up (count, most recent
+  value, and the set of IOC types observed). The Elastic translation surfaces
+  the same fields as structured case comments and a summary data object,
+  since there is no first-class HUD pinning in Kibana Cases today.
+enabled: true
+tags: ["splunk-soar", "misc", "case-summary", "hud", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: destination_addresses
+    type: array
+    required: false
+    default: []
+    description: "Destination IPs observed on the event."
+  - name: source_addresses
+    type: array
+    required: false
+    default: []
+    description: "Source IPs observed on the event."
+  - name: destination_usernames
+    type: array
+    required: false
+    default: []
+    description: "Destination usernames observed."
+  - name: source_usernames
+    type: array
+    required: false
+    default: []
+    description: "Source usernames observed."
+  - name: destination_dns_domains
+    type: array
+    required: false
+    default: []
+    description: "Destination DNS domains observed (most recent first)."
+  - name: iocs
+    type: array
+    required: false
+    default: []
+    description: >
+      Collected IOC records. Each entry should be an object with keys:
+      value, type (one of ip|url|email|hash). Most recent first.
+  - name: kibana_case_id
+    type: string
+    required: false
+    description: "Case ID to attach the summary to."
+
+steps:
+  - name: count_ips
+    type: data.set
+    with:
+      affected_ip_count: "${{ (inputs.destination_addresses | size) + (inputs.source_addresses | size) }}"
+
+  - name: count_users
+    type: data.set
+    with:
+      affected_user_count: "${{ (inputs.destination_usernames | size) + (inputs.source_usernames | size) }}"
+
+  - name: latest_domain
+    type: data.set
+    with:
+      most_recent_domain: "{{ inputs.destination_dns_domains[0] | default: '' }}"
+
+  - name: ioc_rollup
+    type: data.set
+    with:
+      ioc_count: "${{ inputs.iocs | size }}"
+      most_recent_ioc: "{{ inputs.iocs[0].value | default: '' }}"
+      ioc_types: "${{ inputs.iocs | map: 'type' | uniq }}"
+
+  - name: build_summary
+    type: data.set
+    with:
+      hud_summary:
+        affected_ips: "{{ steps.count_ips.output.affected_ip_count }}"
+        affected_users: "{{ steps.count_users.output.affected_user_count }}"
+        most_recent_domain: "{{ steps.latest_domain.output.most_recent_domain }}"
+        ioc_count: "{{ steps.ioc_rollup.output.ioc_count }}"
+        most_recent_ioc: "{{ steps.ioc_rollup.output.most_recent_ioc }}"
+        ioc_types: "${{ steps.ioc_rollup.output.ioc_types }}"
+
+  - name: log_summary
+    type: console
+    with:
+      message: |
+        Case HUD summary
+        affected_ips={{ steps.build_summary.output.hud_summary.affected_ips }}
+        affected_users={{ steps.build_summary.output.hud_summary.affected_users }}
+        most_recent_domain={{ steps.build_summary.output.hud_summary.most_recent_domain }}
+        ioc_count={{ steps.build_summary.output.hud_summary.ioc_count }}
+        most_recent_ioc={{ steps.build_summary.output.hud_summary.most_recent_ioc }}
+        ioc_types={{ steps.build_summary.output.hud_summary.ioc_types | join: ', ' }}
+
+  - name: attach_summary
+    type: if
+    condition: "{{ inputs.kibana_case_id | size }} > 0"
+    steps:
+      - name: case_comment_summary
+        type: kibana.addCaseComment
+        with:
+          caseId: "{{ inputs.kibana_case_id }}"
+          comment: |
+            Affected IPs: {{ steps.build_summary.output.hud_summary.affected_ips }}
+            Affected users: {{ steps.build_summary.output.hud_summary.affected_users }}
+            Most recent domain: {{ steps.build_summary.output.hud_summary.most_recent_domain }}
+            IOC count: {{ steps.build_summary.output.hud_summary.ioc_count }}
+            Most recent IOC: {{ steps.build_summary.output.hud_summary.most_recent_ioc }}
+            IOC types: {{ steps.build_summary.output.hud_summary.ioc_types | join: ', ' }}

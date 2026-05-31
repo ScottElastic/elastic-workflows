@@ -1,0 +1,116 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "User-Approved Domain Block via Umbrella"
+description: >
+  Looks up a domain's DomainTools risk score, and when it reaches or exceeds
+  a threshold (default 80) asks an automation engineer to approve a block.
+  On approval, blocks the domain via Cisco Umbrella for a fixed window and
+  emits a sibling unblock note for operators to schedule (the original
+  Phantom playbook used a delayed action; Elastic Workflows does not yet
+  ship a built-in delayed-action primitive, so the unblock is recorded for
+  follow-up rather than scheduled in-band).
+enabled: true
+tags: ["splunk-soar", "misc", "domain-block", "umbrella", "domaintools", "approval", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: domain
+    type: string
+    required: true
+    description: "Domain to evaluate and (potentially) block."
+
+consts:
+  # DomainTools risk API.
+  domaintools_endpoint: "https://api.domaintools.com/v1"
+  domaintools_user: "CHANGEME"
+  domaintools_token: "CHANGEME"
+  # Cisco Umbrella Enforcement API for the actual block.
+  umbrella_endpoint: "https://s-platform.api.opendns.com/1.0/events"
+  umbrella_customer_key: "CHANGEME-umbrella-customer-key"
+  # Threshold above which approval is requested
+  risk_threshold: 80
+  block_duration_minutes: 60
+
+steps:
+  # TODO: replace with a native DomainTools connector when available.
+  - name: domain_reputation
+    type: http
+    with:
+      url: "{{ consts.domaintools_endpoint }}/risk/?domain={{ inputs.domain }}&api_username={{ consts.domaintools_user }}&api_key={{ consts.domaintools_token }}"
+      method: GET
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: extract_risk_score
+    type: data.set
+    with:
+      risk_score: "{{ steps.domain_reputation.output.response.risk_score | default: 0 }}"
+
+  - name: evaluate_risk
+    type: if
+    condition: "{{ steps.extract_risk_score.output.risk_score }} >= {{ consts.risk_threshold }}"
+    steps:
+      - name: ask_for_approval
+        type: ai.prompt
+        with:
+          prompt: |
+            Domain {{ inputs.domain }} scored {{ steps.extract_risk_score.output.risk_score }}
+            on DomainTools risk, which exceeds the configured threshold of
+            {{ consts.risk_threshold }}. Should we block this domain on Cisco
+            Umbrella for {{ consts.block_duration_minutes }} minutes? Reply
+            Yes or No.
+          timeout: "60m"
+
+      - name: on_approval
+        type: if
+        condition: "{{ steps.ask_for_approval.output.response | downcase }} == 'yes'"
+        steps:
+          # TODO: replace with a native Cisco Umbrella connector when one ships.
+          - name: umbrella_block_domain
+            type: http
+            with:
+              url: "{{ consts.umbrella_endpoint }}?customerKey={{ consts.umbrella_customer_key }}"
+              method: POST
+              headers:
+                Content-Type: "application/json"
+              body:
+                alertTime: "{{ now }}"
+                deviceId: "elastic-workflow"
+                deviceVersion: "1.0"
+                dstDomain: "{{ inputs.domain }}"
+                eventTime: "{{ now }}"
+                providerName: "Elastic Workflows"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "5s"
+              continue: true
+
+          - name: record_unblock_followup
+            type: data.set
+            with:
+              unblock_followup:
+                domain: "{{ inputs.domain }}"
+                scheduled_minutes_from_now: "{{ consts.block_duration_minutes }}"
+                note: >
+                  Original SOAR playbook scheduled a delayed unblock action.
+                  In Elastic, wire a scheduled trigger or queue this record
+                  to a sibling unblock workflow.
+
+          - name: log_block_applied
+            type: console
+            with:
+              message: "Blocked {{ inputs.domain }} on Umbrella; unblock follow-up captured."
+    else:
+      - name: log_below_threshold
+        type: console
+        with:
+          message: "Domain {{ inputs.domain }} risk {{ steps.extract_risk_score.output.risk_score }} is below threshold; no action."

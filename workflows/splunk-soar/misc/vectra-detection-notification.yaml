@@ -1,0 +1,98 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Vectra Detection Notification"
+description: >
+  When a Vectra-triggered event carries an `act` field of "block", queries
+  Vectra for active "Suspicious Remote Execution" detections on the source
+  host and emails the SOC team a notification with the host name, IP, and
+  the list of detection types.
+enabled: true
+tags: ["splunk-soar", "misc", "vectra", "ndr", "notification", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: act
+    type: string
+    required: false
+    description: "Source CEF `act` value (workflow only runs further when this is 'block')."
+  - name: host_ip
+    type: string
+    required: false
+    description: "Source IP (dvc field on the original event)."
+  - name: hostname
+    type: string
+    required: false
+    description: "Hostname (dvchost field on the original event)."
+  - name: notify_to
+    type: string
+    required: false
+    default: "soc_team@example.com"
+    description: "Email recipient."
+  - name: notify_from
+    type: string
+    required: false
+    default: "elastic-workflows@example.com"
+    description: "Email sender."
+
+consts:
+  # Vectra Detect API. The original Phantom asset was "vae-demo".
+  vectra_endpoint: "https://CHANGEME-vectra.example.com/api/v2.1"
+  vectra_token: "Token CHANGEME_TOKEN"
+  email_connector_id: "CHANGEME-email-connector"
+
+steps:
+  - name: guard_on_act_block
+    type: if
+    condition: "{{ inputs.act | downcase }} == 'block'"
+    steps:
+      # TODO: swap for a native Vectra connector when one is available.
+      - name: get_detections
+        type: http
+        with:
+          url: "{{ consts.vectra_endpoint }}/detections?state=active&src_ip={{ inputs.host_ip }}&detection_type=Suspicious+Remote+Execution"
+          method: GET
+          headers:
+            Authorization: "{{ consts.vectra_token }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: collect_detection_types
+        type: data.set
+        with:
+          detection_types: "${{ steps.get_detections.output.results | map: 'type' | uniq | default: [] }}"
+
+      - name: send_notification
+        type: email
+        connector-id: "{{ consts.email_connector_id }}"
+        with:
+          to: ["{{ inputs.notify_to }}"]
+          from: "{{ inputs.notify_from }}"
+          subject: "Notification from Vectra via Elastic Workflows"
+          message: |
+            The following host exceeded the threshold and needs review:
+
+            Hostname: {{ inputs.hostname }}
+            IP: {{ inputs.host_ip }}
+
+            Detections:
+            {% for t in steps.collect_detection_types.output.detection_types %}
+            - {{ t }}
+            {% endfor %}
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+    else:
+      - name: log_no_action
+        type: console
+        with:
+          message: "act={{ inputs.act }} did not match 'block'; no notification sent."

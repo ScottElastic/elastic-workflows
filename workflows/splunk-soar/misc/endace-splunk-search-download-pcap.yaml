@@ -1,0 +1,192 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "EndaceProbe — Splunk Search and Conditional PCAP Download"
+description: >
+  Triggered from a forwarded Splunk syslog event. Converts the event's epoch
+  timestamp to ISO-8601, asks EndaceProbe for the flow of interest, and:
+  if the result has a real PCAP (byteCount > 27), proceeds; otherwise records
+  the failure as a case note. When a high-severity event is involved the
+  PCAP is downloaded automatically. Otherwise, a size check is applied —
+  PCAPs at or below 10 MB are downloaded directly, while larger PCAPs return
+  an EndaceP2P link that is captured as a markdown case note for an analyst.
+enabled: true
+tags: ["splunk-soar", "misc", "pcap", "endace", "splunk", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: source_address
+    type: string
+    required: true
+    description: "Source IP (host1) for the EndaceProbe query."
+  - name: destination_address
+    type: string
+    required: true
+    description: "Destination IP (host2) for the EndaceProbe query."
+  - name: source_port
+    type: string
+    required: false
+    description: "Source port (port1)."
+  - name: destination_port
+    type: string
+    required: false
+    description: "Destination port (port2)."
+  - name: transport_protocol
+    type: string
+    required: true
+    description: "TCP, UDP, etc."
+  - name: endace_datetime
+    type: string
+    required: true
+    description: "Event time in epoch seconds (will be converted to ISO-8601)."
+  - name: artifact_severity
+    type: string
+    required: false
+    default: "medium"
+    description: "Event severity. 'high' forces automatic PCAP download."
+  - name: kibana_case_id
+    type: string
+    required: false
+    description: "Optional case to attach notes/comments to."
+
+consts:
+  # EndaceProbe REST endpoint and an API token. Original Phantom asset was
+  # named "endace_probe" — substitute your appliance and credentials.
+  endace_endpoint: "https://CHANGEME-endace.example.com/api"
+  endace_token: "Bearer CHANGEME_TOKEN"
+  span_before_seconds: 3600
+  span_after_seconds: 30
+  # 10 MB threshold for direct download vs P2P link return
+  pcap_size_threshold_bytes: 10000000
+
+steps:
+  - name: build_iso_timestamp
+    type: data.set
+    with:
+      iso_time: "{{ inputs.endace_datetime | date: '%Y-%m-%dT%H:%M:%SZ' }}"
+
+  # TODO: replace with a native EndaceProbe connector when available.
+  - name: query_endace
+    type: http
+    with:
+      url: "{{ consts.endace_endpoint }}/flow/search"
+      method: POST
+      headers:
+        Authorization: "{{ consts.endace_token }}"
+        Content-Type: "application/json"
+      body:
+        time: "{{ steps.build_iso_timestamp.output.iso_time }}"
+        host1: "{{ inputs.source_address }}"
+        host2: "{{ inputs.destination_address }}"
+        port1: "{{ inputs.source_port }}"
+        port2: "{{ inputs.destination_port }}"
+        protocol: "{{ inputs.transport_protocol }}"
+        span_before: "{{ consts.span_before_seconds }}"
+        span_after: "{{ consts.span_after_seconds }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+      continue: true
+
+  - name: handle_search_result
+    type: if
+    condition: "{{ steps.query_endace.output.flow.results.total.flowByteCount | default: 0 }} > 27"
+    steps:
+      - name: stash_pcap_id
+        type: data.set
+        with:
+          pcap_id: "{{ steps.query_endace.output.summary.pcap_id }}"
+          byte_count: "{{ steps.query_endace.output.flow.results.total.flowByteCount }}"
+
+      - name: route_by_severity
+        type: if
+        condition: "{{ inputs.artifact_severity | downcase }} == 'high'"
+        steps:
+          # Always download for high-severity events.
+          - name: download_pcap_high
+            type: http
+            with:
+              url: "{{ consts.endace_endpoint }}/pcap/{{ steps.stash_pcap_id.output.pcap_id }}"
+              method: GET
+              headers:
+                Authorization: "{{ consts.endace_token }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "5s"
+              continue: true
+          - name: log_pcap_downloaded
+            type: console
+            with:
+              message: "PCAP {{ steps.stash_pcap_id.output.pcap_id }} downloaded (high severity)."
+        else:
+          # Otherwise check size before downloading.
+          - name: route_by_size
+            type: if
+            condition: "{{ steps.stash_pcap_id.output.byte_count }} > {{ consts.pcap_size_threshold_bytes }}"
+            steps:
+              # Large PCAP: get the download link and attach to case.
+              - name: get_pcap_status
+                type: http
+                with:
+                  url: "{{ consts.endace_endpoint }}/pcap/{{ steps.stash_pcap_id.output.pcap_id }}/status"
+                  method: GET
+                  headers:
+                    Authorization: "{{ consts.endace_token }}"
+                on-failure:
+                  retry:
+                    max-attempts: 2
+                    delay: "5s"
+                  continue: true
+              - name: capture_p2p_link
+                type: data.set
+                with:
+                  p2p_link: "{{ steps.get_pcap_status.output.datamine.links[2].href | default: '' }}"
+              - name: post_p2p_link_note
+                type: if
+                condition: "{{ inputs.kibana_case_id | size }} > 0 and {{ steps.capture_p2p_link.output.p2p_link | size }} > 0"
+                steps:
+                  - name: attach_p2p_note
+                    type: kibana.addCaseComment
+                    with:
+                      caseId: "{{ inputs.kibana_case_id }}"
+                      comment: |
+                        EndaceP2P PCAP link (large download): {{ steps.capture_p2p_link.output.p2p_link }}
+            else:
+              # Small enough to download directly.
+              - name: download_pcap_small
+                type: http
+                with:
+                  url: "{{ consts.endace_endpoint }}/pcap/{{ steps.stash_pcap_id.output.pcap_id }}"
+                  method: GET
+                  headers:
+                    Authorization: "{{ consts.endace_token }}"
+                on-failure:
+                  retry:
+                    max-attempts: 2
+                    delay: "5s"
+                  continue: true
+              - name: log_small_pcap
+                type: console
+                with:
+                  message: "PCAP {{ steps.stash_pcap_id.output.pcap_id }} downloaded (under threshold)."
+    else:
+      # Empty PCAP path — record the failed search.
+      - name: record_failed_search
+        type: if
+        condition: "{{ inputs.kibana_case_id | size }} > 0"
+        steps:
+          - name: failed_search_note
+            type: kibana.addCaseComment
+            with:
+              caseId: "{{ inputs.kibana_case_id }}"
+              comment: "EndaceProbe search returned an empty PCAP. Status: {{ steps.query_endace.output.status | default: 'unknown' }}"
+      - name: log_failed_search
+        type: console
+        with:
+          message: "EndaceProbe search did not yield a meaningful PCAP."

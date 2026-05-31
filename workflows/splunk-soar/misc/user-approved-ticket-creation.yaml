@@ -1,0 +1,126 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "User-Approved Endpoint Containment Ticket"
+description: >
+  When an alert carries a source IP, prompt an incident commander to decide
+  whether to create a containment ticket. If they approve, check the IP
+  against a baseline of "infected endpoints": a brand-new host produces a
+  fresh containment ticket and is added to the baseline; a host already on
+  the list gets a reinfection ticket. Regardless of branch, the case is
+  closed once the chosen sequence completes.
+enabled: true
+tags: ["splunk-soar", "misc", "containment", "approval", "case-management", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: source_address
+    type: string
+    required: false
+    description: "IP of the suspect endpoint."
+  - name: kibana_case_id
+    type: string
+    required: false
+    description: "Case ID for status closures and notes."
+
+consts:
+  # Baseline ES index for infected endpoints. The original Phantom playbook
+  # held this in a custom list — operators here can wire to any index they
+  # already use for endpoint state.
+  infected_endpoints_index: "infected-endpoints-baseline"
+  # ArcSight ESM connector originally. Stubbed via http here.
+  arcsight_endpoint: "https://CHANGEME-arcsight.example.com/www/manager-service/rest"
+  arcsight_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  - name: branch_on_source
+    type: if
+    condition: "{{ inputs.source_address | size }} > 0"
+    steps:
+      - name: ask_incident_commander
+        type: ai.prompt
+        with:
+          prompt: |
+            Endpoint at {{ inputs.source_address }} has been deemed infected.
+            Should we create a containment ticket? Reply Yes or No.
+          timeout: "60m"
+
+      - name: on_approval
+        type: if
+        condition: "{{ steps.ask_incident_commander.output.response | downcase }} == 'yes'"
+        steps:
+          - name: lookup_baseline
+            type: elasticsearch.search
+            with:
+              index: "{{ consts.infected_endpoints_index }}"
+              size: 1
+              body:
+                query:
+                  term:
+                    source_address: "{{ inputs.source_address }}"
+            on-failure:
+              continue: true
+
+          - name: route_initial_or_repeat
+            type: if
+            condition: "{{ steps.lookup_baseline.output.hits.total.value | default: 0 }} == 0"
+            steps:
+              # New infection — file the initial ticket and add to baseline.
+              # TODO: swap for a native ArcSight/case connector.
+              - name: create_initial_ticket
+                type: http
+                with:
+                  url: "{{ consts.arcsight_endpoint }}/CaseService/createCase"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.arcsight_auth_header }}"
+                    Content-Type: "application/json"
+                  body:
+                    name: "Contain Endpoint At {{ inputs.source_address }}"
+                    parent_group: "All Cases/All Cases"
+                on-failure:
+                  retry:
+                    max-attempts: 2
+                    delay: "5s"
+                  continue: true
+              - name: add_to_baseline
+                type: elasticsearch.index
+                with:
+                  index: "{{ consts.infected_endpoints_index }}"
+                  document:
+                    source_address: "{{ inputs.source_address }}"
+                    first_seen: "{{ now }}"
+                on-failure:
+                  continue: true
+            else:
+              # Already on the list — file a reinfection ticket.
+              - name: create_reinfection_ticket
+                type: http
+                with:
+                  url: "{{ consts.arcsight_endpoint }}/CaseService/createCase"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.arcsight_auth_header }}"
+                    Content-Type: "application/json"
+                  body:
+                    name: "Contain Reinfected Endpoint At {{ inputs.source_address }}"
+                    parent_group: "All Cases/All Cases"
+                on-failure:
+                  retry:
+                    max-attempts: 2
+                    delay: "5s"
+                  continue: true
+
+  - name: close_case
+    type: if
+    condition: "{{ inputs.kibana_case_id | size }} > 0"
+    steps:
+      - name: kibana_close
+        type: kibana.updateCase
+        with:
+          caseId: "{{ inputs.kibana_case_id }}"
+          status: "closed"

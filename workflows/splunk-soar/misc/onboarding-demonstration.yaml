@@ -1,0 +1,148 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Onboarding Demonstration — Enrichment and Severity"
+description: >
+  A sample enrichment workflow used to demonstrate Phantom out of the box.
+  Looks up IP geolocation, WHOIS, reverse DNS, and DNS resolution for
+  destination IP/domain, plus PhishTank URL reputation. When a URL is
+  flagged as a verified phishing entry, raises case severity. Acts as a
+  template you can extend with additional enrichment or response actions.
+enabled: true
+tags: ["splunk-soar", "misc", "enrichment", "onboarding", "phishtank", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: destination_address
+    type: string
+    required: false
+    description: "Destination IP to geolocate / WHOIS / reverse-resolve."
+  - name: destination_dns_domain
+    type: string
+    required: false
+    description: "Destination domain to forward-resolve."
+  - name: request_url
+    type: string
+    required: false
+    description: "URL to check against PhishTank."
+  - name: kibana_case_id
+    type: string
+    required: false
+    description: "Case ID for severity changes / enrichment notes."
+
+consts:
+  # Free MaxMind GeoLite2 web service or your own instance.
+  maxmind_endpoint: "https://geoip.maxmind.com/geoip/v2.1/city"
+  maxmind_token: "Basic CHANGEME"
+  # WHOIS service (rdap.org is open).
+  whois_endpoint: "https://rdap.org/ip"
+  # Google Public DNS over HTTPS.
+  google_dns_endpoint: "https://dns.google/resolve"
+  # PhishTank
+  phishtank_endpoint: "https://checkurl.phishtank.com/checkurl/"
+  phishtank_app_key: "CHANGEME"
+
+steps:
+  - name: enrich_ip
+    type: if
+    condition: "{{ inputs.destination_address | size }} > 0"
+    steps:
+      - name: geolocate_ip
+        type: http
+        with:
+          url: "{{ consts.maxmind_endpoint }}/{{ inputs.destination_address }}"
+          method: GET
+          headers:
+            Authorization: "{{ consts.maxmind_token }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: whois_ip
+        type: http
+        with:
+          url: "{{ consts.whois_endpoint }}/{{ inputs.destination_address }}"
+          method: GET
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: reverse_dns
+        type: http
+        with:
+          url: "{{ consts.google_dns_endpoint }}?name={{ inputs.destination_address }}&type=PTR"
+          method: GET
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+  - name: enrich_domain
+    type: if
+    condition: "{{ inputs.destination_dns_domain | size }} > 0"
+    steps:
+      - name: forward_dns
+        type: http
+        with:
+          url: "{{ consts.google_dns_endpoint }}?name={{ inputs.destination_dns_domain }}&type=A"
+          method: GET
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+  - name: enrich_url
+    type: if
+    condition: "{{ inputs.request_url | size }} > 0"
+    steps:
+      # TODO: replace with a native PhishTank connector when one is available.
+      - name: phishtank_lookup
+        type: http
+        with:
+          url: "{{ consts.phishtank_endpoint }}"
+          method: POST
+          headers:
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "url={{ inputs.request_url }}&format=json&app_key={{ consts.phishtank_app_key }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: react_to_phishtank
+        type: if
+        condition: "{{ steps.phishtank_lookup.output.results.in_database }} and {{ steps.phishtank_lookup.output.results.valid }} and {{ steps.phishtank_lookup.output.results.verified }}"
+        steps:
+          - name: pin_phishing_url
+            type: console
+            with:
+              message: "PhishTank-verified phishing URL pinned: {{ inputs.request_url }}"
+          - name: raise_severity
+            type: if
+            condition: "{{ inputs.kibana_case_id | size }} > 0"
+            steps:
+              - name: update_case_severity_high
+                type: kibana.updateCase
+                with:
+                  caseId: "{{ inputs.kibana_case_id }}"
+                  severity: "high"
+
+  - name: summary
+    type: console
+    with:
+      message: |
+        Enrichment summary
+        destination_address={{ inputs.destination_address }}
+        destination_dns_domain={{ inputs.destination_dns_domain }}
+        request_url={{ inputs.request_url }}

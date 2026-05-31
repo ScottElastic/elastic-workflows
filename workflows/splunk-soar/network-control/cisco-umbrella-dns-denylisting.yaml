@@ -4,10 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Cisco Umbrella — DNS Denylisting"
 description: >
-  Accepts one or more domains and adds them to a Cisco Umbrella block list
-  via the Enforcement API. Each domain is iterated, posted to Umbrella, and
-  the successful blocks are captured as normalized observable records.
-  Implements MITRE D3FEND DNS denylisting (d3f:DNSDenylisting).
+  Pushes one or more domains onto a Cisco Umbrella block list via the
+  Enforcement API (POST /1.0/events). Each domain becomes a security event
+  with the caller's customer key; successful submissions are captured as
+  normalized observable records. Inputs: `domains` (array). Implements
+  MITRE D3FEND DNS denylisting (d3f:DNSDenylisting).
 enabled: true
 tags: ["splunk-soar", "network-control", "dns-denylist", "cisco-umbrella", "translated"]
 
@@ -21,11 +22,13 @@ inputs:
     description: "Domains to block in Cisco Umbrella."
 
 consts:
-  # Cisco Umbrella Enforcement API endpoint. The customer key is appended as
-  # a URL query parameter — substitute your own integration key.
+  # Cisco Umbrella Enforcement API. The customer key authenticates the
+  # integration and is appended as a query parameter on every request.
+  # Reference: https://developer.cisco.com/docs/cloud-security/enforcement-api/
   umbrella_enforcement_endpoint: "https://s-platform.api.opendns.com/1.0/events"
   umbrella_customer_key: "CHANGEME-umbrella-customer-key"
   umbrella_source_name: "Elastic Workflows"
+  umbrella_device_id: "elastic-workflow"
 
 steps:
   - name: guard_domain_input
@@ -42,8 +45,9 @@ steps:
     with:
       items: ${{ inputs.domains }}
     steps:
-      # TODO: replace with a first-class Cisco Umbrella connector when available.
-      # The original Phantom playbook called the cisco_umbrella "block domain" action.
+      # Cisco Umbrella Enforcement API — POST a security event referencing
+      # the destination domain. Umbrella replies with the new event id and
+      # current disposition. Destructive change: no `continue: true`.
       - name: block_domain
         type: http
         with:
@@ -51,22 +55,27 @@ steps:
           method: POST
           headers:
             Content-Type: "application/json"
+            Accept: "application/json"
           body:
-            alertTime: "{{ execution.id }}"
-            deviceId: "elastic-workflow"
+            alertTime: "{{ now | date: '%Y-%m-%dT%H:%M:%S.000Z' }}"
+            deviceId: "{{ consts.umbrella_device_id }}"
             deviceVersion: "1.0"
             dstDomain: "{{ item }}"
-            eventTime: "{{ execution.id }}"
+            eventTime: "{{ now | date: '%Y-%m-%dT%H:%M:%S.000Z' }}"
             providerName: "{{ consts.umbrella_source_name }}"
+            eventSeverity: "HIGH"
+            eventType: "Botnet"
+            eventDescription: "Domain submitted for DNS denylisting by Elastic Workflows."
+            protocolVersion: "1.0a"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
-          continue: true
+            max-attempts: 3
+            delay: "5s"
 
+      # Umbrella returns 202 Accepted with `{id, disposition}` on success.
       - name: classify_block_outcome
         type: if
-        condition: "{{ steps.block_domain.output.status }} == 'success'"
+        condition: "{{ steps.block_domain.output.id | default: '' | size }} > 0"
         steps:
           - name: capture_blocked
             type: data.set
@@ -76,14 +85,16 @@ steps:
                 value: "{{ item }}"
                 source: "Cisco Umbrella"
                 status: "blocked"
+                umbrella_event_id: "{{ steps.block_domain.output.id }}"
+                disposition: "{{ steps.block_domain.output.disposition | default: 'unknown' }}"
           - name: log_blocked
             type: console
             with:
-              message: "Blocked domain {{ item }} in Cisco Umbrella."
+              message: "Blocked {{ item }} in Cisco Umbrella (event_id={{ steps.block_domain.output.id }})."
         else:
           - name: log_block_failed
             type: console
             with:
               message: |
-                Block attempt for {{ item }} did not return success.
+                Umbrella enforcement did not confirm a block for {{ item }}.
                 response={{ steps.block_domain.output | json }}

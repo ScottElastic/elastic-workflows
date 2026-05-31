@@ -4,11 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Zscaler — Outbound URL Block"
 description: >
-  Adds one or more URLs to a Zscaler block category so subsequent egress is
-  denied at the proxy. Iterates each URL, calls the Zscaler URL Categories
-  API, and produces a per-URL observable distinguishing newly-blocked URLs
-  from those Zscaler considered already covered (ignored). Implements
-  MITRE D3FEND outbound traffic filtering (d3f:OutboundTrafficFiltering).
+  Adds one or more URLs to a Zscaler ZIA custom URL category so subsequent
+  egress is denied at the proxy. Authenticates with the cookie-session
+  endpoint, then issues `PUT /api/v1/urlCategories/{id}?action=ADD_TO_LIST`
+  for each URL. Per-URL observables distinguish newly-blocked URLs from
+  those Zscaler reported as already covered. Inputs: `urls` (array).
+  Implements MITRE D3FEND outbound traffic filtering
+  (d3f:OutboundTrafficFiltering).
 enabled: true
 tags: ["splunk-soar", "network-control", "outbound-filter", "zscaler", "translated"]
 
@@ -22,10 +24,17 @@ inputs:
     description: "URLs to block in Zscaler."
 
 consts:
-  # Zscaler ZIA base URL and the custom category to extend with these URLs.
-  # See https://help.zscaler.com/zia/api for endpoint conventions and auth.
+  # Zscaler ZIA. The base URL varies by tenant cloud (zscaler.net,
+  # zscalertwo.net, zscalerbeta.net, etc.).
+  # Reference: https://help.zscaler.com/zia/api
   zscaler_base_url: "https://CHANGEME-zsapi.zscaler.net"
-  zscaler_jsessionid: "CHANGEME-zscaler-jsessionid"
+  zscaler_username: "CHANGEME-zscaler-username"
+  zscaler_password: "CHANGEME-zscaler-password"
+  # `apiKey` must be obfuscated using Zscaler's timestamp-based scheme prior
+  # to invocation — see the doc reference above. Treat as a pre-baked secret.
+  zscaler_obfuscated_api_key: "CHANGEME-zscaler-obfuscated-key"
+  zscaler_session_timestamp: "CHANGEME-zscaler-timestamp-ms"
+  # Custom URL category id that holds the workflow's block list.
   zscaler_block_category_id: "CHANGEME-zscaler-category-id"
 
 steps:
@@ -38,13 +47,40 @@ steps:
         with:
           message: "No URLs supplied — skipping Zscaler block."
 
+  # Open an authenticated session. Zscaler returns `Set-Cookie: JSESSIONID=...`
+  # which subsequent calls must echo back. Lookup is non-destructive so we
+  # retry aggressively on transient failure.
+  - name: zscaler_authenticate
+    type: http
+    with:
+      url: "{{ consts.zscaler_base_url }}/api/v1/authenticatedSession"
+      method: POST
+      headers:
+        Content-Type: "application/json"
+        Accept: "application/json"
+      body:
+        username: "{{ consts.zscaler_username }}"
+        password: "{{ consts.zscaler_password }}"
+        apiKey: "{{ consts.zscaler_obfuscated_api_key }}"
+        timestamp: "{{ consts.zscaler_session_timestamp }}"
+    on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
+
+  - name: capture_session
+    type: data.set
+    with:
+      jsessionid: "{{ steps.zscaler_authenticate.output.headers['Set-Cookie'] | default: steps.zscaler_authenticate.output.JSESSIONID | default: '' }}"
+
   - name: block_each_url
     type: foreach
     with:
       items: ${{ inputs.urls }}
     steps:
-      # TODO: replace with a native Zscaler connector once available. This
-      # stub mirrors the Phantom "block url" action against the zscaler asset.
+      # ADD_TO_LIST appends to an existing custom category in one call —
+      # avoids a full GET/merge/PUT cycle. Destructive change — no
+      # `continue: true`.
       - name: block_url
         type: http
         with:
@@ -52,27 +88,26 @@ steps:
           method: PUT
           headers:
             Content-Type: "application/json"
-            Cookie: "JSESSIONID={{ consts.zscaler_jsessionid }}"
+            Accept: "application/json"
+            Cookie: "{{ steps.capture_session.output.jsessionid }}"
           body:
             customCategory: true
             urls:
               - "{{ item }}"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
-          continue: true
+            max-attempts: 3
+            delay: "5s"
 
       - name: emit_observable
         type: if
-        condition: "{{ steps.block_url.output.status }} == 'success'"
+        condition: "{{ steps.block_url.output.id | default: '' | size }} > 0 or {{ steps.block_url.output.configuredName | default: '' | size }} > 0"
         steps:
-          # Original playbook distinguished URLs Zscaler had already covered
-          # (in summary.ignored) from those it actively updated. We mirror
-          # that behavior using the summary returned by the API.
+          # Zscaler returns the updated category object. URLs already present
+          # are surfaced in `urlsRetainingParentCategory` / `customUrlsCount`.
           - name: classify_outcome
             type: if
-            condition: "{{ steps.block_url.output.summary.ignored | size }} > 0"
+            condition: "{{ steps.block_url.output.urlsRetainingParentCategory | default: [] | join: ',' | contains: item }}"
             steps:
               - name: capture_ignored
                 type: data.set
@@ -82,6 +117,7 @@ steps:
                     value: "{{ item }}"
                     source: "Zscaler"
                     status: "ignored"
+                    category_id: "{{ consts.zscaler_block_category_id }}"
             else:
               - name: capture_updated
                 type: data.set
@@ -91,16 +127,42 @@ steps:
                     value: "{{ item }}"
                     source: "Zscaler"
                     status: "updated"
+                    category_id: "{{ consts.zscaler_block_category_id }}"
           - name: log_outcome
             type: console
             with:
-              message: |
-                Zscaler block call for {{ item }} completed.
-                ignored={{ steps.block_url.output.summary.ignored | json | default: '[]' }}
+              message: "Zscaler block call for {{ item }} completed (category={{ consts.zscaler_block_category_id }})."
         else:
           - name: log_block_failed
             type: console
             with:
               message: |
-                Zscaler did not return success for {{ item }}.
+                Zscaler did not return a valid category object for {{ item }}.
                 response={{ steps.block_url.output | json }}
+
+  # Activate the configuration changes so the new URLs are enforced. Without
+  # an activate call, edits remain in the pending-changes queue. Destructive
+  # — no `continue: true`.
+  - name: activate_changes
+    type: http
+    with:
+      url: "{{ consts.zscaler_base_url }}/api/v1/status/activate"
+      method: POST
+      headers:
+        Content-Type: "application/json"
+        Cookie: "{{ steps.capture_session.output.jsessionid }}"
+    on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
+
+  # End the cookie-authenticated session as a courtesy.
+  - name: zscaler_logout
+    type: http
+    with:
+      url: "{{ consts.zscaler_base_url }}/api/v1/authenticatedSession"
+      method: DELETE
+      headers:
+        Cookie: "{{ steps.capture_session.output.jsessionid }}"
+    on-failure:
+      continue: true

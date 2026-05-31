@@ -4,13 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Zscaler Patient 0 — Parse Email"
 description: >
-  Utility that parses a Zscaler Patient 0 alert email (either plain
-  text or base64-encoded body) and lifts the fields Zscaler exposes
-  — cloud/org, file MD5, threat category, threat name, event link
-  and first-downloaded counters — into a normalized event document
-  that downstream workflows can consume. Replaces the original
-  custom-Python parser with an LLM-driven extraction that produces
-  the same field set.
+  Utility that parses a Zscaler Patient 0 alert email (plain text or
+  base64-encoded) and lifts the fields Zscaler exposes — cloud/org,
+  file MD5, threat category, threat name, event link, first-downloaded
+  timestamp, and allowed/quarantined/blocked counters — into a normalized
+  artifact document. Inputs: `raw_email_body`. Output: a structured
+  `artifact` object suitable for indexing or passing into downstream
+  Patient-Zero response workflows.
 enabled: true
 tags: ["splunk-soar", "email-triage", "parsing", "zscaler", "patient-zero", "translated"]
 

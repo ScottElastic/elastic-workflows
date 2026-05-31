@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Customer Firewall Request — Handle Artifact"
 description: >
-  Pair workflow to "customer-firewall-request-parse-csv". Takes a list of
-  parsed firewall change requests (each labeled "customer_request") and
-  routes them onto one of four Palo Alto Networks actions: block source IP,
-  block destination IP, unblock source IP, or unblock destination IP — based
-  on the row's `action` value plus which address field is populated.
+  Companion workflow to "customer-firewall-request-parse-csv". Takes parsed
+  rows (each labeled `customer_request`) and dispatches each to one of four
+  Palo Alto Networks XML API operations — block or unblock by source or
+  destination IP — by appending or removing the IP from address-group
+  members on the firewall, then committing. Inputs: `requests` (array of
+  rows with `label`, `action`, `sourceAddress`, `destinationAddress`).
 enabled: true
 tags: ["splunk-soar", "misc", "firewall", "pan", "translated"]
 
@@ -24,10 +25,14 @@ inputs:
       with: label, action (block_ip|unblock_ip), sourceAddress, destinationAddress.
 
 consts:
-  # Original Phantom asset: "pan" (Palo Alto Networks firewall).
+  # Palo Alto Networks PAN-OS XML API. Reference:
+  # https://docs.paloaltonetworks.com/pan-os/11-2/pan-os-panorama-api
   pan_endpoint: "https://CHANGEME-pan-fw.example.com/api"
-  pan_api_key: "CHANGEME"
+  pan_api_key: "CHANGEME-pan-api-key"
   pan_vsys: "vsys1"
+  # Address-group names that this workflow appends to or removes from.
+  pan_block_src_group: "elastic-block-src"
+  pan_block_dst_group: "elastic-block-dst"
 
 steps:
   - name: process_each_request
@@ -40,48 +45,96 @@ steps:
         type: if
         condition: "{{ item.label }} == 'customer_request'"
         steps:
-          # Case 1: block by source IP
+          # Case 1: block by source IP — add an address object and append it
+          # to the blocked-source address group.
           - name: block_src_branch
             type: if
             condition: "{{ item.action }} == 'block_ip' and {{ item.sourceAddress | size }} > 0 and {{ item.destinationAddress | size }} == 0"
             steps:
-              # TODO: replace with a native PAN connector when available.
+              - name: pan_create_src_address
+                type: http
+                with:
+                  url: "{{ consts.pan_endpoint }}/"
+                  method: POST
+                  headers:
+                    Content-Type: "application/x-www-form-urlencoded"
+                  query:
+                    type: "config"
+                    action: "set"
+                    xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.pan_vsys }}']/address/entry[@name='ew-block-{{ item.sourceAddress }}']"
+                    element: "<ip-netmask>{{ item.sourceAddress }}</ip-netmask><description>Blocked by Elastic Workflows</description>"
+                    key: "{{ consts.pan_api_key }}"
+                on-failure:
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
               - name: pan_block_src
                 type: http
                 with:
-                  url: "{{ consts.pan_endpoint }}/?type=op&cmd=<request><address-block><ip>{{ item.sourceAddress }}</ip></address-block></request>&key={{ consts.pan_api_key }}"
+                  url: "{{ consts.pan_endpoint }}/"
                   method: POST
+                  headers:
+                    Content-Type: "application/x-www-form-urlencoded"
+                  query:
+                    type: "config"
+                    action: "set"
+                    xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.pan_vsys }}']/address-group/entry[@name='{{ consts.pan_block_src_group }}']/static"
+                    element: "<member>ew-block-{{ item.sourceAddress }}</member>"
+                    key: "{{ consts.pan_api_key }}"
                 on-failure:
                   retry:
-                    max-attempts: 2
-                    delay: "3s"
-                  continue: true
+                    max-attempts: 3
+                    delay: "5s"
               - name: log_block_src
                 type: console
                 with:
-                  message: "Blocked source IP {{ item.sourceAddress }} on {{ consts.pan_vsys }}."
+                  message: "Blocked source IP {{ item.sourceAddress }} in {{ consts.pan_block_src_group }} ({{ consts.pan_vsys }})."
 
           # Case 2: block by destination IP
           - name: block_dst_branch
             type: if
             condition: "{{ item.action }} == 'block_ip' and {{ item.destinationAddress | size }} > 0 and {{ item.sourceAddress | size }} == 0"
             steps:
+              - name: pan_create_dst_address
+                type: http
+                with:
+                  url: "{{ consts.pan_endpoint }}/"
+                  method: POST
+                  headers:
+                    Content-Type: "application/x-www-form-urlencoded"
+                  query:
+                    type: "config"
+                    action: "set"
+                    xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.pan_vsys }}']/address/entry[@name='ew-block-{{ item.destinationAddress }}']"
+                    element: "<ip-netmask>{{ item.destinationAddress }}</ip-netmask><description>Blocked by Elastic Workflows</description>"
+                    key: "{{ consts.pan_api_key }}"
+                on-failure:
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
               - name: pan_block_dst
                 type: http
                 with:
-                  url: "{{ consts.pan_endpoint }}/?type=op&cmd=<request><address-block><ip>{{ item.destinationAddress }}</ip></address-block></request>&key={{ consts.pan_api_key }}"
+                  url: "{{ consts.pan_endpoint }}/"
                   method: POST
+                  headers:
+                    Content-Type: "application/x-www-form-urlencoded"
+                  query:
+                    type: "config"
+                    action: "set"
+                    xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.pan_vsys }}']/address-group/entry[@name='{{ consts.pan_block_dst_group }}']/static"
+                    element: "<member>ew-block-{{ item.destinationAddress }}</member>"
+                    key: "{{ consts.pan_api_key }}"
                 on-failure:
                   retry:
-                    max-attempts: 2
-                    delay: "3s"
-                  continue: true
+                    max-attempts: 3
+                    delay: "5s"
               - name: log_block_dst
                 type: console
                 with:
-                  message: "Blocked destination IP {{ item.destinationAddress }} on {{ consts.pan_vsys }}."
+                  message: "Blocked destination IP {{ item.destinationAddress }} in {{ consts.pan_block_dst_group }} ({{ consts.pan_vsys }})."
 
-          # Case 3: unblock by source IP
+          # Case 3: unblock by source IP — remove the member from the group.
           - name: unblock_src_branch
             type: if
             condition: "{{ item.action }} == 'unblock_ip' and {{ item.sourceAddress | size }} > 0 and {{ item.destinationAddress | size }} == 0"
@@ -89,17 +142,23 @@ steps:
               - name: pan_unblock_src
                 type: http
                 with:
-                  url: "{{ consts.pan_endpoint }}/?type=op&cmd=<request><address-unblock><ip>{{ item.sourceAddress }}</ip></address-unblock></request>&key={{ consts.pan_api_key }}"
+                  url: "{{ consts.pan_endpoint }}/"
                   method: POST
+                  headers:
+                    Content-Type: "application/x-www-form-urlencoded"
+                  query:
+                    type: "config"
+                    action: "delete"
+                    xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.pan_vsys }}']/address-group/entry[@name='{{ consts.pan_block_src_group }}']/static/member[text()='ew-block-{{ item.sourceAddress }}']"
+                    key: "{{ consts.pan_api_key }}"
                 on-failure:
                   retry:
-                    max-attempts: 2
-                    delay: "3s"
-                  continue: true
+                    max-attempts: 3
+                    delay: "5s"
               - name: log_unblock_src
                 type: console
                 with:
-                  message: "Unblocked source IP {{ item.sourceAddress }} on {{ consts.pan_vsys }}."
+                  message: "Unblocked source IP {{ item.sourceAddress }} from {{ consts.pan_block_src_group }} ({{ consts.pan_vsys }})."
 
           # Case 4: unblock by destination IP
           - name: unblock_dst_branch
@@ -109,14 +168,37 @@ steps:
               - name: pan_unblock_dst
                 type: http
                 with:
-                  url: "{{ consts.pan_endpoint }}/?type=op&cmd=<request><address-unblock><ip>{{ item.destinationAddress }}</ip></address-unblock></request>&key={{ consts.pan_api_key }}"
+                  url: "{{ consts.pan_endpoint }}/"
                   method: POST
+                  headers:
+                    Content-Type: "application/x-www-form-urlencoded"
+                  query:
+                    type: "config"
+                    action: "delete"
+                    xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.pan_vsys }}']/address-group/entry[@name='{{ consts.pan_block_dst_group }}']/static/member[text()='ew-block-{{ item.destinationAddress }}']"
+                    key: "{{ consts.pan_api_key }}"
                 on-failure:
                   retry:
-                    max-attempts: 2
-                    delay: "3s"
-                  continue: true
+                    max-attempts: 3
+                    delay: "5s"
               - name: log_unblock_dst
                 type: console
                 with:
-                  message: "Unblocked destination IP {{ item.destinationAddress }} on {{ consts.pan_vsys }}."
+                  message: "Unblocked destination IP {{ item.destinationAddress }} from {{ consts.pan_block_dst_group }} ({{ consts.pan_vsys }})."
+
+  # Single commit after all per-item changes have been queued.
+  - name: pan_commit
+    type: http
+    with:
+      url: "{{ consts.pan_endpoint }}/"
+      method: POST
+      headers:
+        Content-Type: "application/x-www-form-urlencoded"
+      query:
+        type: "commit"
+        cmd: "<commit><description>Customer firewall request batch</description></commit>"
+        key: "{{ consts.pan_api_key }}"
+    on-failure:
+      retry:
+        max-attempts: 3
+        delay: "10s"

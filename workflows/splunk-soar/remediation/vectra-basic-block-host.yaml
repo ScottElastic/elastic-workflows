@@ -1,0 +1,77 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Vectra — Basic Block Host"
+description: >
+  Reads a Vectra block or unblock request and applies the corresponding
+  source-IP action on a Palo Alto NGFW.
+enabled: true
+tags: ["splunk-soar", "remediation", "vectra", "panw", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: source_data_identifier
+    type: string
+    required: true
+    description: "Must contain 'vectra_block_request' or 'vectra_unblock_request'."
+  - name: dvc_ip
+    type: string
+    required: true
+    description: "Source IP from the Vectra detection."
+
+consts:
+  panw_endpoint: "https://CHANGEME-panw.internal/api"
+  panw_api_key: "CHANGEME"
+  panw_vsys: "vsys1"
+
+steps:
+  - name: route_block
+    type: if
+    condition: '"{{ inputs.source_data_identifier }}" contains "vectra_block_request"'
+    steps:
+      - name: block_ip
+        type: http
+        with:
+          url: "{{ consts.panw_endpoint }}/block-ip"
+          method: POST
+          headers:
+            X-API-Key: "{{ consts.panw_api_key }}"
+            Content-Type: "application/json"
+          body:
+            ip: "{{ inputs.dvc_ip }}"
+            vsys: "{{ consts.panw_vsys }}"
+            is_source_address: true
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+
+  - name: route_unblock
+    type: if
+    condition: '"{{ inputs.source_data_identifier }}" contains "vectra_unblock_request"'
+    steps:
+      - name: unblock_ip
+        type: http
+        with:
+          url: "{{ consts.panw_endpoint }}/unblock-ip"
+          method: POST
+          headers:
+            X-API-Key: "{{ consts.panw_api_key }}"
+            Content-Type: "application/json"
+          body:
+            ip: "{{ inputs.dvc_ip }}"
+            vsys: "{{ consts.panw_vsys }}"
+            is_source_address: true
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+
+  - name: log_complete
+    type: console
+    with:
+      message: "Vectra basic block dispatched ip={{ inputs.dvc_ip }} sdi={{ inputs.source_data_identifier }}"

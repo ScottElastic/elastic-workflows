@@ -1,0 +1,86 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Risk Notable — Block Indicators"
+description: >
+  For a Splunk ES risk notable, finds indicators flagged "marked_for_block"
+  (but not already "blocked" or "safe"), matches them against available
+  block-capable child workflows by indicator type, dispatches the matching
+  block workflows, then waits and emits a summary table.
+enabled: true
+tags: ["splunk-soar", "remediation", "splunk-es", "risk-notable", "indicator-block", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: marked_indicators
+    type: array
+    required: true
+    description: >
+      Array of indicator objects: { indicator_value, indicator_cef_type, indicator_tags }.
+      Caller pre-filters these to "marked_for_block" / not "blocked, safe".
+  - name: block_workflows
+    type: array
+    required: true
+    description: >
+      Array of available block workflows: { full_name, input_spec: [{name, contains:[...]}] }.
+
+consts:
+  # Stand-in endpoint for invoking child workflows. In Kibana you'd POST to
+  # /api/workflows/{id}/run with the matched inputs.
+  workflow_runner_base: "/api/workflows"
+
+steps:
+  - name: have_inputs
+    type: if
+    condition: "{{ inputs.marked_indicators | size }} == 0 or {{ inputs.block_workflows | size }} == 0"
+    steps:
+      - name: skip
+        type: console
+        with:
+          message: "No marked indicators or no block workflows registered; nothing to do."
+
+  - name: launch_matching_blocks
+    type: foreach
+    with:
+      items: ${{ inputs.block_workflows }}
+    steps:
+      # The original Phantom playbook matched indicator types against each
+      # block playbook's declared `contains` types and constructed a typed
+      # input bundle. We replicate that intent inline; the receiving block
+      # workflow is responsible for picking the right indicators.
+      - name: launch
+        type: kibana.request
+        with:
+          method: POST
+          path: "{{ consts.workflow_runner_base }}/{{ item.full_name }}/run"
+          body:
+            inputs:
+              # The child workflow should iterate input_spec and pick the
+              # indicators matching each declared contains type.
+              candidate_indicators: ${{ inputs.marked_indicators }}
+              input_spec: ${{ item.input_spec }}
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+
+  - name: build_summary
+    type: data.set
+    with:
+      summary:
+        note_title: "[Auto-Generated] Block Indicator Summary"
+        rows: '${{ inputs.marked_indicators | map_to_obj: "indicator_value", "indicator_cef_type" }}'
+        note: "Refer to the dispatched block-workflows for per-indicator status."
+
+  - name: log_complete
+    type: console
+    with:
+      message: |
+        Block dispatch complete.
+        indicators_marked={{ inputs.marked_indicators | size }}
+        workflows_launched={{ inputs.block_workflows | size }}

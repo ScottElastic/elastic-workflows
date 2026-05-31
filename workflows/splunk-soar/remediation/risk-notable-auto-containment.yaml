@@ -1,0 +1,140 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Risk Notable — Auto Containment"
+description: >
+  Automatic containment for high-risk / confirmed-threat artifacts on a
+  Splunk ES risk notable. Tags known assets and identities, splits the
+  artifacts that have "high_threat" or "high_risk_score" tags, dispatches
+  to identity- and asset-containment workflows in parallel, then writes
+  a summary note back to Splunk ES for any notable event_id present.
+enabled: true
+tags: ["splunk-soar", "remediation", "splunk-es", "risk-notable", "containment", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: artifacts
+    type: array
+    required: true
+    description: >
+      Array of artifact records: { id, tags, cef: { event_id, ... } }.
+  - name: identity_workflow_id
+    type: string
+    required: false
+    default: "splunk-enterprise-security-tag-assets-and-identities"
+    description: "Workflow that tags assets/identities first."
+  - name: case_id
+    type: string
+    required: false
+    description: "Optional Kibana case to attach the summary note to."
+
+consts:
+  # Splunk update-event endpoint (original used `splunk` asset's "update event").
+  splunk_endpoint: "https://CHANGEME-splunk.internal/services/notable_update"
+  splunk_auth_header: "Bearer CHANGEME_TOKEN"
+  # Stand-in for community/dispatch_input_playbooks. In Elastic Workflows you
+  # would launch tagged sub-workflows here. Wire these to your own asset/identity
+  # containment workflows.
+  asset_containment_workflow_id: "CHANGEME-asset-containment-workflow"
+  identity_containment_workflow_id: "CHANGEME-identity-containment-workflow"
+
+steps:
+  - name: tag_assets_and_identities
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/workflows/{{ inputs.identity_workflow_id }}/run"
+      body:
+        inputs:
+          artifacts: ${{ inputs.artifacts }}
+    on-failure:
+      continue: true
+
+  - name: high_risk_artifacts
+    type: data.set
+    with:
+      matches: >-
+        ${{ inputs.artifacts | where_in: "tags", "high_threat,high_risk_score" }}
+
+  - name: have_high_risk
+    type: if
+    condition: "{{ steps.high_risk_artifacts.output.matches | size }} > 0"
+    steps:
+      - name: dispatch_identity_containment
+        type: kibana.request
+        with:
+          method: POST
+          path: "/api/workflows/{{ consts.identity_containment_workflow_id }}/run"
+          body:
+            inputs:
+              artifact_ids: '${{ steps.high_risk_artifacts.output.matches | map: "id" }}'
+              indicator_tags_include: "known_identity"
+              indicator_tags_exclude: "contained"
+        on-failure:
+          continue: true
+
+      - name: dispatch_asset_containment
+        type: kibana.request
+        with:
+          method: POST
+          path: "/api/workflows/{{ consts.asset_containment_workflow_id }}/run"
+          body:
+            inputs:
+              artifact_ids: '${{ steps.high_risk_artifacts.output.matches | map: "id" }}'
+              indicator_tags_include: "known_asset"
+              indicator_tags_exclude: "contained"
+        on-failure:
+          continue: true
+
+      - name: build_summary
+        type: data.set
+        with:
+          summary:
+            title: "[Auto-Generated] Containment Summary"
+            artifact_count: "{{ steps.high_risk_artifacts.output.matches | size }}"
+            identity_workflow: "{{ consts.identity_containment_workflow_id }}"
+            asset_workflow: "{{ consts.asset_containment_workflow_id }}"
+
+      - name: notable_artifacts
+        type: data.set
+        with:
+          notable: >-
+            ${{ inputs.artifacts | where_exp: "item", "item.cef.event_id != null and item.cef.event_id != ''" }}
+
+      - name: update_splunk_notables
+        type: foreach
+        with:
+          items: ${{ steps.notable_artifacts.output.notable }}
+        steps:
+          - name: update_event
+            type: http
+            with:
+              url: "{{ consts.splunk_endpoint }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.splunk_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                event_ids: "{{ item.cef.event_id }}"
+                comment: "Containment summary applied: {{ steps.build_summary.output.summary.title }}"
+            on-failure:
+              continue: true
+
+      - name: attach_to_case
+        type: if
+        condition: "{{ inputs.case_id | size }} > 0"
+        steps:
+          - name: comment_on_case
+            type: kibana.addCaseComment
+            with:
+              caseId: "{{ inputs.case_id }}"
+              comment: "Auto-containment dispatched on {{ steps.high_risk_artifacts.output.matches | size }} high-risk artifacts."
+
+  - name: log_complete
+    type: console
+    with:
+      message: "risk_notable_auto_containment done; high-risk artifacts={{ steps.high_risk_artifacts.output.matches | size }}"

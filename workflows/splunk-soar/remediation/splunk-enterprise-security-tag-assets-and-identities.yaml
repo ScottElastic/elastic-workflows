@@ -1,0 +1,133 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Splunk ES — Tag Assets and Identities"
+description: >
+  Pulls user-like and host-like values from a SOAR container's indicators,
+  checks each against the Splunk ES identity_lookup_expanded and
+  asset_lookup_by_str tables, and applies "known_identity" or "known_asset"
+  tags on matches. Used as a precursor to the auto-containment workflow.
+enabled: true
+tags: ["splunk-soar", "remediation", "splunk-es", "tagging", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: users
+    type: array
+    required: false
+    description: "Username strings collected from container artifacts."
+  - name: hosts
+    type: array
+    required: false
+    description: "Hostname / IP strings collected from container artifacts."
+
+consts:
+  splunk_search_endpoint: "https://CHANGEME-splunk.internal/services/search/jobs"
+  splunk_auth_header: "Bearer CHANGEME_TOKEN"
+  # Internal Phantom-style indicator-tagging endpoint. Wire this to your
+  # indicator-store update mechanism (Kibana enrich indices, custom HTTP
+  # service, etc.).
+  indicator_tag_endpoint: "https://CHANGEME-indicator-store.internal/api/tag"
+  indicator_tag_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  - name: dedup_users
+    type: data.set
+    with:
+      users: '${{ inputs.users | default: [] | uniq }}'
+
+  - name: handle_users
+    type: if
+    condition: "{{ steps.dedup_users.output.users | size }} > 0"
+    steps:
+      - name: find_identities
+        type: http
+        with:
+          url: "{{ consts.splunk_search_endpoint }}"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+          body:
+            search: >-
+              | inputlookup identity_lookup_expanded
+              | search identity IN ({{ steps.dedup_users.output.users | json }})
+              | eval category=mvjoin(category, "; ")
+            output_mode: "json"
+        on-failure:
+          continue: true
+
+      - name: tag_each_identity_match
+        type: foreach
+        with:
+          items: '${{ steps.find_identities.output.results | default: [] }}'
+        steps:
+          - name: tag_identity
+            type: http
+            with:
+              url: "{{ consts.indicator_tag_endpoint }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.indicator_tag_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                indicator: "{{ item.identity }}"
+                tags: ["known_identity"]
+            on-failure:
+              continue: true
+
+  - name: dedup_hosts
+    type: data.set
+    with:
+      hosts: '${{ inputs.hosts | default: [] | uniq }}'
+
+  - name: handle_hosts
+    type: if
+    condition: "{{ steps.dedup_hosts.output.hosts | size }} > 0"
+    steps:
+      - name: find_assets
+        type: http
+        with:
+          url: "{{ consts.splunk_search_endpoint }}"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+          body:
+            search: >-
+              | inputlookup asset_lookup_by_str
+              | search asset IN ({{ steps.dedup_hosts.output.hosts | json }})
+              | eval category=mvjoin(category, "; ")
+            output_mode: "json"
+        on-failure:
+          continue: true
+
+      - name: tag_each_asset_match
+        type: foreach
+        with:
+          items: '${{ steps.find_assets.output.results | default: [] }}'
+        steps:
+          - name: tag_asset
+            type: http
+            with:
+              url: "{{ consts.indicator_tag_endpoint }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.indicator_tag_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                indicator: "{{ item.asset }}"
+                tags: ["known_asset"]
+            on-failure:
+              continue: true
+
+  - name: summary
+    type: console
+    with:
+      message: |
+        Tag step complete.
+        users_checked={{ steps.dedup_users.output.users | size }}
+        identity_matches={{ steps.find_identities.output.results | default: [] | size }}
+        hosts_checked={{ steps.dedup_hosts.output.hosts | size }}
+        asset_matches={{ steps.find_assets.output.results | default: [] | size }}

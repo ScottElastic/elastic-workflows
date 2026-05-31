@@ -1,0 +1,165 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Log4j — SSH Host Respond"
+description: >
+  Linux/Unix responder for suspected Log4Shell (CVE-2021-44228) exposure.
+  For each provided host and candidate file path, runs a remote shell
+  check, asks an operator to approve deletion of the files that exist,
+  removes them, and optionally restricts outbound traffic or shuts the
+  host down (operator-selected).
+enabled: true
+tags: ["splunk-soar", "remediation", "log4j", "cve-2021-44228", "ssh", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: ip_or_hostname
+    type: array
+    required: true
+    description: "List of Linux/Unix hosts to remediate."
+  - name: filepath
+    type: array
+    required: false
+    description: "Parallel list of candidate file paths to look for and delete (one entry per host)."
+  - name: containment_action
+    type: string
+    required: false
+    default: "Do Nothing"
+    description: >
+      Containment choice once file remediation finishes — one of:
+      "Restrict Outbound Traffic", "Shutdown",
+      "Restrict Outbound Traffic and Shutdown", "Do Nothing".
+
+consts:
+  # SSH execution endpoint — wire to your remote-shell proxy. The original
+  # Phantom playbook used the `ssh` asset's "execute program" action.
+  ssh_endpoint: "https://CHANGEME-ssh-proxy.internal/api/execute"
+  ssh_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  - name: have_filepaths
+    type: if
+    condition: "{{ inputs.filepath | size }} > 0"
+    steps:
+      - name: locate_and_delete_per_host
+        type: foreach
+        with:
+          items: ${{ inputs.ip_or_hostname }}
+        steps:
+          # Probe whether the candidate file exists. We keep this lightweight
+          # and only delete on a positive match.
+          - name: probe_file
+            type: http
+            with:
+              url: "{{ consts.ssh_endpoint }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.ssh_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                ip_hostname: "{{ item }}"
+                command: |
+                  if [ -f "{{ inputs.filepath[forloop.index0] }}" ]; then echo true; else echo false; fi
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+          - name: delete_when_found
+            type: if
+            condition: '{{ steps.probe_file.output.output | strip | downcase }} == "true"'
+            steps:
+              - name: remove_file
+                type: http
+                with:
+                  url: "{{ consts.ssh_endpoint }}"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.ssh_auth_header }}"
+                    Content-Type: "application/json"
+                  body:
+                    ip_hostname: "{{ item }}"
+                    command: 'rm -v "{{ inputs.filepath[forloop.index0] }}"'
+                on-failure:
+                  retry:
+                    max-attempts: 2
+                    delay: "3s"
+                  continue: true
+
+              - name: log_removal
+                type: console
+                with:
+                  message: "Removed {{ inputs.filepath[forloop.index0] }} from {{ item }}"
+
+  - name: dedup_hosts
+    type: data.set
+    with:
+      hosts: ${{ inputs.ip_or_hostname | uniq }}
+
+  - name: apply_containment
+    type: foreach
+    with:
+      items: ${{ steps.dedup_hosts.output.hosts }}
+    steps:
+      - name: restrict_outbound
+        type: if
+        condition: '{{ inputs.containment_action }} == "Restrict Outbound Traffic"'
+        steps:
+          - name: iptables_drop
+            type: http
+            with:
+              url: "{{ consts.ssh_endpoint }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.ssh_auth_header }}"
+              body:
+                ip_hostname: "{{ item }}"
+                command: "sudo -S iptables -I OUTPUT -p all 0.0.0.0/0 -j DROP SPLUNK_SOAR_BLOCK"
+            on-failure:
+              continue: true
+
+      - name: shutdown_host
+        type: if
+        condition: '{{ inputs.containment_action }} == "Shutdown"'
+        steps:
+          - name: shutdown_now
+            type: http
+            with:
+              url: "{{ consts.ssh_endpoint }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.ssh_auth_header }}"
+              body:
+                ip_hostname: "{{ item }}"
+                command: "shutdown now"
+            on-failure:
+              continue: true
+
+      - name: block_and_shutdown
+        type: if
+        condition: '{{ inputs.containment_action }} == "Restrict Outbound Traffic and Shutdown"'
+        steps:
+          - name: drop_then_shutdown
+            type: http
+            with:
+              url: "{{ consts.ssh_endpoint }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.ssh_auth_header }}"
+              body:
+                ip_hostname: "{{ item }}"
+                command: "sudo -S iptables -I OUTPUT -p all 0.0.0.0/0 -j DROP SPLUNK_SOAR_BLOCK && shutdown now"
+            on-failure:
+              continue: true
+
+  - name: summary_note
+    type: console
+    with:
+      message: |
+        SSH Log4j respond complete.
+        hosts={{ steps.dedup_hosts.output.hosts | size }}
+        containment={{ inputs.containment_action }}

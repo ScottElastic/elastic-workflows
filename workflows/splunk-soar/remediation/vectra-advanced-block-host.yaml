@@ -1,0 +1,134 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Vectra — Advanced Block Host"
+description: >
+  Handles Vectra block/unblock requests against a Palo Alto NGFW. On a
+  block request, if the target is a virtual machine, snapshot it first;
+  if the threat category is lateral movement, also suspend the VM.
+  On an unblock request, remove the source IP from the firewall.
+enabled: true
+tags: ["splunk-soar", "remediation", "vectra", "panw", "vmware", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: source_data_identifier
+    type: string
+    required: true
+    description: "Must contain 'vectra_block_request' or 'vectra_unblock_request'."
+  - name: dvc_ip
+    type: string
+    required: true
+    description: "Source IP on the Vectra device to block / unblock."
+  - name: is_virtual
+    type: boolean
+    required: false
+    default: false
+    description: "Whether the detected device is a virtual machine (Vectra cs1 hint)."
+  - name: vmx_path
+    type: string
+    required: false
+    description: "vSphere vmx path of the device when virtual."
+  - name: threat_category
+    type: string
+    required: false
+    description: "Vectra category — when 'lateral', VM is also suspended."
+
+consts:
+  panw_endpoint: "https://CHANGEME-panw.internal/api"
+  panw_api_key: "CHANGEME"
+  panw_vsys: "vsys1"
+  vsphere_endpoint: "https://CHANGEME-vsphere.internal/api"
+  vsphere_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  - name: route_block
+    type: if
+    condition: '"{{ inputs.source_data_identifier }}" contains "vectra_block_request"'
+    steps:
+      - name: snapshot_if_vm
+        type: if
+        condition: "{{ inputs.is_virtual }} == true and {{ inputs.vmx_path | size }} > 0"
+        steps:
+          - name: snapshot_vm
+            type: http
+            with:
+              url: "{{ consts.vsphere_endpoint }}/snapshot"
+              method: POST
+              headers:
+                Authorization: "{{ consts.vsphere_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                vmx_path: "{{ inputs.vmx_path }}"
+                download: true
+            on-failure:
+              continue: true
+
+          - name: maybe_suspend
+            type: if
+            condition: '"{{ inputs.threat_category }}" == "lateral"'
+            steps:
+              - name: suspend_vm
+                type: http
+                with:
+                  url: "{{ consts.vsphere_endpoint }}/suspend"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.vsphere_auth_header }}"
+                    Content-Type: "application/json"
+                  body:
+                    vmx_path: "{{ inputs.vmx_path }}"
+                on-failure:
+                  continue: true
+
+      - name: block_ip
+        type: http
+        with:
+          url: "{{ consts.panw_endpoint }}/block-ip"
+          method: POST
+          headers:
+            X-API-Key: "{{ consts.panw_api_key }}"
+            Content-Type: "application/json"
+          body:
+            ip: "{{ inputs.dvc_ip }}"
+            vsys: "{{ consts.panw_vsys }}"
+            is_source_address: true
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+
+  - name: route_unblock
+    type: if
+    condition: '"{{ inputs.source_data_identifier }}" contains "vectra_unblock_request"'
+    steps:
+      - name: unblock_ip
+        type: http
+        with:
+          url: "{{ consts.panw_endpoint }}/unblock-ip"
+          method: POST
+          headers:
+            X-API-Key: "{{ consts.panw_api_key }}"
+            Content-Type: "application/json"
+          body:
+            ip: "{{ inputs.dvc_ip }}"
+            vsys: "{{ consts.panw_vsys }}"
+            is_source_address: true
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+
+  - name: log_complete
+    type: console
+    with:
+      message: |
+        Vectra advanced block dispatched.
+        source_data_identifier={{ inputs.source_data_identifier }}
+        dvc_ip={{ inputs.dvc_ip }}
+        is_virtual={{ inputs.is_virtual }}
+        threat_category={{ inputs.threat_category }}

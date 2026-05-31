@@ -1,0 +1,101 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Log4j — Respond (Dispatch)"
+description: >
+  Coordinates response to suspected Log4Shell (CVE-2021-44228) exposure.
+  Loads a list of {host, os_family, file_path} entries (sourced upstream
+  from the Log4j investigate workflow or a curated list), then splits them
+  by operating system family and dispatches to the SSH or WinRM responder
+  workflow accordingly.
+enabled: true
+tags: ["splunk-soar", "remediation", "log4j", "cve-2021-44228", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: host_file_entries
+    type: array
+    required: true
+    description: >
+      Array of objects: { host, os_family ("unix"|"windows"), file_path }.
+      Build this upstream — for example by reading a Kibana saved object or
+      a list maintained out of band.
+  - name: ssh_responder_workflow_id
+    type: string
+    required: false
+    default: "internal-host-ssh-log4j-respond"
+    description: "Workflow id of the SSH responder (this directory's sibling)."
+  - name: winrm_responder_workflow_id
+    type: string
+    required: false
+    default: "internal-host-winrm-log4j-respond"
+    description: "Workflow id of the WinRM responder (this directory's sibling)."
+
+consts:
+  # The original Phantom playbook invoked child playbooks directly.
+  # Elastic Workflows can call out via Kibana's workflow-run API.
+  workflow_run_endpoint: "/api/workflows/{id}/run"
+
+steps:
+  - name: validate
+    type: if
+    condition: "{{ inputs.host_file_entries | size }} == 0"
+    steps:
+      - name: nothing_to_do
+        type: console
+        with:
+          message: "No host/file entries supplied — exiting without action."
+
+  - name: build_unix_targets
+    type: data.set
+    with:
+      unix_entries: '${{ inputs.host_file_entries | where: "os_family", "unix" }}'
+
+  - name: build_windows_targets
+    type: data.set
+    with:
+      windows_entries: '${{ inputs.host_file_entries | where: "os_family", "windows" }}'
+
+  - name: dispatch_unix
+    type: if
+    condition: "{{ steps.build_unix_targets.output.unix_entries | size }} > 0"
+    steps:
+      # Calls the SSH responder workflow with the unix subset of entries
+      - name: launch_ssh_responder
+        type: kibana.request
+        with:
+          method: POST
+          path: "/api/workflows/{{ inputs.ssh_responder_workflow_id }}/run"
+          body:
+            inputs:
+              ip_or_hostname: '${{ steps.build_unix_targets.output.unix_entries | map: "host" }}'
+              filepath: '${{ steps.build_unix_targets.output.unix_entries | map: "file_path" }}'
+        on-failure:
+          continue: true
+
+  - name: dispatch_windows
+    type: if
+    condition: "{{ steps.build_windows_targets.output.windows_entries | size }} > 0"
+    steps:
+      - name: launch_winrm_responder
+        type: kibana.request
+        with:
+          method: POST
+          path: "/api/workflows/{{ inputs.winrm_responder_workflow_id }}/run"
+          body:
+            inputs:
+              ip_or_hostname: '${{ steps.build_windows_targets.output.windows_entries | map: "host" }}'
+              filepath: '${{ steps.build_windows_targets.output.windows_entries | map: "file_path" }}'
+        on-failure:
+          continue: true
+
+  - name: summary
+    type: console
+    with:
+      message: |
+        Log4j respond dispatched.
+        unix_targets={{ steps.build_unix_targets.output.unix_entries | size }}
+        windows_targets={{ steps.build_windows_targets.output.windows_entries | size }}

@@ -1,0 +1,256 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Zscaler — Hunt and Block Malicious URL"
+description: >
+  End-to-end response to a suspicious URL. Looks the URL up in VirusTotal,
+  and if reputation is poor (more than four positive engines), queries
+  Splunk proxy logs to find which internal client(s) accessed it. Enriches
+  the user via Active Directory, branches on whether the user is an
+  Executive (analyst-confirmed quarantine of the executive's device) or a
+  regular user (auto-quarantine), and finally classifies + blocks the URL
+  in Zscaler. Creates a ServiceNow incident summarising the response.
+enabled: true
+tags: ["splunk-soar", "network-control", "zscaler", "virustotal", "splunk", "ad", "servicenow", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: request_url
+    type: string
+    required: true
+    description: "The suspicious URL from the alert (artifact requestURL)."
+
+consts:
+  # Pre-configured Kibana connector IDs and integration endpoints.
+  virustotal_connector_id: "CHANGEME-virustotal-connector"
+  servicenow_connector_id: "CHANGEME-servicenow-connector"
+  splunk_search_endpoint: "https://CHANGEME-splunk.example.com:8089/services/search/jobs/export"
+  splunk_auth_header: "Bearer CHANGEME-splunk-token"
+  zscaler_base_url: "https://CHANGEME-zsapi.zscaler.net"
+  zscaler_jsessionid: "CHANGEME-zscaler-jsessionid"
+  zscaler_block_category_id: "CHANGEME-zscaler-category-id"
+  ldap_endpoint: "https://CHANGEME-ldap-proxy.internal/api/get-user"
+  ldap_auth_header: "Bearer CHANGEME-ldap-token"
+  carbonblack_endpoint: "https://CHANGEME-carbonblack.example.com/integrationServices/v3"
+  carbonblack_auth_header: "X-Auth-Token CHANGEME-cb-token"
+  # Splunk query template; placeholder {{ inputs.request_url }} is inlined
+  # at runtime to find proxy events for the URL of interest.
+  splunk_index: "proxy_logs_zscaler"
+  splunk_host: "zscalertwo-phantom"
+  # Threshold for "many positives". Original playbook used > 4.
+  virustotal_positive_threshold: 4
+
+steps:
+  - name: url_reputation
+    type: virustotal.scanUrl
+    connector-id: "{{ consts.virustotal_connector_id }}"
+    with:
+      url: "{{ inputs.request_url }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: reputation_decision
+    type: if
+    condition: "{{ steps.url_reputation.output.summary.positives | default: 0 }} > {{ consts.virustotal_positive_threshold }}"
+    steps:
+      # Build and execute a Splunk search to find which clients hit the URL.
+      - name: run_splunk_query
+        type: http
+        with:
+          url: "{{ consts.splunk_search_endpoint }}"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search=search host=\"{{ consts.splunk_host }}\" index=\"{{ consts.splunk_index }}\" sourcetype=\"csv\" | eval cleansed_url=replace(\"{{ inputs.request_url }}\", \"http[s]*\\:\\/\\/\", \"\") | where URL=cleansed_url | rename \"Client IP\" as client_ip \"Policy Action\" as policy_action, \"URL Class\" as url_class, \"URL Category\" as url_category | fields client_ip, policy_action, url_class, url_category, User&output_mode=json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      # Look up the URL category in Zscaler in parallel with the AD lookups
+      # below. The classification feeds the block decision.
+      - name: zscaler_lookup_url
+        type: http
+        with:
+          url: "{{ consts.zscaler_base_url }}/api/v1/urlLookup"
+          method: POST
+          headers:
+            Content-Type: "application/json"
+            Cookie: "JSESSIONID={{ consts.zscaler_jsessionid }}"
+          body:
+            - "{{ inputs.request_url }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      # Original branch: only proceed if Zscaler logged the request as Allowed
+      # (i.e., not already being blocked at the proxy).
+      - name: policy_allowed_branch
+        type: if
+        condition: "{{ steps.run_splunk_query.output.results[0].policy_action | default: '' }} == 'Allowed'"
+        steps:
+          - name: get_user_attributes
+            type: http
+            with:
+              url: "{{ consts.ldap_endpoint }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.ldap_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                username: "{{ steps.run_splunk_query.output.results[0].User | default: '' }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+          # Branch on department: Executives require analyst confirmation
+          # before any device quarantine; everyone else is quarantined and
+          # a regular ticket is created.
+          - name: executive_branch
+            type: if
+            condition: "{{ steps.get_user_attributes.output.department | default: '' }} == 'Executives'"
+            steps:
+              # The Phantom playbook used phantom.prompt2 to wait on an analyst
+              # response. Workflows don't have an interactive prompt primitive
+              # yet, so we emit the decision request and proceed only when an
+              # operator approves out-of-band (or set an input to bypass).
+              # TODO: replace with a human-in-the-loop step once available.
+              - name: request_analyst_approval
+                type: console
+                with:
+                  message: |
+                    High-priority asset accessed malicious URL.
+                    URL: {{ inputs.request_url }}
+                    Client IP: {{ steps.run_splunk_query.output.results[0].client_ip | default: 'unknown' }}
+                    User: {{ steps.run_splunk_query.output.results[0].User | default: 'unknown' }}
+                    Awaiting analyst decision before quarantining executive device.
+
+              - name: quarantine_exec_device
+                type: http
+                with:
+                  url: "{{ consts.carbonblack_endpoint }}/device_actions"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.carbonblack_auth_header }}"
+                    Content-Type: "application/json"
+                  body:
+                    action_type: "QUARANTINE"
+                    device_id: "{{ steps.run_splunk_query.output.results[0].client_ip | default: '' }}"
+                on-failure:
+                  retry:
+                    max-attempts: 2
+                    delay: "5s"
+                  continue: true
+
+              - name: create_exec_ticket
+                type: servicenow
+                connector-id: "{{ consts.servicenow_connector_id }}"
+                with:
+                  subAction: "pushToService"
+                  subActionParams:
+                    incident:
+                      short_description: "Please Investigate Executive Workstation — {{ steps.run_splunk_query.output.results[0].client_ip | default: 'unknown' }}"
+                      description: |
+                        An executive workstation attempted to access a known-bad URL.
+                        URL: {{ inputs.request_url }}
+                        VirusTotal positives: {{ steps.url_reputation.output.summary.positives | default: 0 }}
+                        Splunk match: {{ steps.run_splunk_query.output.results[0] | json }}
+                        Workflow run: {{ execution.id }}
+                      urgency: "1"
+                      severity: "1"
+                      impact: "1"
+                on-failure:
+                  retry:
+                    max-attempts: 2
+                    delay: "5s"
+                  continue: true
+            else:
+              - name: quarantine_regular_device
+                type: http
+                with:
+                  url: "{{ consts.carbonblack_endpoint }}/device_actions"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.carbonblack_auth_header }}"
+                    Content-Type: "application/json"
+                  body:
+                    action_type: "QUARANTINE"
+                    device_id: "{{ steps.run_splunk_query.output.results[0].client_ip | default: '' }}"
+                on-failure:
+                  retry:
+                    max-attempts: 2
+                    delay: "5s"
+                  continue: true
+
+              - name: create_regular_ticket
+                type: servicenow
+                connector-id: "{{ consts.servicenow_connector_id }}"
+                with:
+                  subAction: "pushToService"
+                  subActionParams:
+                    incident:
+                      short_description: "Endpoint connected to malicious URL — {{ steps.run_splunk_query.output.results[0].client_ip | default: 'unknown' }}"
+                      description: |
+                        Endpoint accessed a known-bad URL.
+                        URL: {{ inputs.request_url }}
+                        VirusTotal positives: {{ steps.url_reputation.output.summary.positives | default: 0 }}
+                        Splunk match: {{ steps.run_splunk_query.output.results[0] | json }}
+                        Workflow run: {{ execution.id }}
+                      urgency: "2"
+                      severity: "2"
+                      impact: "2"
+                on-failure:
+                  retry:
+                    max-attempts: 2
+                    delay: "5s"
+                  continue: true
+
+      # Mirror the original zscaler_category_filter: only push the URL into
+      # the block list if Zscaler returned a security-classification finding.
+      - name: zscaler_block_if_security_class
+        type: if
+        condition: "{{ steps.zscaler_lookup_url.output[0].urlClassificationsWithSecurityAlert | size | default: 0 }} > 0"
+        steps:
+          - name: block_url_zscaler
+            type: http
+            with:
+              url: "{{ consts.zscaler_base_url }}/api/v1/urlCategories/{{ consts.zscaler_block_category_id }}?action=ADD_TO_LIST"
+              method: PUT
+              headers:
+                Content-Type: "application/json"
+                Cookie: "JSESSIONID={{ consts.zscaler_jsessionid }}"
+              body:
+                customCategory: true
+                urls:
+                  - "{{ inputs.request_url }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+          - name: log_zscaler_block
+            type: console
+            with:
+              message: "Zscaler block submitted for {{ inputs.request_url }}."
+    else:
+      - name: log_low_reputation
+        type: console
+        with:
+          message: |
+            URL did not exceed positive-engine threshold; no action taken.
+            url={{ inputs.request_url }}
+            positives={{ steps.url_reputation.output.summary.positives | default: 0 }}

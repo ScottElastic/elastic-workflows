@@ -4,10 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "AD LDAP — Entity Attribute Lookup"
 description: >
-  Looks up attribute and group membership details for a user and/or device
-  in Active Directory via LDAP. Returns a normalized observable record per
-  entity, combining account fields (UPN, email, account expiration, phones)
-  and a deduplicated set of group memberships with descriptions.
+  Enriches a user and/or device with attributes and group memberships
+  from Active Directory over LDAP. Returns one normalized observable
+  per entity, combining identity fields (UPN, mail, accountExpires,
+  phones) and a deduplicated list of memberOf groups with descriptions.
+  Read-only enrichment — failures are tolerated and downstream fields
+  default to empty strings.
 enabled: true
 tags: ["splunk-soar", "enrichment", "attribute-lookup", "ad-ldap", "translated"]
 
@@ -25,7 +27,12 @@ inputs:
     description: "Device hostname / sAMAccountName / DN to look up."
 
 consts:
-  # Replace with the endpoint that fronts your AD/LDAP directory.
+  # Active Directory has no public REST surface. This URL fronts an
+  # internal LDAP-proxy with two endpoints used below:
+  #   POST /get-attributes  — body: { principals, attributes }
+  #   POST /run-query       — body: { filter | filter_template, members, attributes }
+  # The proxy is expected to bind to AD with a read-only service account
+  # and return JSON: { total_objects, entries: [{ attributes: { ... } }] }.
   ad_ldap_endpoint: "https://CHANGEME-ldap-proxy.internal/api/ldap"
   ad_ldap_auth_header: "Bearer CHANGEME_TOKEN"
   user_attribute_list: "userPrincipalName;mail;accountExpires;name;memberOf;title;department;manager;sAMAccountName;distinguishedName;mobile;ipPhone;homePhone;telephoneNumber;otherMobile;otherIpPhone;otherHomePhone;otherTelephone;whenCreated;objectSid;objectGUID"
@@ -37,7 +44,7 @@ steps:
     type: if
     condition: "{{ inputs.user | size }} > 0"
     steps:
-      # TODO: replace with native AD/LDAP connector once available.
+      # POST /get-attributes — read profile + memberOf for one principal.
       - name: get_user_attributes
         type: http
         with:
@@ -51,8 +58,8 @@ steps:
             attributes: "{{ consts.user_attribute_list }}"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: user_found_check
@@ -123,8 +130,8 @@ steps:
             attributes: "{{ consts.device_attribute_list }}"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: device_found_check

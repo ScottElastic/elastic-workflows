@@ -4,10 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "MS Graph O365 — Search and Restore"
 description: >
-  Reverses a prior search-and-purge by sweeping each mailbox's
-  Recoverable Items folder for a target Internet Message ID and
-  moving the matching item back to Inbox. Designed to consume the
-  audit observables produced by the Search-and-Purge workflow.
+  Reverses a prior Search-and-Purge by sweeping each mailbox's Recoverable
+  Items Deletions for a target Internet Message-ID and moving the matching
+  item back to Inbox via Graph. Designed to consume the audit observables
+  produced by Search-and-Purge (array of {email, internet_message_id}
+  pairs). Maps to D3FEND RestoreEmail.
 enabled: true
 tags: ["splunk-soar", "email-triage", "search-and-restore", "o365", "ms-graph", "translated"]
 
@@ -24,7 +25,9 @@ inputs:
       typically sourced from a prior Search-and-Purge audit observable.
 
 consts:
-  graph_endpoint: "https://graph.microsoft.com/v1.0"
+  # Microsoft Graph v1.0. Bearer token via OAuth2 client-credentials.
+  # App permission: Mail.ReadWrite.
+  graph_base: "https://graph.microsoft.com/v1.0"
   graph_auth_header: "Bearer CHANGEME_TOKEN"
 
 steps:
@@ -42,31 +45,36 @@ steps:
     with:
       items: ${{ inputs.targets }}
     steps:
-      # TODO: swap for a Graph mail connector when available.
+      # Microsoft Graph: GET /users/{id|UPN}/mailFolders/recoverableitemsdeletions/messages
+      # https://learn.microsoft.com/en-us/graph/api/user-list-messages
       - name: find_deleted_message
         type: http
         with:
-          url: "{{ consts.graph_endpoint }}/users/{{ item.email }}/mailFolders/RecoverableItemsDeletions/messages"
+          url: "{{ consts.graph_base }}/users/{{ item.email }}/mailFolders/recoverableitemsdeletions/messages"
           method: GET
           headers:
             Authorization: "{{ consts.graph_auth_header }}"
+            Accept: "application/json"
           query:
-            $filter: "internetMessageId eq '{{ item.internet_message_id }}'"
-            $select: "id"
+            "$filter": "internetMessageId eq '{{ item.internet_message_id }}'"
+            "$select": "id,subject,internetMessageId"
+            "$top": "10"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: restore_if_found
         type: if
         condition: "{{ steps.find_deleted_message.output.value | size }} >= 1"
         steps:
+          # Microsoft Graph: POST /users/{id|UPN}/messages/{messageId}/move
+          # https://learn.microsoft.com/en-us/graph/api/message-move
           - name: move_back_to_inbox
             type: http
             with:
-              url: "{{ consts.graph_endpoint }}/users/{{ item.email }}/messages/{{ steps.find_deleted_message.output.value[0].id }}/move"
+              url: "{{ consts.graph_base }}/users/{{ item.email }}/messages/{{ steps.find_deleted_message.output.value[0].id }}/move"
               method: POST
               headers:
                 Authorization: "{{ consts.graph_auth_header }}"
@@ -75,9 +83,8 @@ steps:
                 destinationId: "inbox"
             on-failure:
               retry:
-                max-attempts: 2
-                delay: "3s"
-              continue: true
+                max-attempts: 3
+                delay: "5s"
 
           - name: record_restore_observable
             type: data.set
@@ -87,7 +94,9 @@ steps:
                 source: "MS Graph for Office365"
                 value: "{{ item.internet_message_id }}"
                 mailbox: "{{ item.email }}"
-                status: "restored"
+                action: "restored"
+                new_graph_message_id: "{{ steps.move_back_to_inbox.output.id | default: '' }}"
+                subject: "{{ steps.find_deleted_message.output.value[0].subject | default: '' }}"
 
           - name: log_restored
             type: console
@@ -97,7 +106,7 @@ steps:
           - name: log_not_found
             type: console
             with:
-              message: "Message {{ item.internet_message_id }} not in {{ item.email }} deletions."
+              message: "Message {{ item.internet_message_id }} not in {{ item.email }} recoverable deletions."
 
   - name: post_summary_note
     type: console

@@ -40,8 +40,10 @@ inputs:
     description: "Email sender."
 
 consts:
-  # Vectra Detect API. The original Phantom asset was "vae-demo".
-  vectra_endpoint: "https://CHANGEME-vectra.example.com/api/v2.1"
+  # Vectra Detect REST API — see KB-VS-1665. Auth uses `Authorization: Token <api_key>`.
+  # Base path is /api/v2.5 (or v3.3 for newer firmware); the /detections endpoint
+  # accepts state, src_ip, and detection_category filters via query string.
+  vectra_endpoint: "https://CHANGEME-vectra.example.com/api/v2.5"
   vectra_token: "Token CHANGEME_TOKEN"
   email_connector_id: "CHANGEME-email-connector"
 
@@ -50,24 +52,32 @@ steps:
     type: if
     condition: "{{ inputs.act | downcase }} == 'block'"
     steps:
-      # TODO: swap for a native Vectra connector when one is available.
+      # Vectra Detect REST: GET /detections — filter by source IP and active state.
+      # Use `detection_category=LATERAL` for Suspicious Remote Execution detections.
       - name: get_detections
         type: http
         with:
-          url: "{{ consts.vectra_endpoint }}/detections?state=active&src_ip={{ inputs.host_ip }}&detection_type=Suspicious+Remote+Execution"
+          url: "{{ consts.vectra_endpoint }}/detections"
           method: GET
           headers:
             Authorization: "{{ consts.vectra_token }}"
+            Accept: "application/json"
+          query:
+            state: "active"
+            src_ip: "{{ inputs.host_ip }}"
+            detection_category: "LATERAL"
+            detection_type: "Suspicious Remote Execution"
+            page_size: "100"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: collect_detection_types
         type: data.set
         with:
-          detection_types: "${{ steps.get_detections.output.results | map: 'type' | uniq | default: [] }}"
+          detection_types: "${{ steps.get_detections.output.results | map: 'detection_type' | uniq | default: [] }}"
 
       - name: send_notification
         type: email

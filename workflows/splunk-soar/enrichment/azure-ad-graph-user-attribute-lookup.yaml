@@ -4,10 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Azure AD Graph — User Attribute Lookup"
 description: >
-  Fetches the current Azure AD profile for a user via Microsoft Graph,
-  normalizes the profile into an OCSF-style user observable, and emits
-  the result. Useful as a building block for entity-attribute enrichment
-  pipelines.
+  Fetches the current Entra ID (Azure AD) profile for a user via
+  Microsoft Graph GET /users/{id} and normalizes it into an OCSF-style
+  user observable. Uses $select to pull beyond the default property set
+  (createdDateTime, accountEnabled, department, etc.). Designed as a
+  building block for entity-attribute enrichment pipelines.
 enabled: true
 tags: ["splunk-soar", "enrichment", "attribute-lookup", "azure-ad", "ms-graph", "translated"]
 
@@ -18,14 +19,20 @@ inputs:
   - name: user
     type: string
     required: true
-    description: "Azure AD user id or UPN to look up."
+    description: "Azure AD user id (object id) or UPN to look up."
 
 consts:
+  # Microsoft Graph v1.0. Bearer token via OAuth2 client-credentials.
+  # App permission: User.Read.All (or Directory.Read.All).
   graph_base: "https://graph.microsoft.com/v1.0"
   graph_auth_header: "Bearer CHANGEME_GRAPH_TOKEN"
 
 steps:
-  # TODO: Replace with a native Microsoft Graph connector when one ships.
+  # Microsoft Graph: GET /users/{id | userPrincipalName}
+  # https://learn.microsoft.com/en-us/graph/api/user-get
+  # createdDateTime and accountEnabled are NOT in the default property
+  # set — must $select to retrieve them. Lookup is non-destructive, so
+  # continue on failure and let the downstream branch handle absence.
   - name: get_user_attributes
     type: http
     with:
@@ -34,10 +41,12 @@ steps:
       headers:
         Authorization: "{{ consts.graph_auth_header }}"
         Accept: "application/json"
+      query:
+        "$select": "id,userPrincipalName,displayName,givenName,surname,mail,jobTitle,department,officeLocation,businessPhones,mobilePhone,accountEnabled,createdDateTime,onPremisesSamAccountName,companyName,manager"
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: lookup_succeeded
@@ -58,13 +67,20 @@ steps:
               email_addr: "{{ steps.get_user_attributes.output.mail | default: '' }}"
               full_name: "{{ steps.get_user_attributes.output.displayName | default: '' }}"
               name: "{{ steps.get_user_attributes.output.userPrincipalName }}"
+              given_name: "{{ steps.get_user_attributes.output.givenName | default: '' }}"
+              surname: "{{ steps.get_user_attributes.output.surname | default: '' }}"
               start_date: "{{ steps.get_user_attributes.output.createdDateTime | default: '' }}"
               uid: "{{ steps.get_user_attributes.output.id | default: '' }}"
               type: "User"
               type_id: 1
+              enabled: "{{ steps.get_user_attributes.output.accountEnabled | default: true }}"
               job_title: "{{ steps.get_user_attributes.output.jobTitle | default: '' }}"
               department: "{{ steps.get_user_attributes.output.department | default: '' }}"
+              office_location: "{{ steps.get_user_attributes.output.officeLocation | default: '' }}"
               telephone: "{{ steps.get_user_attributes.output.businessPhones[0] | default: '' }}"
+              mobile: "{{ steps.get_user_attributes.output.mobilePhone | default: '' }}"
+              sam_account_name: "{{ steps.get_user_attributes.output.onPremisesSamAccountName | default: '' }}"
+              company: "{{ steps.get_user_attributes.output.companyName | default: '' }}"
 
       - name: log_user_record
         type: console
@@ -74,8 +90,9 @@ steps:
             display_name={{ steps.get_user_attributes.output.displayName | default: '' }}
             mail={{ steps.get_user_attributes.output.mail | default: '' }}
             department={{ steps.get_user_attributes.output.department | default: '' }}
+            enabled={{ steps.get_user_attributes.output.accountEnabled | default: true }}
     else:
       - name: no_user_found
         type: console
         with:
-          message: "No Azure AD record returned for {{ inputs.user }}."
+          message: "No Azure AD record returned for {{ inputs.user }} (404 or empty)."

@@ -4,12 +4,14 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "DNS Denylisting — Dispatch"
 description: >
-  Coordinates DNS denylisting across configured providers. Extracts domain
-  indicators from an incoming alert/case, fans them out to vendor-specific
-  block workflows (e.g. Cisco Umbrella), tags successfully blocked indicators
-  as "blocked" in the indicator store, and posts a short summary back to the
-  originating case. Implements MITRE D3FEND DNS denylisting
-  (d3f:DNSDenylisting).
+  Coordinator that fans domain indicators out to one or more vendor-specific
+  block workflows. Pulls domains from the workflow input or the triggering
+  alert's `threat.indicator.url.domain` field, invokes
+  `cisco-umbrella-dns-denylisting` per domain via the Kibana Workflows API,
+  tags successfully blocked indicators in the configured indicator index,
+  and posts a summary comment back to the linked case (if provided).
+  Inputs: `domains` (optional array), `kibana_case_id` (optional string).
+  Implements MITRE D3FEND DNS denylisting (d3f:DNSDenylisting).
 enabled: true
 tags: ["splunk-soar", "network-control", "dns-denylist", "dispatch", "translated"]
 
@@ -30,11 +32,11 @@ inputs:
     description: "Case to update with the dispatch summary, if any."
 
 consts:
-  # Endpoint for the per-vendor "block domain" sibling workflow. Replace with
-  # your imported workflow ID (or call the workflow directly via the
-  # workflows API).
+  # Kibana Workflows API used to invoke vendor sub-workflows. The workflow
+  # slug below assumes the imported playbook keeps its filename-derived id.
   vendor_workflows_endpoint: "https://CHANGEME-kibana.example.com/api/workflows"
   vendor_workflows_auth: "ApiKey CHANGEME-kibana-api-key"
+  umbrella_workflow_id: "cisco-umbrella-dns-denylisting"
   # Index where indicator "blocked" tags are persisted.
   indicator_index: "CHANGEME-threat-indicators"
 
@@ -62,12 +64,13 @@ steps:
           - name: invoke_umbrella_block
             type: http
             with:
-              url: "{{ consts.vendor_workflows_endpoint }}/cisco-umbrella-dns-denylisting/run"
+              url: "{{ consts.vendor_workflows_endpoint }}/{{ consts.umbrella_workflow_id }}/run"
               method: POST
               headers:
                 kbn-xsrf: "true"
                 x-elastic-internal-origin: "Kibana"
                 Content-Type: "application/json"
+                Accept: "application/json"
                 Authorization: "{{ consts.vendor_workflows_auth }}"
               body:
                 inputs:
@@ -75,16 +78,17 @@ steps:
                     - "{{ item }}"
             on-failure:
               retry:
-                max-attempts: 2
-                delay: "3s"
+                max-attempts: 3
+                delay: "5s"
               continue: true
 
           # Mirror the "tag_indicators" step from the SOAR playbook: any
           # domain handed to a successful vendor run is recorded with a
-          # "blocked" tag in the indicator index.
+          # "blocked" tag in the indicator index. The Workflows API returns
+          # the run id on accepted dispatch.
           - name: tag_indicator_blocked
             type: if
-            condition: "{{ steps.invoke_umbrella_block.output.status }} == 'success'"
+            condition: "{{ steps.invoke_umbrella_block.output.workflowRunId | default: steps.invoke_umbrella_block.output.id | default: '' | size }} > 0"
             steps:
               - name: write_blocked_tag
                 type: elasticsearch.index
@@ -96,7 +100,12 @@ steps:
                     tags: ["blocked"]
                     source: "Elastic Workflows / DNS Denylisting Dispatch"
                     workflow_run: "{{ execution.id }}"
+                    vendor_run_id: "{{ steps.invoke_umbrella_block.output.workflowRunId | default: steps.invoke_umbrella_block.output.id | default: 'unknown' }}"
+                    "@timestamp": "{{ now }}"
                 on-failure:
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
                   continue: true
 
       # Replaces the SOAR markdown report template with a brief summary.

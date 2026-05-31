@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "MS Graph O365 — Message Eviction"
 description: >
-  Removes a message identified by Internet Message ID from a single
-  Office 365 mailbox. Uses Microsoft Graph to first locate the
-  message across well-known folders, then issues a soft-delete that
-  moves the item to Recoverable Items. Records a normalized
-  observable per evicted message. Maps to D3FEND EmailRemoval.
+  Removes messages identified by Internet Message-ID from one or more
+  Office 365 mailboxes. For each (email, message_id) pair: looks up the
+  Graph message id via $filter on internetMessageId, then issues a Graph
+  DELETE that soft-deletes to Recoverable Items (recoverable for 14 days
+  by default). Records a normalized observable per evicted item. Maps to
+  D3FEND EmailRemoval.
 enabled: true
 tags: ["splunk-soar", "email-triage", "email-removal", "o365", "ms-graph", "translated"]
 
@@ -19,16 +20,17 @@ inputs:
   - name: email
     type: array
     required: true
-    description: "Mailbox addresses to evict from."
+    description: "Mailbox addresses (UPN) to evict from."
   - name: message_id
     type: array
     required: true
     description: "Internet Message IDs to evict. Paired by position with email."
 
 consts:
-  # Microsoft Graph endpoint. Replace the token with an OAuth bearer
-  # obtained via the client_credentials flow with Mail.ReadWrite scope.
-  graph_endpoint: "https://graph.microsoft.com/v1.0"
+  # Microsoft Graph v1.0. Bearer token via OAuth2 client-credentials with
+  # scope https://graph.microsoft.com/.default. Required app permission:
+  # Mail.ReadWrite.
+  graph_base: "https://graph.microsoft.com/v1.0"
   graph_auth_header: "Bearer CHANGEME_TOKEN"
 
 steps:
@@ -46,41 +48,48 @@ steps:
     with:
       items: ${{ inputs.message_id }}
     steps:
-      # TODO: replace with a Microsoft Graph mail connector when available.
-      # Phantom asset: ms_graph_for_office_365 — "run query".
+      # Microsoft Graph: GET /users/{id|UPN}/messages?$filter=internetMessageId eq '...'
+      # https://learn.microsoft.com/en-us/graph/api/user-list-messages
+      # Note: internetMessageId values typically include angle brackets and
+      # must be properly URL-encoded; operators may need to add encoding
+      # when wiring real callers.
       - name: search_for_message
         type: http
         with:
-          url: "{{ consts.graph_endpoint }}/users/{{ inputs.email[loop.index0] }}/messages"
+          url: "{{ consts.graph_base }}/users/{{ inputs.email[loop.index0] }}/messages"
           method: GET
           headers:
             Authorization: "{{ consts.graph_auth_header }}"
+            Accept: "application/json"
           query:
-            $filter: "internetMessageId eq '{{ item }}'"
-            $select: "id,subject,internetMessageId"
+            "$filter": "internetMessageId eq '{{ item }}'"
+            "$select": "id,subject,internetMessageId,from,receivedDateTime,parentFolderId"
+            "$top": "10"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: check_message_found
         type: if
         condition: "{{ steps.search_for_message.output.value | size }} >= 1"
         steps:
-          # Phantom asset: ms_graph_for_office_365 — "delete email".
+          # Microsoft Graph: DELETE /users/{id|UPN}/messages/{messageId}
+          # https://learn.microsoft.com/en-us/graph/api/message-delete
+          # Returns 204 No Content. Item lands in Recoverable Items
+          # Deletions folder (purgeable after 14 days unless on hold).
           - name: delete_message
             type: http
             with:
-              url: "{{ consts.graph_endpoint }}/users/{{ inputs.email[loop.index0] }}/messages/{{ steps.search_for_message.output.value[0].id }}"
+              url: "{{ consts.graph_base }}/users/{{ inputs.email[loop.index0] }}/messages/{{ steps.search_for_message.output.value[0].id }}"
               method: DELETE
               headers:
                 Authorization: "{{ consts.graph_auth_header }}"
             on-failure:
               retry:
-                max-attempts: 2
-                delay: "3s"
-              continue: true
+                max-attempts: 3
+                delay: "5s"
 
           - name: record_observable
             type: data.set
@@ -90,13 +99,17 @@ steps:
                 source: "MS Graph for Office365"
                 value: "{{ item }}"
                 mailbox: "{{ inputs.email[loop.index0] }}"
+                graph_message_id: "{{ steps.search_for_message.output.value[0].id }}"
+                subject: "{{ steps.search_for_message.output.value[0].subject | default: '' }}"
+                action: "soft-deleted"
                 status: "{{ steps.delete_message.output.status | default: 'deleted' }}"
-                message: "{{ steps.delete_message.output.message | default: 'soft-deleted; recoverable from Recoverable Items' }}"
+                http_code: "{{ steps.delete_message.output.code | default: '' }}"
+                message: "soft-deleted; recoverable from Recoverable Items Deletions"
 
           - name: log_eviction
             type: console
             with:
-              message: "Evicted {{ item }} from {{ inputs.email[loop.index0] }}: {{ steps.record_observable.output.observable.status }}"
+              message: "Evicted {{ item }} from {{ inputs.email[loop.index0] }}: status={{ steps.record_observable.output.observable.status }} graph_id={{ steps.record_observable.output.observable.graph_message_id }}"
         else:
           - name: log_no_match
             type: console

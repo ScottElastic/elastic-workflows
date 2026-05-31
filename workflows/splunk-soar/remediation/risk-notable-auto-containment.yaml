@@ -4,11 +4,14 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Risk Notable — Auto Containment"
 description: >
-  Automatic containment for high-risk / confirmed-threat artifacts on a
-  Splunk ES risk notable. Tags known assets and identities, splits the
-  artifacts that have "high_threat" or "high_risk_score" tags, dispatches
-  to identity- and asset-containment workflows in parallel, then writes
-  a summary note back to Splunk ES for any notable event_id present.
+  Containment dispatcher for high-risk artifacts on a Splunk ES risk
+  notable. Runs the asset/identity tagging child workflow, filters the
+  artifacts down to those tagged "high_threat" or "high_risk_score",
+  and launches the identity-containment and asset-containment
+  workflows in parallel against the matching ids. Notable event_ids
+  receive a summary comment via the Splunk notable_update REST endpoint.
+  Operator wiring: identity_workflow_id, asset_containment_workflow_id,
+  and identity_containment_workflow_id must point at imported workflow ids.
 enabled: true
 tags: ["splunk-soar", "remediation", "splunk-es", "risk-notable", "containment", "translated"]
 
@@ -64,6 +67,8 @@ steps:
     type: if
     condition: "{{ steps.high_risk_artifacts.output.matches | size }} > 0"
     steps:
+      # Containment is destructive — retry on transient API errors but
+      # do NOT swallow failures past that.
       - name: dispatch_identity_containment
         type: kibana.request
         with:
@@ -75,7 +80,9 @@ steps:
               indicator_tags_include: "known_identity"
               indicator_tags_exclude: "contained"
         on-failure:
-          continue: true
+          retry:
+            max-attempts: 3
+            delay: "5s"
 
       - name: dispatch_asset_containment
         type: kibana.request
@@ -88,7 +95,9 @@ steps:
               indicator_tags_include: "known_asset"
               indicator_tags_exclude: "contained"
         on-failure:
-          continue: true
+          retry:
+            max-attempts: 3
+            delay: "5s"
 
       - name: build_summary
         type: data.set

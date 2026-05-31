@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "ServiceNow — Update Incident with Investigation Notes"
 description: >
-  Designed to run at the end of a response plan. Pulls every note from
-  the Elastic Security investigation (general notes plus any response-plan
-  task notes), renders them as a single HTML block, and posts the result
-  as a comment onto the ServiceNow incident previously linked to the
-  finding via the `snow_incident` custom field.
+  Runs at the end of a response plan. Pulls every comment from a Kibana Case
+  (via the Cases REST API), renders them into a single HTML block, and posts
+  the result to the linked ServiceNow incident through the servicenow
+  connector (`pushToService` with `correlation_id`). Requires the case to
+  carry a `snow_incident` reference (custom field or category) so the
+  workflow knows which SNOW ticket to update. Inputs: `case_id` (required).
 enabled: true
 tags: ["splunk-soar", "ticketing", "servicenow", "notes", "translated"]
 
@@ -17,76 +18,79 @@ triggers:
   - type: manual
 
 inputs:
-  - name: finding_id
+  - name: case_id
     type: string
     required: true
-    description: "Elastic Security finding / investigation id to pull notes from."
+    description: "Kibana Case id (UUID) whose comments should be mirrored into SNOW."
 
 consts:
   servicenow_connector_id: "CHANGEME-servicenow-connector"
-  # Endpoint that exposes the finding's notes + custom_fields. In SOAR this
-  # is the Mission Control connector; swap for the appropriate API in your env.
-  finding_api_endpoint: "https://CHANGEME-finding-api.internal/api/findings"
-  finding_api_auth_header: "Bearer CHANGEME_TOKEN"
 
 steps:
-  - name: get_finding_notes
-    type: http
+  # Kibana Cases REST API: GET /api/cases/{caseId} returns the case incl.
+  # external_service and any customFields; /comments returns the comment feed.
+  - name: get_case
+    type: kibana.request
     with:
-      url: "{{ consts.finding_api_endpoint }}/{{ inputs.finding_id }}/notes"
       method: GET
-      headers:
-        Authorization: "{{ consts.finding_api_auth_header }}"
-        Accept: "application/json"
+      path: "/api/cases/{{ inputs.case_id }}"
     on-failure:
       retry:
-        max-attempts: 2
+        max-attempts: 3
         delay: "3s"
       continue: true
 
-  - name: get_finding_metadata
-    type: http
+  - name: get_case_comments
+    type: kibana.request
     with:
-      url: "{{ consts.finding_api_endpoint }}/{{ inputs.finding_id }}"
       method: GET
-      headers:
-        Authorization: "{{ consts.finding_api_auth_header }}"
-        Accept: "application/json"
+      path: "/api/cases/{{ inputs.case_id }}/comments"
     on-failure:
+      retry:
+        max-attempts: 3
+        delay: "3s"
       continue: true
+
+  - name: resolve_snow_incident
+    type: data.set
+    with:
+      # Prefer the case's pushed external_service.external_id (set when the
+      # case was previously pushed to SNOW). Fall back to a customFields entry
+      # named `snow_incident` if operators populate it manually.
+      snow_incident: "{{ steps.get_case.output.external_service.external_id | default: steps.get_case.output.customFields | where: 'key', 'snow_incident' | map: 'value' | first | default: '' }}"
 
   - name: have_notes_and_target
     type: if
-    condition: "{{ steps.get_finding_notes.output.data.items | size }} > 0 and {{ steps.get_finding_metadata.output.data.custom_fields.snow_incident | size }} > 0"
+    condition: "{{ steps.get_case_comments.output | size }} > 0 and {{ steps.resolve_snow_incident.output.snow_incident | size }} > 0"
     steps:
-      # Render the notes into a single HTML block. SOAR concatenates each
-      # note's content, phase name, task name, author, and create time;
-      # we approximate that with a foreach + data.set.
+      # Render each comment as an HTML fragment. Kibana Case comments carry
+      # `comment`, `createdBy.username`, `createdAt`, and `type` (user|alert).
       - name: render_notes_html
         type: foreach
         with:
-          items: ${{ steps.get_finding_notes.output.data.items }}
+          items: ${{ steps.get_case_comments.output }}
         steps:
           - name: build_note_fragment
             type: data.set
             with:
               fragment: >-
-                <b>Phase</b> {{ item.response_plan_info.response_phase.name | default: '' }}
-                <br/><b>Task</b> {{ item.response_plan_info.response_task.name | default: '' }}
-                <br/><b>Author</b> {{ item.author.realname | default: '' }}
-                <br/><b>Created Time</b> {{ item.create_time | default: '' }}
-                <br/><b>Note Content</b> {{ item.content | default: '' }}
+                <b>Type</b> {{ item.type | default: 'user' }}
+                <br/><b>Author</b> {{ item.createdBy.username | default: 'unknown' }}
+                <br/><b>Created</b> {{ item.createdAt | default: '' }}
+                <br/><b>Comment</b> {{ item.comment | default: '' }}
                 <br/><br/>
 
       - name: assemble_payload
         type: data.set
         with:
           comments: >-
-            [code]<h4>ES Notes</h4>
-            {{ steps.get_finding_notes.output.data.items | size }} note(s) attached. See
-            full content in the workflow execution output.
+            [code]<h4>Elastic Case Notes</h4>
+            {{ steps.get_case_comments.output | size }} comment(s) attached from case {{ inputs.case_id }}.
+            See full content in the workflow execution output.
             [/code]
 
+      # Native servicenow connector. correlation_id can be either a SNOW
+      # number (INC...) or sys_id; pushToService upserts the comment field.
       - name: update_servicenow
         type: servicenow
         connector-id: "{{ consts.servicenow_connector_id }}"
@@ -94,19 +98,19 @@ steps:
           subAction: "pushToService"
           subActionParams:
             incident:
-              correlation_id: "{{ steps.get_finding_metadata.output.data.custom_fields.snow_incident }}"
+              correlation_id: "{{ steps.resolve_snow_incident.output.snow_incident }}"
               comments: "{{ steps.assemble_payload.output.comments }}"
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "5s"
 
       - name: log_done
         type: console
         with:
-          message: "Posted {{ steps.get_finding_notes.output.data.items | size }} investigation note(s) to SNOW incident {{ steps.get_finding_metadata.output.data.custom_fields.snow_incident }}."
+          message: "Posted {{ steps.get_case_comments.output | size }} comment(s) to SNOW incident {{ steps.resolve_snow_incident.output.snow_incident }}."
     else:
       - name: log_skip
         type: console
         with:
-          message: "Skipping update — finding {{ inputs.finding_id }} has no notes or no linked SNOW incident."
+          message: "Skipping update — case {{ inputs.case_id }} has no comments or no linked SNOW incident."

@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "GSuite Gmail — Message Eviction"
 description: >
-  Permanently removes a Gmail message from a specified mailbox using a
-  Google Workspace admin credential. Takes a message ID and recipient
-  mailbox, performs a hard delete (non-recoverable), and emits a
-  normalized observable for each deleted message. Maps to D3FEND
-  EmailRemoval.
+  Permanently removes Gmail messages from one or more mailboxes using the
+  Gmail API DELETE endpoint. Takes paired arrays of message_id (Gmail's
+  internal id, NOT the RFC-822 Message-ID header) and email (mailbox), and
+  hard-deletes each pair — bypassing the Trash folder entirely. Maps to
+  D3FEND EmailRemoval. Side effect: deletion is irreversible; pair with a
+  search step first if you only have the Internet Message-ID.
 enabled: true
 tags: ["splunk-soar", "email-triage", "email-removal", "gmail", "gsuite", "translated"]
 
@@ -19,16 +20,20 @@ inputs:
   - name: message_id
     type: array
     required: true
-    description: "Gmail message IDs to delete."
+    description: "Gmail internal message IDs (per messages.list/get) to delete."
   - name: email
     type: array
     required: true
     description: "Mailbox addresses to delete from. Pairs by index with message_id."
 
 consts:
-  # Replace with your G Suite admin OAuth credential / proxy endpoint.
-  gsuite_endpoint: "https://gmail.googleapis.com/gmail/v1/users"
-  gsuite_auth_header: "Bearer CHANGEME_TOKEN"
+  # Gmail API. Auth is OAuth2 with a domain-wide-delegated service account
+  # (impersonation set via 'sub' claim) or an admin user grant. Required
+  # scope: https://www.googleapis.com/auth/gmail.modify (delete needs
+  # mail.google.com for some accounts; modify is sufficient for users
+  # who impersonate themselves via DWD).
+  gmail_base: "https://gmail.googleapis.com/gmail/v1/users"
+  gmail_auth_header: "Bearer CHANGEME_TOKEN"
 
 steps:
   - name: validate_input
@@ -45,20 +50,21 @@ steps:
     with:
       items: ${{ inputs.message_id }}
     steps:
-      # TODO: replace with a native Gmail connector when available.
-      # Maps to Phantom's g_suite_for_gmail "delete email" action.
+      # Gmail API: DELETE /gmail/v1/users/{userId}/messages/{id}
+      # https://developers.google.com/gmail/api/reference/rest/v1/users.messages/delete
+      # Hard-deletes the message immediately. Returns 204 No Content.
+      # Use messages.trash for soft-delete to Trash instead.
       - name: delete_message
         type: http
         with:
-          url: "{{ consts.gsuite_endpoint }}/{{ inputs.email[loop.index0] }}/messages/{{ item }}"
+          url: "{{ consts.gmail_base }}/{{ inputs.email[loop.index0] }}/messages/{{ item }}"
           method: DELETE
           headers:
-            Authorization: "{{ consts.gsuite_auth_header }}"
+            Authorization: "{{ consts.gmail_auth_header }}"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
-          continue: true
+            max-attempts: 3
+            delay: "5s"
 
       - name: record_result
         type: data.set
@@ -68,7 +74,9 @@ steps:
             source: "GSuite for Gmail"
             mailbox: "{{ inputs.email[loop.index0] }}"
             message_id: "{{ item }}"
+            action: "hard-deleted"
             status: "{{ steps.delete_message.output.status | default: 'unknown' }}"
+            http_code: "{{ steps.delete_message.output.code | default: '' }}"
             message: "{{ steps.delete_message.output.message | default: '' }}"
 
       - name: log_observable
@@ -78,3 +86,4 @@ steps:
             Evicted from {{ inputs.email[loop.index0] }}:
             message_id={{ item }}
             status={{ steps.record_result.output.observable.status }}
+            http_code={{ steps.record_result.output.observable.http_code }}

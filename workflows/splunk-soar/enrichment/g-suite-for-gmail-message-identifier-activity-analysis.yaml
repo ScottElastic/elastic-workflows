@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "GSuite Gmail — Message Identifier Activity Analysis"
 description: >
-  Given an internet message id, pulls the list of mailboxes from Google
-  Workspace and searches each for a matching message. Returns a normalized
-  per-mailbox observable record with recipient, addressee, subject, sender,
-  and Gmail message id. Refer to D3FEND D3-IAA for context. Note: not
-  designed for tenants with more than 500 mailboxes.
+  Given an Internet Message-ID, enumerates Google Workspace mailboxes via
+  the Admin SDK Directory API, searches each via Gmail messages.list with
+  the rfc822msgid: operator, then fetches the metadata headers for any
+  hits. Returns one observable per mailbox with sender, recipient, subject,
+  and the Gmail internal id. Not designed for tenants with more than 500
+  mailboxes (no pagination). Maps to MITRE D3FEND D3-IAA.
 enabled: true
 tags: ["splunk-soar", "enrichment", "identifier-activity", "gmail", "gsuite", "translated"]
 
@@ -19,79 +20,113 @@ inputs:
   - name: message_id
     type: string
     required: true
-    description: "Internet message id to search for across Gmail mailboxes."
+    description: "Internet Message-ID header to search for across Gmail mailboxes."
 
 consts:
-  # TODO: wire to a real Google Workspace endpoint or native connector when
-  # available. The original Phantom asset was `g_suite_for_gmail`.
-  gsuite_endpoint: "https://CHANGEME-google-workspace-proxy.internal"
+  # Gmail API + Admin SDK Directory API. Domain-wide delegation required.
+  # Scopes:
+  #   - https://www.googleapis.com/auth/admin.directory.user.readonly
+  #   - https://www.googleapis.com/auth/gmail.readonly
+  gmail_base: "https://gmail.googleapis.com/gmail/v1/users"
+  admin_base: "https://admin.googleapis.com/admin/directory/v1"
   gsuite_auth_header: "Bearer CHANGEME_TOKEN"
   max_mailboxes: 500
-  max_results_per_mailbox: 100
+  max_results_per_mailbox: 10
 
 steps:
   - name: message_provided
     type: if
     condition: "{{ inputs.message_id | size }} > 0"
     steps:
+      # Admin SDK Directory: GET /admin/directory/v1/users
+      # Returns { users: [...], nextPageToken? }. customer=my_customer
+      # scopes to the calling user's tenant.
       - name: list_mailboxes
         type: http
         with:
-          url: "{{ consts.gsuite_endpoint }}/users"
+          url: "{{ consts.admin_base }}/users"
           method: GET
           headers:
             Authorization: "{{ consts.gsuite_auth_header }}"
             Accept: "application/json"
           query:
+            customer: "my_customer"
             maxResults: "{{ consts.max_mailboxes }}"
+            projection: "basic"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: per_mailbox_search
         type: foreach
         with:
-          items: "${{ steps.list_mailboxes.output.users }}"
+          items: "${{ steps.list_mailboxes.output.users | default: [] }}"
         steps:
+          # Gmail API: GET /gmail/v1/users/{userId}/messages?q=rfc822msgid:{id}
+          # The rfc822msgid: operator finds messages by Internet Message-ID
+          # across all labels. Returns { messages: [{id, threadId}], ... }.
           - name: search_mailbox
             type: http
             with:
-              url: "{{ consts.gsuite_endpoint }}/users/{{ item.primaryEmail }}/messages"
+              url: "{{ consts.gmail_base }}/{{ item.primaryEmail }}/messages"
               method: GET
               headers:
                 Authorization: "{{ consts.gsuite_auth_header }}"
                 Accept: "application/json"
               query:
                 q: "rfc822msgid:{{ inputs.message_id }}"
-                labelIds: "INBOX"
+                includeSpamTrash: "true"
                 maxResults: "{{ consts.max_results_per_mailbox }}"
             on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
               continue: true
 
           - name: hits_in_mailbox
             type: if
             condition: "{{ steps.search_mailbox.output.messages | size }} > 0"
             steps:
+              # messages.list returns only id+threadId. Fetch metadata for
+              # the first hit so we can populate the observable. format=metadata
+              # with metadataHeaders limits payload to the headers we need.
+              - name: get_message_metadata
+                type: http
+                with:
+                  url: "{{ consts.gmail_base }}/{{ item.primaryEmail }}/messages/{{ steps.search_mailbox.output.messages[0].id }}"
+                  method: GET
+                  headers:
+                    Authorization: "{{ consts.gsuite_auth_header }}"
+                    Accept: "application/json"
+                  query:
+                    format: "metadata"
+                    metadataHeaders: "From,To,Subject,Message-ID,Date"
+                on-failure:
+                  retry:
+                    max-attempts: 2
+                    delay: "3s"
+                  continue: true
+
               - name: build_message_observable
                 type: data.set
                 with:
                   observable:
                     type: "internet message ID"
                     value: "{{ inputs.message_id }}"
-                    source: "GSuite for GMail"
+                    source: "GSuite for Gmail"
                     recipient: "{{ item.primaryEmail }}"
-                    addressee: "{{ steps.search_mailbox.output.messages[0].to | default: '' }}"
-                    subject: "{{ steps.search_mailbox.output.messages[0].subject | default: '' }}"
-                    sender: "{{ steps.search_mailbox.output.messages[0].from | default: '' }}"
-                    gmail_id: "{{ steps.search_mailbox.output.messages[0].id | default: '' }}"
+                    gmail_id: "{{ steps.search_mailbox.output.messages[0].id }}"
+                    thread_id: "{{ steps.search_mailbox.output.messages[0].threadId | default: '' }}"
+                    headers: "${{ steps.get_message_metadata.output.payload.headers | default: [] }}"
+                    label_ids: "${{ steps.get_message_metadata.output.labelIds | default: [] }}"
+                    snippet: "{{ steps.get_message_metadata.output.snippet | default: '' }}"
 
               - name: log_message_observable
                 type: console
                 with:
-                  message: |
-                    Match in {{ item.primaryEmail }}: subject="{{ steps.search_mailbox.output.messages[0].subject | default: '' }}", sender={{ steps.search_mailbox.output.messages[0].from | default: '' }}
+                  message: "Match in {{ item.primaryEmail }}: gmail_id={{ steps.search_mailbox.output.messages[0].id }} labels={{ steps.get_message_metadata.output.labelIds | default: [] }}"
 
       - name: log_summary
         type: console

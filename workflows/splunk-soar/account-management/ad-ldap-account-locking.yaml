@@ -4,9 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "AD LDAP — Account Locking"
 description: >
-  Disables a Microsoft AD user account via the LDAP connector. Takes a
-  username as input, validates it is non-empty, calls the AD LDAP "disable
-  account" action, and emits a normalized observable describing the result.
+  Disables a Microsoft Active Directory user account by setting
+  userAccountControl bit 0x2 (ACCOUNTDISABLE) through an internal LDAP
+  proxy. Takes a sAMAccountName and produces a normalized observable with
+  the disable status. Active Directory has no public REST surface, so this
+  step calls an operator-supplied LDAP-proxy URL — wire it to your
+  preferred bridge (Microsoft Graph for cloud-joined accounts,
+  ldap3/ldapjs sidecar, or an existing internal automation).
 enabled: true
 tags: ["splunk-soar", "identity", "account-lock", "ad-ldap", "translated"]
 
@@ -20,9 +24,15 @@ inputs:
     description: "AD sAMAccountName of the user whose account will be disabled."
 
 consts:
-  # Wire this to your AD LDAP integration. Original playbook used a SOAR asset;
-  # in Elastic, point this at whatever you use to reach AD (LDAP proxy, a
-  # webhook-backed automation, or a direct LDAPS endpoint).
+  # Active Directory does not expose a public REST API. Wire this URL to an
+  # internal LDAP-proxy (e.g., a small ldap3/ldapjs FastAPI service, an
+  # n8n/Workato webhook, or Azure AD via Microsoft Graph for cloud-only
+  # users). The proxy is expected to:
+  #   * authenticate to AD with a service account that holds
+  #     "Account Operators" or a delegated reset-password-style right
+  #   * locate the user by sAMAccountName
+  #   * OR userAccountControl with 0x2 (ACCOUNTDISABLE)
+  #   * return JSON { status, message, user_dn }
   ad_ldap_endpoint: "https://CHANGEME-ldap-proxy.internal/api/disable-account"
   ad_ldap_auth_header: "Bearer CHANGEME_TOKEN"
 
@@ -36,9 +46,8 @@ steps:
         with:
           message: "No user provided — aborting."
 
-  # TODO: replace this http stub with a real AD LDAP connector once available
-  # in Elastic Workflows. The original Phantom playbook used the
-  # `microsoft ad ldap` asset's "disable account" action.
+  # Disable the AD account by toggling userAccountControl bit 0x2.
+  # This is a destructive identity action — no continue:true on failure.
   - name: disable_account
     type: http
     with:
@@ -50,11 +59,11 @@ steps:
       body:
         user: "{{ inputs.user }}"
         use_samaccountname: true
+        action: "disable"
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
-      continue: true
+        max-attempts: 3
+        delay: "5s"
 
   - name: build_observable
     type: data.set

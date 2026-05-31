@@ -4,10 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Mission Control — Related Tickets Search Orchestrator"
 description: >
-  Fans out the related-tickets lookup across both ServiceNow and Splunk
-  Notable sources, merges their markdown reports, then writes a closing
-  note onto the matching Mission Control response task and marks it as
-  ended. Mirrors the SOAR Mission Control orchestrator playbook.
+  Mission Control variant of the related-tickets search. Launches the
+  servicenow- and splunk-notable-related-tickets-search sibling
+  workflows in parallel, concatenates their markdown_report outputs,
+  and posts the merged report back as a Mission Control task note,
+  flipping the task from Pending->Started->Ended. Operator wiring: the
+  two child workflow ids resolve through /api/workflows/{id}/run.
+  When inputs.external_id is omitted, the task closure block is skipped.
 enabled: true
 tags: ["splunk-soar", "ticketing", "mission-control", "related-tickets", "orchestrator", "translated"]
 
@@ -99,6 +102,9 @@ steps:
           query:
             id: "{{ inputs.external_id }}"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       # Locate the response task whose suggestions reference the current
@@ -124,6 +130,9 @@ steps:
                 phase_id: "{{ item.phase_id }}"
                 response_plan_id: "{{ item.response_plan_id }}"
             on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
               continue: true
 
           - name: task_needs_starting
@@ -163,6 +172,9 @@ steps:
                 task_id: "{{ item.id }}"
                 status: "Ended"
             on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
               continue: true
     else:
       - name: log_no_external_id

@@ -4,12 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "McAfee — Phishing Attachment Investigation"
 description: >
-  Investigates a phishing email containing a suspicious attachment. Detonates
-  the attachment in McAfee Advanced Threat Defense, geolocates and looks up
-  reputation on any IPs surfaced during dynamic analysis, pushes IOCs to the
-  OpenDXL fabric for TIE consumption, hunts McAfee Active Response for the
-  detected hashes, and finally creates a ServiceNow ticket plus emails an
-  analyst with the rollup.
+  Investigates a phishing attachment by detonating it in McAfee/Trellix
+  Advanced Threat Defense. If the verdict is malicious (severity >= 3),
+  geolocates every callback IP via MaxMind, fetches PassiveTotal reputation
+  for each, pushes IPs to the OpenDXL fabric, runs an Active Response hash
+  hunt for the dropped payloads, and on any MAR hit creates a ServiceNow
+  ticket and emails the analyst with consolidated findings. Requires the
+  vault_id of the attachment as input.
 enabled: true
 tags: ["splunk-soar", "investigation", "phishing", "mcafee", "atd", "opendxl", "translated"]
 
@@ -32,8 +33,14 @@ inputs:
     description: "Original alert source identifier (for ticket context)."
 
 consts:
+  # McAfee/Trellix ATD has limited public docs since the Trellix acquisition.
+  # TODO: confirm endpoint paths against your appliance — the integration
+  # historically used /php/fileupload.php with a session token cookie obtained
+  # from /php/session.php. Wire your real auth flow before enabling.
   mcafee_atd_endpoint: "https://CHANGEME-atd.example.com/php"
   mcafee_atd_auth: "Bearer CHANGEME"
+  # OpenDXL fabric — exposes IP and TIE hash topics. Path is the local
+  # OpenDXL broker REST shim, not a public McAfee service. TODO: update path.
   mcafee_opendxl_endpoint: "https://CHANGEME-opendxl.example.com"
   mcafee_opendxl_auth: "Bearer CHANGEME"
   maxmind_endpoint: "https://geoip.maxmind.com/geoip/v2.1/city/"
@@ -42,9 +49,9 @@ consts:
   passivetotal_auth: "Basic CHANGEME"
   servicenow_connector_id: "CHANGEME-servicenow-connector"
   smtp_connector_id: "CHANGEME-email-connector"
-  analyst_email: "analyst@mcafee-ebc.com"
-  admin_email: "admin@mcafee-ebc.com"
-  email_from: "phantom@mcafee-ebc.com"
+  analyst_email: "analyst@example.com"
+  admin_email: "admin@example.com"
+  email_from: "soar@example.com"
   malicious_severity_threshold: 3
 
 steps:
@@ -52,7 +59,9 @@ steps:
     type: if
     condition: "{{ inputs.vault_id | size }} > 0"
     steps:
-      # TODO: swap http stub for a native McAfee ATD connector when available.
+      # TODO: McAfee/Trellix ATD has no public REST docs post-acquisition.
+      # Wire to the real ATD endpoint and session cookie flow used by your
+      # appliance before enabling. Below shape matches the legacy connector.
       - name: atd_detonate_file
         type: http
         with:
@@ -64,7 +73,7 @@ steps:
             vault_id: "{{ inputs.vault_id }}"
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "10s"
           continue: true
 
@@ -96,6 +105,9 @@ steps:
                   headers:
                     Authorization: "{{ consts.maxmind_auth }}"
                 on-failure:
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
                   continue: true
 
               - name: opendxl_push_ip
@@ -120,6 +132,9 @@ steps:
                   query:
                     query: "{{ item.Ipv4 }}"
                 on-failure:
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
                   continue: true
 
           - name: hunt_each_hash_via_mar

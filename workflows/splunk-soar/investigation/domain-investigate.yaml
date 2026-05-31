@@ -4,10 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Domain — Multi-Source Investigation"
 description: >
-  Looks up a domain across Google Safe Browsing, Cisco Umbrella Investigate,
-  and VirusTotal, then derives a high/low risk verdict using thresholds on
-  Umbrella risk score and VirusTotal malicious count. Emits a normalized
-  verdict and a short note suitable for attaching to a Kibana case.
+  Fans a single input domain across three reputation sources in
+  parallel: Google Safe Browsing (`threatMatches:find`), Cisco
+  Umbrella Investigate (`/domains/risk-score/{domain}`), and the
+  VirusTotal v3 domain scanner. Emits a `high_risk`/`low_risk`
+  verdict when Umbrella risk_score > 25 or VT malicious votes >= 3
+  (thresholds are tunable via consts), plus a one-line summary
+  ready to drop on a Kibana case.
 enabled: true
 tags: ["splunk-soar", "investigation", "domain", "reputation", "translated"]
 
@@ -57,6 +60,9 @@ steps:
           threatEntries:
             - url: "{{ inputs.domain }}"
     on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: cisco_umbrella_check
@@ -66,7 +72,11 @@ steps:
       method: GET
       headers:
         Authorization: "{{ consts.umbrella_auth }}"
+        Accept: "application/json"
     on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   # virustotal.scanDomain is the closest first-party action available; if not

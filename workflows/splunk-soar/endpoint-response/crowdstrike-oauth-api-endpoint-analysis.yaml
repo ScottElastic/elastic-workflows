@@ -5,10 +5,11 @@
 name: "CrowdStrike — Endpoint Analysis (Processes / Netstat / System)"
 description: >
   Performs an in-depth on-host inspection for a CrowdStrike-managed
-  device. Looks up the device, opens a Real-Time Response (RTR)
-  session, runs a small set of admin commands (process list, netstat,
-  services, system info), and emits process / network / system / host
-  observables for each. Closes the RTR session when finished.
+  device. Exchanges Falcon API credentials for an OAuth2 bearer,
+  resolves the device, opens an RTR session, runs ps / netstat /
+  services / system-info admin commands, emits per-area observables,
+  and tears the session down. Requires Real-Time Response privileges
+  on the supplied API client.
 enabled: true
 tags: ["splunk-soar", "endpoint-response", "crowdstrike", "rtr", "live-response", "translated"]
 
@@ -23,7 +24,8 @@ inputs:
 
 consts:
   crowdstrike_base_url: "https://api.crowdstrike.com"
-  crowdstrike_bearer: "Bearer CHANGEME_FALCON_OAUTH_TOKEN"
+  crowdstrike_client_id: "CHANGEME_FALCON_CLIENT_ID"
+  crowdstrike_client_secret: "CHANGEME_FALCON_CLIENT_SECRET"
 
 steps:
   - name: validate_device
@@ -35,20 +37,34 @@ steps:
         with:
           message: "Cannot run endpoint analysis without a device value."
 
+  - name: get_token
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/oauth2/token"
+      method: POST
+      headers:
+        Content-Type: "application/x-www-form-urlencoded"
+        Accept: "application/json"
+      body: "client_id={{ consts.crowdstrike_client_id }}&client_secret={{ consts.crowdstrike_client_secret }}"
+    on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
+
   - name: query_device
     type: http
     with:
       url: "{{ consts.crowdstrike_base_url }}/devices/queries/devices/v1"
       method: GET
       headers:
-        Authorization: "{{ consts.crowdstrike_bearer }}"
+        Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
       query:
         limit: 1
         filter: "hostname:'{{ inputs.device }}'"
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: capture_device_id
@@ -62,13 +78,13 @@ steps:
       url: "{{ consts.crowdstrike_base_url }}/real-time-response/entities/sessions/v1"
       method: POST
       headers:
-        Authorization: "{{ consts.crowdstrike_bearer }}"
+        Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
         Content-Type: "application/json"
       body:
         device_id: "{{ steps.capture_device_id.output.device_id }}"
     on-failure:
       retry:
-        max-attempts: 2
+        max-attempts: 3
         delay: "5s"
       continue: true
 
@@ -83,7 +99,7 @@ steps:
       url: "{{ consts.crowdstrike_base_url }}/real-time-response/entities/admin-command/v1"
       method: POST
       headers:
-        Authorization: "{{ consts.crowdstrike_bearer }}"
+        Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
         Content-Type: "application/json"
       body:
         base_command: "ps"
@@ -91,7 +107,7 @@ steps:
         session_id: "{{ steps.capture_session_id.output.session_id }}"
     on-failure:
       retry:
-        max-attempts: 2
+        max-attempts: 3
         delay: "5s"
       continue: true
 
@@ -108,7 +124,7 @@ steps:
       url: "{{ consts.crowdstrike_base_url }}/real-time-response/entities/admin-command/v1"
       method: POST
       headers:
-        Authorization: "{{ consts.crowdstrike_bearer }}"
+        Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
         Content-Type: "application/json"
       body:
         base_command: "netstat"
@@ -116,7 +132,7 @@ steps:
         session_id: "{{ steps.capture_session_id.output.session_id }}"
     on-failure:
       retry:
-        max-attempts: 2
+        max-attempts: 3
         delay: "5s"
       continue: true
 
@@ -132,7 +148,7 @@ steps:
       url: "{{ consts.crowdstrike_base_url }}/real-time-response/entities/admin-command/v1"
       method: POST
       headers:
-        Authorization: "{{ consts.crowdstrike_bearer }}"
+        Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
         Content-Type: "application/json"
       body:
         base_command: "services"
@@ -140,7 +156,7 @@ steps:
         session_id: "{{ steps.capture_session_id.output.session_id }}"
     on-failure:
       retry:
-        max-attempts: 2
+        max-attempts: 3
         delay: "5s"
       continue: true
 
@@ -156,13 +172,13 @@ steps:
       url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices/v2"
       method: GET
       headers:
-        Authorization: "{{ consts.crowdstrike_bearer }}"
+        Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
       query:
         ids: "${{ steps.query_device.output.resources }}"
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: build_system_observables
@@ -184,7 +200,7 @@ steps:
       url: "{{ consts.crowdstrike_base_url }}/real-time-response/entities/sessions/v1"
       method: DELETE
       headers:
-        Authorization: "{{ consts.crowdstrike_bearer }}"
+        Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
       query:
         session_id: "{{ steps.capture_session_id.output.session_id }}"
     on-failure:

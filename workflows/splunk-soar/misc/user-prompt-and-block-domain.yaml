@@ -4,13 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "User-Approved Domain Block via Umbrella"
 description: >
-  Looks up a domain's DomainTools risk score, and when it reaches or exceeds
-  a threshold (default 80) asks an automation engineer to approve a block.
-  On approval, blocks the domain via Cisco Umbrella for a fixed window and
-  emits a sibling unblock note for operators to schedule (the original
-  Phantom playbook used a delayed action; Elastic Workflows does not yet
-  ship a built-in delayed-action primitive, so the unblock is recorded for
-  follow-up rather than scheduled in-band).
+  Scores a domain against DomainTools' Risk API and — when the score meets
+  or exceeds a threshold (default 80) — asks an automation engineer to
+  approve a Cisco Umbrella block. On approval, submits the block via the
+  Umbrella Enforcement API and records an unblock follow-up for operators
+  to schedule (Elastic Workflows does not yet ship an in-band delayed-
+  action primitive). Inputs: `domain` (string).
 enabled: true
 tags: ["splunk-soar", "misc", "domain-block", "umbrella", "domaintools", "approval", "translated"]
 
@@ -25,28 +24,35 @@ inputs:
     description: "Domain to evaluate and (potentially) block."
 
 consts:
-  # DomainTools risk API.
+  # DomainTools Risk API (api_username/api_key auth in URL query).
   domaintools_endpoint: "https://api.domaintools.com/v1"
-  domaintools_user: "CHANGEME"
-  domaintools_token: "CHANGEME"
-  # Cisco Umbrella Enforcement API for the actual block.
+  domaintools_user: "CHANGEME-domaintools-user"
+  domaintools_token: "CHANGEME-domaintools-key"
+  # Cisco Umbrella Enforcement API.
+  # Reference: https://developer.cisco.com/docs/cloud-security/enforcement-api/
   umbrella_endpoint: "https://s-platform.api.opendns.com/1.0/events"
   umbrella_customer_key: "CHANGEME-umbrella-customer-key"
-  # Threshold above which approval is requested
+  # Threshold above which an approval prompt is shown.
   risk_threshold: 80
   block_duration_minutes: 60
 
 steps:
-  # TODO: replace with a native DomainTools connector when available.
+  # DomainTools risk lookup — non-destructive enrichment, allow continue.
   - name: domain_reputation
     type: http
     with:
-      url: "{{ consts.domaintools_endpoint }}/risk/?domain={{ inputs.domain }}&api_username={{ consts.domaintools_user }}&api_key={{ consts.domaintools_token }}"
+      url: "{{ consts.domaintools_endpoint }}/risk/"
       method: GET
+      headers:
+        Accept: "application/json"
+      query:
+        domain: "{{ inputs.domain }}"
+        api_username: "{{ consts.domaintools_user }}"
+        api_key: "{{ consts.domaintools_token }}"
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: extract_risk_score
@@ -62,18 +68,30 @@ steps:
         type: ai.prompt
         with:
           prompt: |
-            Domain {{ inputs.domain }} scored {{ steps.extract_risk_score.output.risk_score }}
-            on DomainTools risk, which exceeds the configured threshold of
-            {{ consts.risk_threshold }}. Should we block this domain on Cisco
-            Umbrella for {{ consts.block_duration_minutes }} minutes? Reply
-            Yes or No.
+            You are reviewing a proposed DNS block. Decide whether the
+            evidence justifies an Umbrella Enforcement block.
+
+            Domain:         {{ inputs.domain }}
+            Risk score:     {{ steps.extract_risk_score.output.risk_score }}
+            Threshold:      {{ consts.risk_threshold }}
+            Proximity:      {{ steps.domain_reputation.output.response.components.proximity | default: 'n/a' }}
+            Threat profile: {{ steps.domain_reputation.output.response.components.threat_profile | default: 'n/a' }}
+            Block window:   {{ consts.block_duration_minutes }} minutes
+
+            Respond with a single JSON object:
+              {
+                "decision":  "approve" | "reject",
+                "reason":    "<one-sentence justification>",
+                "confidence":"low" | "medium" | "high"
+              }
+          output_schema: object
           timeout: "60m"
 
       - name: on_approval
         type: if
-        condition: "{{ steps.ask_for_approval.output.response | downcase }} == 'yes'"
+        condition: "{{ steps.ask_for_approval.output.decision | downcase }} == 'approve'"
         steps:
-          # TODO: replace with a native Cisco Umbrella connector when one ships.
+          # Destructive change — no `continue: true`.
           - name: umbrella_block_domain
             type: http
             with:
@@ -81,18 +99,22 @@ steps:
               method: POST
               headers:
                 Content-Type: "application/json"
+                Accept: "application/json"
               body:
-                alertTime: "{{ now }}"
+                alertTime: "{{ now | date: '%Y-%m-%dT%H:%M:%S.000Z' }}"
                 deviceId: "elastic-workflow"
                 deviceVersion: "1.0"
                 dstDomain: "{{ inputs.domain }}"
-                eventTime: "{{ now }}"
+                eventTime: "{{ now | date: '%Y-%m-%dT%H:%M:%S.000Z' }}"
                 providerName: "Elastic Workflows"
+                eventSeverity: "HIGH"
+                eventType: "Botnet"
+                eventDescription: "Approved by analyst: {{ steps.ask_for_approval.output.reason | default: 'n/a' }}"
+                protocolVersion: "1.0a"
             on-failure:
               retry:
-                max-attempts: 2
+                max-attempts: 3
                 delay: "5s"
-              continue: true
 
           - name: record_unblock_followup
             type: data.set

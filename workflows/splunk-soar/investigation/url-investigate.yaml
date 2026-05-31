@@ -4,10 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "URL — Investigate (Splunk Intelligence Management)"
 description: >
-  Pulls reputation data for one or more URLs from Splunk Intelligence
-  Management (formerly TruSTAR), tags each indicator with the returned
-  priority score, and produces a markdown verdict containing only the
-  URLs scored MEDIUM or higher.
+  Looks up each input URL against Splunk Intelligence Management
+  (formerly TruSTAR) and records a verdict row for any indicator that
+  returns priorityScore MEDIUM, HIGH or CRITICAL. Inputs: array of URLs.
+  Note: TruSTAR APIs are being deprecated in favour of Splunk Mission
+  Control — the http step here is a best-effort stub and should be
+  replaced once a Mission Control connector lands.
 enabled: true
 tags: ["splunk-soar", "investigation", "url", "trustar", "splunk-intelligence-management", "translated"]
 
@@ -21,6 +23,9 @@ inputs:
     description: "List of URLs to enrich."
 
 consts:
+  # TruSTAR / Splunk Intelligence Management v1.3. TruSTAR APIs are being
+  # deprecated as the product migrates to Splunk Mission Control; treat
+  # this as a stub until a Mission Control connector is available.
   trustar_endpoint: "https://api.trustar.co/api/1.3"
   trustar_auth_header: "Bearer CHANGEME_TRUSTAR_TOKEN"
 
@@ -30,8 +35,6 @@ steps:
     with:
       items: "${{ inputs.urls }}"
     steps:
-      # TODO: replace http stub with a native Splunk Intelligence Management
-      # connector when available.
       - name: indicator_reputation
         type: http
         with:
@@ -45,8 +48,8 @@ steps:
             limit: 10000
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: tag_indicator

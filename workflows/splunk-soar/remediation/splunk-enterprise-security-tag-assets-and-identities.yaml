@@ -4,10 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Splunk ES — Tag Assets and Identities"
 description: >
-  Pulls user-like and host-like values from a SOAR container's indicators,
-  checks each against the Splunk ES identity_lookup_expanded and
-  asset_lookup_by_str tables, and applies "known_identity" or "known_asset"
-  tags on matches. Used as a precursor to the auto-containment workflow.
+  Pre-flight tagging step for the auto-containment workflow. Takes user
+  and host strings, looks each up in Splunk ES identity_lookup_expanded
+  and asset_lookup_by_str via /services/search/jobs, and POSTs a
+  "known_identity" or "known_asset" tag against the indicator store for
+  every match. Operators must wire indicator_tag_endpoint to whichever
+  enrich-index or tagging service their SOC uses.
 enabled: true
 tags: ["splunk-soar", "remediation", "splunk-es", "tagging", "translated"]
 
@@ -25,13 +27,12 @@ inputs:
     description: "Hostname / IP strings collected from container artifacts."
 
 consts:
-  splunk_search_endpoint: "https://CHANGEME-splunk.internal/services/search/jobs"
-  splunk_auth_header: "Bearer CHANGEME_TOKEN"
-  # Internal Phantom-style indicator-tagging endpoint. Wire this to your
-  # indicator-store update mechanism (Kibana enrich indices, custom HTTP
-  # service, etc.).
+  splunk_search_endpoint: "https://CHANGEME-splunk.internal:8089/services/search/jobs"
+  splunk_auth_header: "Bearer CHANGEME_SPLUNK_TOKEN"
+  # Indicator-tagging endpoint. Wire this to your indicator-store update
+  # mechanism (Kibana enrich indices, custom HTTP service, etc.).
   indicator_tag_endpoint: "https://CHANGEME-indicator-store.internal/api/tag"
-  indicator_tag_auth_header: "Bearer CHANGEME_TOKEN"
+  indicator_tag_auth_header: "Bearer CHANGEME_TAG_TOKEN"
 
 steps:
   - name: dedup_users
@@ -50,13 +51,13 @@ steps:
           method: POST
           headers:
             Authorization: "{{ consts.splunk_auth_header }}"
-          body:
-            search: >-
-              | inputlookup identity_lookup_expanded
-              | search identity IN ({{ steps.dedup_users.output.users | json }})
-              | eval category=mvjoin(category, "; ")
-            output_mode: "json"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search={{ '| inputlookup identity_lookup_expanded | search identity IN (' | append: steps.dedup_users.output.users | join: ',' | append: ') | eval category=mvjoin(category, \"; \")' | url_encode }}&exec_mode=oneshot&output_mode=json"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
+            on-status: [429, 502, 503, 504]
           continue: true
 
       - name: tag_each_identity_match
@@ -94,13 +95,13 @@ steps:
           method: POST
           headers:
             Authorization: "{{ consts.splunk_auth_header }}"
-          body:
-            search: >-
-              | inputlookup asset_lookup_by_str
-              | search asset IN ({{ steps.dedup_hosts.output.hosts | json }})
-              | eval category=mvjoin(category, "; ")
-            output_mode: "json"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search={{ '| inputlookup asset_lookup_by_str | search asset IN (' | append: steps.dedup_hosts.output.hosts | join: ',' | append: ') | eval category=mvjoin(category, \"; \")' | url_encode }}&exec_mode=oneshot&output_mode=json"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
+            on-status: [429, 502, 503, 504]
           continue: true
 
       - name: tag_each_asset_match

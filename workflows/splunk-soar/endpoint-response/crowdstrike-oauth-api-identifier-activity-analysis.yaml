@@ -4,10 +4,10 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "CrowdStrike — Identifier Activity Analysis"
 description: >
-  Takes a file hash or a domain and asks CrowdStrike which devices in
-  the environment have interacted with it. For each match the device
-  is enriched via the system-info endpoint, and a normalized
-  observable plus a brief summary record is produced.
+  Hunts a file hash or domain across the CrowdStrike fleet. Acquires an
+  OAuth2 bearer, queries /indicators/queries/devices/v1 for matching
+  device ids, then enriches each match via the devices entity endpoint
+  and produces a normalized observable plus summary record.
 enabled: true
 tags: ["splunk-soar", "endpoint-response", "crowdstrike", "hunt", "translated"]
 
@@ -26,9 +26,24 @@ inputs:
 
 consts:
   crowdstrike_base_url: "https://api.crowdstrike.com"
-  crowdstrike_bearer: "Bearer CHANGEME_FALCON_OAUTH_TOKEN"
+  crowdstrike_client_id: "CHANGEME_FALCON_CLIENT_ID"
+  crowdstrike_client_secret: "CHANGEME_FALCON_CLIENT_SECRET"
 
 steps:
+  - name: get_token
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/oauth2/token"
+      method: POST
+      headers:
+        Content-Type: "application/x-www-form-urlencoded"
+        Accept: "application/json"
+      body: "client_id={{ consts.crowdstrike_client_id }}&client_secret={{ consts.crowdstrike_client_secret }}"
+    on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
+
   - name: branch_file
     type: if
     condition: "{{ inputs.file | size }} > 0"
@@ -39,14 +54,14 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/indicators/queries/devices/v1"
           method: GET
           headers:
-            Authorization: "{{ consts.crowdstrike_bearer }}"
+            Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
           query:
             type: "sha256"
             value: "{{ inputs.file }}"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: any_file_hits
@@ -59,7 +74,7 @@ steps:
               url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices/v2"
               method: GET
               headers:
-                Authorization: "{{ consts.crowdstrike_bearer }}"
+                Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
               query:
                 ids: "${{ steps.hunt_file.output.resources }}"
             on-failure:
@@ -85,14 +100,14 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/indicators/queries/devices/v1"
           method: GET
           headers:
-            Authorization: "{{ consts.crowdstrike_bearer }}"
+            Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
           query:
             type: "domain"
             value: "{{ inputs.domain }}"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: any_domain_hits
@@ -105,7 +120,7 @@ steps:
               url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices/v2"
               method: GET
               headers:
-                Authorization: "{{ consts.crowdstrike_bearer }}"
+                Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
               query:
                 ids: "${{ steps.hunt_domain.output.resources }}"
             on-failure:

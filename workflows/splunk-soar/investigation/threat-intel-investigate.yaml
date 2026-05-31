@@ -4,11 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Threat Intel — Investigate Indicators"
 description: >
-  Parent orchestrator that finds and launches child workflows tagged
-  for indicator-type-specific threat intelligence enrichment, gathers
-  their notes back, asks the analyst to choose a follow-up tag for
-  each indicator (block / safe / nothing) plus optional free-form
-  tags, then writes those tags to the indicators.
+  Per-indicator threat-intel orchestrator. For each indicator
+  ({value, data_types}), dispatches every pre-selected child workflow
+  (or discovers tagged investigate+threat_intel workflows via the
+  Kibana API), captures the returned notes as case comments, then
+  applies analyst-supplied tags per indicator: "Tag to block",
+  "Tag as safe", or free-form. Inputs: indicators (required),
+  optional child_workflows ids, and per-indicator tagging_responses.
 enabled: true
 tags: ["splunk-soar", "investigation", "threat-intel", "orchestration", "translated"]
 
@@ -33,6 +35,10 @@ inputs:
     description: "Per-indicator analyst responses (one entry per indicator) with optional preset tag and freeform tag list."
 
 consts:
+  # Operator wiring: kibana_host is the deployment hosting the child
+  # threat-intel investigate workflows. Each value in `inputs.child_workflows`
+  # must be a workflow id discoverable via `GET /api/workflows` so the
+  # `/api/workflows/{id}/run` POSTs resolve.
   kibana_host: "CHANGEME-kibana"
   indicator_tag_block: "marked_for_block"
   indicator_tag_safe: "safe"
@@ -53,6 +59,9 @@ steps:
           query:
             tags: "investigate,threat_intel"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
   # Phantom: collect2 of "all_indicators". Already provided via `inputs.indicators`.
@@ -84,6 +93,9 @@ steps:
                 inputs:
                   indicators: ["{{ item.value }}"]
             on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
               continue: true
 
           - name: capture_child_note

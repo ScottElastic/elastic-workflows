@@ -4,11 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Wireless — Rogue Access Point Remediate"
 description: >
-  Periodically polls a Raspberry-Pi-class mobile WiFi sensor, parses the
-  iwlist scan output, drops any APs already on an ESSID allowlist, and
-  fuzzy-matches the remainder against a list of "evil twin" patterns.
-  Escalated APs are written as artifacts on the active Wireless case and
-  an operator is tasked to physically locate and disable them.
+  Scheduled (15m) rogue-AP detector for a mobile wireless sensor
+  (typically a Raspberry Pi reachable over SSH). Runs `iwlist wlan0
+  scanning`, parses the output via an AI step, drops APs whose ESSID
+  is in the operator-supplied allowlist (WPA2 only), fuzzy-matches the
+  rest against potential_rogue_essids, and writes a case comment for
+  each escalated AP plus a follow-up note asking an analyst to walk
+  the floor with the sensor.
 enabled: true
 tags: ["splunk-soar", "remediation", "wireless", "raspberry-pi", "translated"]
 
@@ -69,12 +71,22 @@ steps:
     connector-id: "CHANGEME-llm-connector"
     with:
       prompt: |
-        Parse the following iwlist output into a JSON array. Each item:
-        { mac_address, ESSID, radio_frequency, signal_strength, security_protocol }.
-        Use "plaintext" when no IEEE 802.11i appears for an AP.
-        Output JSON only.
+        You are an iwlist-output parser. Convert the raw scan below into
+        a JSON array. Each element must have EXACTLY these keys, all
+        strings:
+          - mac_address: e.g. "AA:BB:CC:DD:EE:FF"
+          - ESSID: the SSID as printed (unquoted)
+          - radio_frequency: e.g. "2.412 GHz"
+          - signal_strength: e.g. "-67 dBm"
+          - security_protocol: one of "WPA2", "WPA", "WEP", or
+            "plaintext" when no IEEE 802.11i / WPA stanza is present.
+
+        Skip cells you cannot fully parse.
+
         Raw output:
         {{ steps.scan_wifi.output.output | default: '' }}
+
+        Return ONLY the JSON array. No prose, no markdown fence.
 
   - name: parsed_access_points
     type: data.set
@@ -104,15 +116,28 @@ steps:
     connector-id: "CHANGEME-llm-connector"
     with:
       prompt: |
-        For each AP in the input list, decide whether its ESSID resembles
-        any of the suspect patterns within an edit distance <
-        {{ consts.edit_distance_threshold }} (ignore case, whitespace, and
-        the words wifi, wireless, network, official, corp, corporate).
-        Return JSON with each AP enriched with:
-        - is_escalated: bool
-        - matched_rule: string|null
+        You evaluate WiFi access points for evil-twin similarity.
+
+        For each AP in the APs input, compare its ESSID against every
+        string in Suspect patterns. Lowercase both sides, strip
+        whitespace, and ignore the noise words: wifi, wireless,
+        network, official, corp, corporate. Compute Levenshtein edit
+        distance on the cleaned strings.
+
+        Return a JSON array containing every input AP, augmented with
+        EXACTLY these added keys:
+          - is_escalated: boolean (true iff min edit distance across
+            patterns is strictly less than {{ consts.edit_distance_threshold }})
+          - matched_rule: the original (uncleaned) suspect pattern that
+            produced the minimum distance, or null if not escalated.
+
+        Preserve all other keys (mac_address, ESSID, radio_frequency,
+        signal_strength, security_protocol) verbatim.
+
         APs: {{ steps.filter_allowlist.output.filtered | json }}
         Suspect patterns: {{ inputs.potential_rogue_essids | default: [] | json }}
+
+        Output: a single JSON array. No prose, no markdown fence.
 
   - name: enriched_aps
     type: data.set

@@ -4,12 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Workbook — Start Investigation"
 description: >
-  Lightweight bootstrapper meant to be recommended from a workbook task.
-  Captures the user that launched the workflow, assigns them as case
-  owner, transitions the case status from "new" to "open", marks the
-  current workbook task complete, and bumps the next task into
-  "In Progress". When invoked by automation (rather than a real user)
-  the workflow short-circuits.
+  Bootstraps a Risk Investigation workbook on a Kibana case. Assigns
+  the launching analyst as case owner, promotes the case from "new" to
+  "open", and records workbook task transitions (current task ->
+  complete, next task -> in progress) as case comments since Kibana
+  Cases has no first-class task API. Short-circuits when invoked by
+  an automation account so scheduled retrigger doesn't reassign cases.
 enabled: true
 tags: ["splunk-soar", "investigation", "workbook", "case-management", "translated"]
 

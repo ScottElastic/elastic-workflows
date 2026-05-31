@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "CrowdStrike — Host Quarantine"
 description: >
-  Minimal CrowdStrike Falcon endpoint quarantine workflow. Calls the
-  host-actions containment endpoint with action_name=contain for the
-  supplied device id and, on success, tags the indicator with
-  "contained" so that downstream automation can recognize hosts
-  already in network isolation.
+  Minimal CrowdStrike Falcon endpoint quarantine workflow. Exchanges
+  Falcon API credentials for an OAuth2 bearer, calls devices-actions
+  with action_name=contain for the supplied device_id, and, on success,
+  emits a 'contained' tag observable so downstream automation can
+  recognize hosts already in network isolation. Destructive: the host
+  loses network connectivity outside the sensor channel.
 enabled: true
 tags: ["splunk-soar", "endpoint-response", "crowdstrike", "quarantine", "translated"]
 
@@ -27,7 +28,8 @@ inputs:
 
 consts:
   crowdstrike_base_url: "https://api.crowdstrike.com"
-  crowdstrike_bearer: "Bearer CHANGEME_FALCON_OAUTH_TOKEN"
+  crowdstrike_client_id: "CHANGEME_FALCON_CLIENT_ID"
+  crowdstrike_client_secret: "CHANGEME_FALCON_CLIENT_SECRET"
 
 steps:
   - name: validate_input
@@ -39,13 +41,27 @@ steps:
         with:
           message: "device_id is required."
 
+  - name: get_token
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/oauth2/token"
+      method: POST
+      headers:
+        Content-Type: "application/x-www-form-urlencoded"
+        Accept: "application/json"
+      body: "client_id={{ consts.crowdstrike_client_id }}&client_secret={{ consts.crowdstrike_client_secret }}"
+    on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
+
   - name: quarantine_device
     type: http
     with:
       url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices-actions/v2"
       method: POST
       headers:
-        Authorization: "{{ consts.crowdstrike_bearer }}"
+        Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
         Content-Type: "application/json"
       query:
         action_name: "contain"
@@ -54,7 +70,7 @@ steps:
           - "{{ inputs.device_id }}"
     on-failure:
       retry:
-        max-attempts: 2
+        max-attempts: 3
         delay: "5s"
 
   - name: check_success

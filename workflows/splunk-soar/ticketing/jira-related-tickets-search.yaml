@@ -4,10 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Jira — Related Tickets Search"
 description: >
-  Takes one or more search terms (typically a user or host) and looks for
-  Jira issues created within the last 30 days that mention them. For each
-  matching ticket the workflow builds a normalized observable record and
-  emits a compact summary that downstream playbooks or analysts can use.
+  Searches Jira Cloud for issues created within a lookback window that mention
+  any of the supplied indicators (usernames, hostnames, IPs). Calls the Jira
+  Cloud REST v3 `/rest/api/3/search/jql` endpoint with a JQL OR clause over
+  `text ~`, then emits a normalized observable record per match for downstream
+  triage. Inputs: `search_terms` (required array), `lookback_days` (default 30).
 enabled: true
 tags: ["splunk-soar", "ticketing", "jira", "related-tickets", "translated"]
 
@@ -26,8 +27,8 @@ inputs:
     description: "How many days back to look. Default 30."
 
 consts:
-  # Wire to your Jira connector once available. The community playbook used the
-  # SOAR `jira` asset; in Elastic, point this at a Jira connector or the REST API.
+  # The Kibana Jira connector does not expose a JQL search subAction, so we hit
+  # the Jira Cloud REST API directly. Auth header is base64(email:api_token).
   jira_connector_id: "CHANGEME-jira-connector"
   jira_base_url: "https://CHANGEME.atlassian.net"
   jira_auth_header: "Basic CHANGEME_BASE64_EMAIL_TOKEN"
@@ -53,12 +54,12 @@ steps:
       jql: >-
         text ~ "{{ inputs.search_terms | join: '" OR text ~ "' }}" AND created > -{{ inputs.lookback_days | default: 30 }}d
 
-  # TODO: replace this http stub once a first-class Jira workflow connector
-  # is wired up. Original SOAR action: "list tickets" against the jira asset.
+  # Jira Cloud REST v3 `/search/jql` (POST). The v2 `/search` endpoint is
+  # deprecated; v3 returns `issues` plus a `nextPageToken` for pagination.
   - name: run_ticket_query
     type: http
     with:
-      url: "{{ consts.jira_base_url }}/rest/api/2/search"
+      url: "{{ consts.jira_base_url }}/rest/api/3/search/jql"
       method: POST
       headers:
         Authorization: "{{ consts.jira_auth_header }}"
@@ -66,11 +67,21 @@ steps:
         Accept: "application/json"
       body:
         jql: "{{ steps.build_jql.output.jql }}"
-        maxResults: 1000
-        startAt: 0
+        maxResults: 100
+        fields:
+          - "summary"
+          - "description"
+          - "status"
+          - "created"
+          - "updated"
+          - "assignee"
+          - "reporter"
+          - "issuetype"
+          - "priority"
+          - "resolution"
     on-failure:
       retry:
-        max-attempts: 2
+        max-attempts: 3
         delay: "5s"
       continue: true
 

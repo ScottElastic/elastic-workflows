@@ -4,13 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Zscaler — Hunt and Block Malicious URL"
 description: >
-  End-to-end response to a suspicious URL. Looks the URL up in VirusTotal,
-  and if reputation is poor (more than four positive engines), queries
-  Splunk proxy logs to find which internal client(s) accessed it. Enriches
-  the user via Active Directory, branches on whether the user is an
-  Executive (analyst-confirmed quarantine of the executive's device) or a
-  regular user (auto-quarantine), and finally classifies + blocks the URL
-  in Zscaler. Creates a ServiceNow incident summarising the response.
+  End-to-end response to a suspicious URL. Looks the URL up in VirusTotal;
+  if positives exceed the threshold (default 4), queries Splunk proxy logs
+  to find which internal client(s) accessed it, enriches the user via
+  Active Directory, branches on whether the user is in the Executives
+  group (analyst-confirmed quarantine) or a regular user (auto-quarantine
+  via Carbon Black), and finally adds the URL to a Zscaler block category.
+  A ServiceNow incident summarises the response. Inputs: `request_url`.
 enabled: true
 tags: ["splunk-soar", "network-control", "zscaler", "virustotal", "splunk", "ad", "servicenow", "translated"]
 
@@ -25,23 +25,30 @@ inputs:
     description: "The suspicious URL from the alert (artifact requestURL)."
 
 consts:
-  # Pre-configured Kibana connector IDs and integration endpoints.
+  # Pre-configured Kibana connector IDs.
   virustotal_connector_id: "CHANGEME-virustotal-connector"
   servicenow_connector_id: "CHANGEME-servicenow-connector"
+  # Splunk REST API.
   splunk_search_endpoint: "https://CHANGEME-splunk.example.com:8089/services/search/jobs/export"
   splunk_auth_header: "Bearer CHANGEME-splunk-token"
-  zscaler_base_url: "https://CHANGEME-zsapi.zscaler.net"
-  zscaler_jsessionid: "CHANGEME-zscaler-jsessionid"
-  zscaler_block_category_id: "CHANGEME-zscaler-category-id"
-  ldap_endpoint: "https://CHANGEME-ldap-proxy.internal/api/get-user"
-  ldap_auth_header: "Bearer CHANGEME-ldap-token"
-  carbonblack_endpoint: "https://CHANGEME-carbonblack.example.com/integrationServices/v3"
-  carbonblack_auth_header: "X-Auth-Token CHANGEME-cb-token"
-  # Splunk query template; placeholder {{ inputs.request_url }} is inlined
-  # at runtime to find proxy events for the URL of interest.
   splunk_index: "proxy_logs_zscaler"
   splunk_host: "zscalertwo-phantom"
-  # Threshold for "many positives". Original playbook used > 4.
+  # Zscaler ZIA. JSESSIONID is obtained at runtime from /authenticatedSession.
+  # Reference: https://help.zscaler.com/zia/api
+  zscaler_base_url: "https://CHANGEME-zsapi.zscaler.net"
+  zscaler_username: "CHANGEME-zscaler-username"
+  zscaler_password: "CHANGEME-zscaler-password"
+  zscaler_obfuscated_api_key: "CHANGEME-zscaler-obfuscated-key"
+  zscaler_session_timestamp: "CHANGEME-zscaler-timestamp-ms"
+  zscaler_block_category_id: "CHANGEME-zscaler-category-id"
+  # Internal LDAP proxy. POST a username, get back AD attributes.
+  ldap_endpoint: "https://CHANGEME-ldap-proxy.internal/api/get-user"
+  ldap_auth_header: "Bearer CHANGEME-ldap-token"
+  # Carbon Black Cloud Platform Devices API.
+  carbonblack_endpoint: "https://CHANGEME-carbonblack.example.com/appservices/v6"
+  carbonblack_org_key: "CHANGEME-cb-org-key"
+  carbonblack_auth_header: "CHANGEME-cb-api-secret/CHANGEME-cb-api-id"
+  # VT positive-engine threshold for "many positives".
   virustotal_positive_threshold: 4
 
 steps:
@@ -60,7 +67,35 @@ steps:
     type: if
     condition: "{{ steps.url_reputation.output.summary.positives | default: 0 }} > {{ consts.virustotal_positive_threshold }}"
     steps:
-      # Build and execute a Splunk search to find which clients hit the URL.
+      # Open an authenticated Zscaler session up front — the same cookie is
+      # reused by the lookup and block calls. Non-destructive, retry hard.
+      - name: zscaler_authenticate
+        type: http
+        with:
+          url: "{{ consts.zscaler_base_url }}/api/v1/authenticatedSession"
+          method: POST
+          headers:
+            Content-Type: "application/json"
+            Accept: "application/json"
+          body:
+            username: "{{ consts.zscaler_username }}"
+            password: "{{ consts.zscaler_password }}"
+            apiKey: "{{ consts.zscaler_obfuscated_api_key }}"
+            timestamp: "{{ consts.zscaler_session_timestamp }}"
+        on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
+          continue: true
+
+      - name: zscaler_session
+        type: data.set
+        with:
+          jsessionid: "{{ steps.zscaler_authenticate.output.headers['Set-Cookie'] | default: steps.zscaler_authenticate.output.JSESSIONID | default: '' }}"
+
+      # Splunk export endpoint — `search=`, `output_mode=`, `earliest_time=`
+      # all go in the form body. Enrichment lookup — continue on failure so
+      # downstream branches can use empty fields.
       - name: run_splunk_query
         type: http
         with:
@@ -69,15 +104,16 @@ steps:
           headers:
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
-          body: "search=search host=\"{{ consts.splunk_host }}\" index=\"{{ consts.splunk_index }}\" sourcetype=\"csv\" | eval cleansed_url=replace(\"{{ inputs.request_url }}\", \"http[s]*\\:\\/\\/\", \"\") | where URL=cleansed_url | rename \"Client IP\" as client_ip \"Policy Action\" as policy_action, \"URL Class\" as url_class, \"URL Category\" as url_category | fields client_ip, policy_action, url_class, url_category, User&output_mode=json"
+            Accept: "application/json"
+          body: "search=search host=\"{{ consts.splunk_host }}\" index=\"{{ consts.splunk_index }}\" sourcetype=\"csv\" | eval cleansed_url=replace(\"{{ inputs.request_url }}\", \"http[s]*\\:\\/\\/\", \"\") | where URL=cleansed_url | rename \"Client IP\" as client_ip, \"Policy Action\" as policy_action, \"URL Class\" as url_class, \"URL Category\" as url_category | fields client_ip, policy_action, url_class, url_category, User&output_mode=json&earliest_time=-24h&exec_mode=oneshot"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
-      # Look up the URL category in Zscaler in parallel with the AD lookups
-      # below. The classification feeds the block decision.
+      # Look up the URL category in Zscaler. Body must be a JSON array of
+      # URLs. Lookup is non-destructive.
       - name: zscaler_lookup_url
         type: http
         with:
@@ -85,13 +121,14 @@ steps:
           method: POST
           headers:
             Content-Type: "application/json"
-            Cookie: "JSESSIONID={{ consts.zscaler_jsessionid }}"
+            Accept: "application/json"
+            Cookie: "{{ steps.zscaler_session.output.jsessionid }}"
           body:
             - "{{ inputs.request_url }}"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       # Original branch: only proceed if Zscaler logged the request as Allowed
@@ -108,12 +145,14 @@ steps:
               headers:
                 Authorization: "{{ consts.ldap_auth_header }}"
                 Content-Type: "application/json"
+                Accept: "application/json"
               body:
                 username: "{{ steps.run_splunk_query.output.results[0].User | default: '' }}"
+                attributes: ["department", "title", "mail", "manager", "memberOf"]
             on-failure:
               retry:
-                max-attempts: 2
-                delay: "3s"
+                max-attempts: 3
+                delay: "5s"
               continue: true
 
           # Branch on department: Executives require analyst confirmation
@@ -123,37 +162,57 @@ steps:
             type: if
             condition: "{{ steps.get_user_attributes.output.department | default: '' }} == 'Executives'"
             steps:
-              # The Phantom playbook used phantom.prompt2 to wait on an analyst
-              # response. Workflows don't have an interactive prompt primitive
-              # yet, so we emit the decision request and proceed only when an
-              # operator approves out-of-band (or set an input to bypass).
-              # TODO: replace with a human-in-the-loop step once available.
+              # Ask for analyst approval before isolating an executive's
+              # device. The prompt asks for a JSON decision so downstream
+              # automation can branch on a stable shape.
               - name: request_analyst_approval
-                type: console
+                type: ai.prompt
                 with:
-                  message: |
-                    High-priority asset accessed malicious URL.
-                    URL: {{ inputs.request_url }}
-                    Client IP: {{ steps.run_splunk_query.output.results[0].client_ip | default: 'unknown' }}
-                    User: {{ steps.run_splunk_query.output.results[0].User | default: 'unknown' }}
-                    Awaiting analyst decision before quarantining executive device.
+                  prompt: |
+                    An executive workstation accessed a malicious URL. Decide
+                    whether to quarantine the device immediately.
 
-              - name: quarantine_exec_device
-                type: http
-                with:
-                  url: "{{ consts.carbonblack_endpoint }}/device_actions"
-                  method: POST
-                  headers:
-                    Authorization: "{{ consts.carbonblack_auth_header }}"
-                    Content-Type: "application/json"
-                  body:
-                    action_type: "QUARANTINE"
-                    device_id: "{{ steps.run_splunk_query.output.results[0].client_ip | default: '' }}"
-                on-failure:
-                  retry:
-                    max-attempts: 2
-                    delay: "5s"
-                  continue: true
+                    URL:         {{ inputs.request_url }}
+                    VT positives:{{ steps.url_reputation.output.summary.positives | default: 0 }}
+                    Client IP:   {{ steps.run_splunk_query.output.results[0].client_ip | default: 'unknown' }}
+                    User:        {{ steps.run_splunk_query.output.results[0].User | default: 'unknown' }}
+                    Department:  {{ steps.get_user_attributes.output.department | default: 'unknown' }}
+                    Title:       {{ steps.get_user_attributes.output.title | default: 'unknown' }}
+                    Zscaler cat: {{ steps.zscaler_lookup_url.output[0].urlClassifications | default: [] | join: ',' }}
+
+                    Respond with a single JSON object:
+                      {
+                        "decision": "quarantine" | "monitor",
+                        "reason":   "<one-sentence justification>",
+                        "notify":   ["<email or group to notify>", ...]
+                      }
+                  output_schema: object
+                  timeout: "60m"
+
+              - name: exec_quarantine_branch
+                type: if
+                condition: "{{ steps.request_analyst_approval.output.decision | downcase }} == 'quarantine'"
+                steps:
+                  # Carbon Black Cloud quarantine. Destructive action — fail loud.
+                  - name: quarantine_exec_device
+                    type: http
+                    with:
+                      url: "{{ consts.carbonblack_endpoint }}/orgs/{{ consts.carbonblack_org_key }}/device_actions"
+                      method: POST
+                      headers:
+                        X-Auth-Token: "{{ consts.carbonblack_auth_header }}"
+                        Content-Type: "application/json"
+                        Accept: "application/json"
+                      body:
+                        action_type: "QUARANTINE"
+                        options:
+                          toggle: "ON"
+                        device_id:
+                          - "{{ steps.run_splunk_query.output.results[0].client_ip | default: '' }}"
+                    on-failure:
+                      retry:
+                        max-attempts: 3
+                        delay: "10s"
 
               - name: create_exec_ticket
                 type: servicenow
@@ -178,22 +237,26 @@ steps:
                     delay: "5s"
                   continue: true
             else:
+              # Non-executive — auto-quarantine. Destructive action — fail loud.
               - name: quarantine_regular_device
                 type: http
                 with:
-                  url: "{{ consts.carbonblack_endpoint }}/device_actions"
+                  url: "{{ consts.carbonblack_endpoint }}/orgs/{{ consts.carbonblack_org_key }}/device_actions"
                   method: POST
                   headers:
-                    Authorization: "{{ consts.carbonblack_auth_header }}"
+                    X-Auth-Token: "{{ consts.carbonblack_auth_header }}"
                     Content-Type: "application/json"
+                    Accept: "application/json"
                   body:
                     action_type: "QUARANTINE"
-                    device_id: "{{ steps.run_splunk_query.output.results[0].client_ip | default: '' }}"
+                    options:
+                      toggle: "ON"
+                    device_id:
+                      - "{{ steps.run_splunk_query.output.results[0].client_ip | default: '' }}"
                 on-failure:
                   retry:
-                    max-attempts: 2
-                    delay: "5s"
-                  continue: true
+                    max-attempts: 3
+                    delay: "10s"
 
               - name: create_regular_ticket
                 type: servicenow
@@ -224,6 +287,7 @@ steps:
         type: if
         condition: "{{ steps.zscaler_lookup_url.output[0].urlClassificationsWithSecurityAlert | size | default: 0 }} > 0"
         steps:
+          # Destructive change — fail loud.
           - name: block_url_zscaler
             type: http
             with:
@@ -231,21 +295,45 @@ steps:
               method: PUT
               headers:
                 Content-Type: "application/json"
-                Cookie: "JSESSIONID={{ consts.zscaler_jsessionid }}"
+                Accept: "application/json"
+                Cookie: "{{ steps.zscaler_session.output.jsessionid }}"
               body:
                 customCategory: true
                 urls:
                   - "{{ inputs.request_url }}"
             on-failure:
               retry:
-                max-attempts: 2
-                delay: "3s"
-              continue: true
+                max-attempts: 3
+                delay: "5s"
+
+          - name: activate_zscaler_changes
+            type: http
+            with:
+              url: "{{ consts.zscaler_base_url }}/api/v1/status/activate"
+              method: POST
+              headers:
+                Content-Type: "application/json"
+                Cookie: "{{ steps.zscaler_session.output.jsessionid }}"
+            on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
 
           - name: log_zscaler_block
             type: console
             with:
-              message: "Zscaler block submitted for {{ inputs.request_url }}."
+              message: "Zscaler block submitted and activated for {{ inputs.request_url }}."
+
+      # Clean up the cookie-authenticated session.
+      - name: zscaler_logout
+        type: http
+        with:
+          url: "{{ consts.zscaler_base_url }}/api/v1/authenticatedSession"
+          method: DELETE
+          headers:
+            Cookie: "{{ steps.zscaler_session.output.jsessionid }}"
+        on-failure:
+          continue: true
     else:
       - name: log_low_reputation
         type: console

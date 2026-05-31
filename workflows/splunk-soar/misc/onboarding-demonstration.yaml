@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Onboarding Demonstration — Enrichment and Severity"
 description: >
-  A sample enrichment workflow used to demonstrate Phantom out of the box.
-  Looks up IP geolocation, WHOIS, reverse DNS, and DNS resolution for
-  destination IP/domain, plus PhishTank URL reputation. When a URL is
-  flagged as a verified phishing entry, raises case severity. Acts as a
-  template you can extend with additional enrichment or response actions.
+  Sample enrichment workflow used to walk new users through the
+  basics. Optionally looks up MaxMind geolocation, RDAP WHOIS, and
+  reverse/forward DNS over Google Public DNS for an IP and domain,
+  plus a PhishTank lookup for a URL. If PhishTank returns a verified
+  phishing entry, raises the linked Kibana case to severity=high.
+  Treat as a template — extend with additional enrichment as needed.
 enabled: true
 tags: ["splunk-soar", "misc", "enrichment", "onboarding", "phishtank", "translated"]
 
@@ -105,7 +106,8 @@ steps:
     type: if
     condition: "{{ inputs.request_url | size }} > 0"
     steps:
-      # TODO: replace with a native PhishTank connector when one is available.
+      # PhishTank has no first-party Elastic connector — POST is
+      # form-encoded with app_key per their docs.
       - name: phishtank_lookup
         type: http
         with:
@@ -113,11 +115,12 @@ steps:
           method: POST
           headers:
             Content-Type: "application/x-www-form-urlencoded"
-          body: "url={{ inputs.request_url }}&format=json&app_key={{ consts.phishtank_app_key }}"
+            User-Agent: "phishtank/elastic-workflows"
+          body: "url={{ inputs.request_url | url_encode }}&format=json&app_key={{ consts.phishtank_app_key }}"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: react_to_phishtank

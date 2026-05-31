@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "ServiceNow — Create Ticket With Indicator Summary"
 description: >
-  Builds a ServiceNow incident from inbound alert context. The description
-  includes a short header that links back to the source event and a compact
-  summary of the indicators captured on it (value, tags, source artifact ID).
-  Filters on indicator include/exclude lists for both type and tag so callers
-  can shape what gets surfaced in the ticket.
+  Builds a ServiceNow incident from inbound alert context, embedding a compact
+  summary of attached indicators (value, type, tags, artifact id) in the
+  description. Caller-supplied include/exclude lists for indicator types and
+  tags shape which indicators are surfaced. Uses the native servicenow
+  connector (`pushToService`) so the connector's stored credentials handle
+  auth against `/api/now/table/incident`.
 enabled: true
 tags: ["splunk-soar", "misc", "ticketing", "servicenow", "indicators", "translated"]
 
@@ -110,7 +111,7 @@ steps:
           impact: "2"
     on-failure:
       retry:
-        max-attempts: 2
+        max-attempts: 3
         delay: "5s"
 
   - name: log_ticket_id

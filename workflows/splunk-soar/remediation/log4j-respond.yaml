@@ -4,11 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Log4j — Respond (Dispatch)"
 description: >
-  Coordinates response to suspected Log4Shell (CVE-2021-44228) exposure.
-  Loads a list of {host, os_family, file_path} entries (sourced upstream
-  from the Log4j investigate workflow or a curated list), then splits them
-  by operating system family and dispatches to the SSH or WinRM responder
-  workflow accordingly.
+  Log4Shell (CVE-2021-44228) response router. Partitions an input array
+  of {host, os_family, file_path} entries by os_family — unix hosts go
+  to the SSH responder workflow, windows hosts to the WinRM responder
+  — and invokes each via the Kibana workflows API. The responders
+  perform the actual destructive remediation. ssh_responder_workflow_id
+  and winrm_responder_workflow_id must be wired by the operator to the
+  workflow ids of the sibling responder definitions.
 enabled: true
 tags: ["splunk-soar", "remediation", "log4j", "cve-2021-44228", "translated"]
 
@@ -35,8 +37,10 @@ inputs:
     description: "Workflow id of the WinRM responder (this directory's sibling)."
 
 consts:
-  # The original Phantom playbook invoked child playbooks directly.
-  # Elastic Workflows can call out via Kibana's workflow-run API.
+  # Operator wiring: ssh_responder_workflow_id and winrm_responder_workflow_id
+  # defaults match the file names under remediation/. After importing those
+  # workflows into Kibana, replace the default strings with the assigned
+  # workflow uuids (or keep the slugs if your deployment resolves names).
   workflow_run_endpoint: "/api/workflows/{id}/run"
 
 steps:
@@ -74,7 +78,9 @@ steps:
               ip_or_hostname: '${{ steps.build_unix_targets.output.unix_entries | map: "host" }}'
               filepath: '${{ steps.build_unix_targets.output.unix_entries | map: "file_path" }}'
         on-failure:
-          continue: true
+          retry:
+            max-attempts: 3
+            delay: "5s"
 
   - name: dispatch_windows
     type: if
@@ -90,7 +96,9 @@ steps:
               ip_or_hostname: '${{ steps.build_windows_targets.output.windows_entries | map: "host" }}'
               filepath: '${{ steps.build_windows_targets.output.windows_entries | map: "file_path" }}'
         on-failure:
-          continue: true
+          retry:
+            max-attempts: 3
+            delay: "5s"
 
   - name: summary
     type: console

@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Risk Notable — Analyst Indicator Review"
 description: >
-  Pulls indicators tagged "suspicious" or "malicious" (and not already
-  marked safe or queued for block) from the case, presents them to the
-  analyst for triage, and applies the chosen tag to each indicator.
-  Choices map to "marked_for_block" or "safe" tags; "Do Nothing" leaves
-  the indicator untouched.
+  Per-indicator triage. Walks inputs.indicators in lock-step with the
+  parallel inputs.responses array ("Block" / "Tag as Safe" / "Do
+  Nothing") and applies the chosen tag — "marked_for_block" or "safe"
+  — via the SOAR indicator-tag REST proxy. Caller is responsible for
+  filtering down to the suspicious/malicious indicators that have not
+  already been tagged blocked, safe, or marked_for_block.
 enabled: true
 tags: ["splunk-soar", "threat-intel", "risk-notable", "review", "translated"]
 
@@ -81,6 +82,9 @@ steps:
                 tag: "marked_for_block"
                 overwrite: true
             on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
               continue: true
 
           - name: log_block

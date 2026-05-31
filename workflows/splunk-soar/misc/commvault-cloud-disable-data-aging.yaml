@@ -4,10 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Commvault Cloud — Disable Data Aging"
 description: >
-  Pauses Commvault Cloud data aging for a specified client so backup data
-  remains available for clean recovery. On a successful API response, adds
-  a confirmation comment on the linked case and closes it; on failure,
-  records a comment explaining the issue without changing case state.
+  Pauses Commvault Cloud data aging on a specific client so existing backup
+  copies cannot be pruned during an active incident. On API success, writes
+  a confirmation comment to the linked Kibana case and closes it; on
+  failure, writes a failure comment and leaves the case open. Destructive in
+  the sense that it changes Commvault retention policy — fail loudly.
 enabled: true
 tags: ["splunk-soar", "misc", "commvault", "backup", "data-aging", "translated"]
 
@@ -25,28 +26,32 @@ inputs:
     description: "Optional Kibana case to update with the outcome."
 
 consts:
-  # Wire to your Commvault Cloud REST endpoint and an authenticated session
-  # token. The Phantom asset originally hid these behind the connector.
+  # Commvault REST API base — typical path is /commandcenter/api or
+  # /webconsole/api depending on appliance topology. Auth uses an Authtoken
+  # obtained from POST /Login (returns `token`); pass via Authtoken header.
+  # See https://documentation.commvault.com/v11/expert/rest_api.html.
+  # TODO: confirm the exact disable-data-aging operation against your
+  # Commvault version — the action below targets the legacy SOAR pattern.
   commvault_endpoint: "https://CHANGEME-commvault.example.com/commandcenter/api"
-  commvault_auth_header: "Bearer CHANGEME_TOKEN"
+  commvault_auth_header: "QSDK CHANGEME_TOKEN"
 
 steps:
-  # TODO: replace with a native Commvault Cloud connector when available.
+  # Destructive — disabling data aging changes retention. Fail loudly.
   - name: disable_data_aging
     type: http
     with:
       url: "{{ consts.commvault_endpoint }}/Client/DataAging/Disable"
       method: POST
       headers:
-        Authorization: "{{ consts.commvault_auth_header }}"
+        Authtoken: "{{ consts.commvault_auth_header }}"
+        Accept: "application/json"
         Content-Type: "application/json"
       body:
         clientName: "{{ inputs.client_name }}"
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
-      continue: true
+        max-attempts: 3
+        delay: "5s"
 
   - name: branch_on_outcome
     type: if

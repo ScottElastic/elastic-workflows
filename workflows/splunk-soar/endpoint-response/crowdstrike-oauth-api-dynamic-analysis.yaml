@@ -4,11 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "CrowdStrike — Dynamic Analysis (URL / File Detonation)"
 description: >
-  Submits a URL or a file (vault id) to the CrowdStrike Falcon Sandbox
-  for detonation, polls for results, and produces a normalized OCSF
-  reputation observable (score / score_id / categories / confidence)
-  for each input. Mirrors the Phantom dynamic-analysis playbook that
-  picks a sandbox environment based on file type.
+  Submits a URL or a file (by SHA256) to CrowdStrike Falcon Sandbox for
+  detonation. Acquires an OAuth2 bearer, POSTs to falconx submissions,
+  and produces a normalized OCSF reputation observable (score / score_id
+  / categories / confidence) for each input. File submissions assume an
+  out-of-band upload has already populated the sandbox by hash.
 enabled: true
 tags: ["splunk-soar", "endpoint-response", "crowdstrike", "sandbox", "reputation", "translated"]
 
@@ -27,7 +27,8 @@ inputs:
 
 consts:
   crowdstrike_base_url: "https://api.crowdstrike.com"
-  crowdstrike_bearer: "Bearer CHANGEME_FALCON_OAUTH_TOKEN"
+  crowdstrike_client_id: "CHANGEME_FALCON_CLIENT_ID"
+  crowdstrike_client_secret: "CHANGEME_FALCON_CLIENT_SECRET"
   default_url_environment: "Windows 7, 64-bit"
   # OCSF reputation score reference: https://schema.ocsf.io/objects/reputation
   score_table:
@@ -44,6 +45,20 @@ consts:
     "10": "Malicious"
 
 steps:
+  - name: get_token
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/oauth2/token"
+      method: POST
+      headers:
+        Content-Type: "application/x-www-form-urlencoded"
+        Accept: "application/json"
+      body: "client_id={{ consts.crowdstrike_client_id }}&client_secret={{ consts.crowdstrike_client_secret }}"
+    on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
+
   - name: branch_url_detonation
     type: if
     condition: "{{ inputs.url | size }} > 0"
@@ -55,7 +70,7 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/falconx/entities/submissions/v1"
           method: POST
           headers:
-            Authorization: "{{ consts.crowdstrike_bearer }}"
+            Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
             Content-Type: "application/json"
           body:
             sandbox:
@@ -63,7 +78,7 @@ steps:
                 environment_id: "{{ consts.default_url_environment }}"
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "5s"
           continue: true
 
@@ -105,7 +120,7 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/falconx/entities/submissions/v1"
           method: POST
           headers:
-            Authorization: "{{ consts.crowdstrike_bearer }}"
+            Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
             Content-Type: "application/json"
           body:
             sandbox:
@@ -114,7 +129,7 @@ steps:
                 is_confidential: true
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "5s"
           continue: true
 

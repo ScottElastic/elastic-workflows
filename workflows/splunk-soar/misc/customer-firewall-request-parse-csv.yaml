@@ -4,12 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Customer Firewall Request — Parse CSV"
 description: >
-  Reads a CSV of firewall change requests, validates that each row carries
-  an `action` field (block_ip / unblock_ip) together with at least one of
-  `sourceAddress` or `destinationAddress`, then emits structured request
-  records tagged "customer_request". A companion workflow consumes those
-  records and applies the appropriate block or unblock action on the
-  firewall. Skips rows that fail validation.
+  Parses a customer-supplied CSV of firewall change requests (either
+  fetched from csv_url or passed inline) into structured records with
+  fields {label, action, sourceAddress, destinationAddress, severity}.
+  Rows missing an action (block_ip/unblock_ip) or both address fields
+  are dropped. When invoke_handler_workflow_id is provided, the parsed
+  records are forwarded to the customer-firewall-request-handle-artifact
+  sibling workflow for execution.
 enabled: true
 tags: ["splunk-soar", "misc", "firewall", "csv", "translated"]
 
@@ -72,18 +73,26 @@ steps:
     type: ai.prompt
     with:
       prompt: |
-        Parse the following CSV into a JSON array of objects. Use the header
-        row to determine field names. Drop any row that doesn't have all of:
-        an "action" field equal to "block_ip" or "unblock_ip", AND either a
-        non-empty "sourceAddress" or a non-empty "destinationAddress".
-        For each surviving row, return an object with keys:
-        label="customer_request", action, sourceAddress, destinationAddress,
-        severity="high".
+        You are a strict CSV-to-JSON converter for firewall change
+        requests.
+
+        Treat the first row of the input as the header. For every
+        subsequent row, emit an object with EXACTLY these keys:
+          - label: always the literal string "customer_request"
+          - action: one of "block_ip" or "unblock_ip"
+          - sourceAddress: string, may be empty
+          - destinationAddress: string, may be empty
+          - severity: always the literal string "high"
+
+        Drop any row where action is not one of the two allowed values,
+        OR where BOTH sourceAddress and destinationAddress are empty
+        after trimming whitespace.
 
         CSV input:
         {{ steps.load_csv.output.raw_csv }}
 
-        Return ONLY a JSON array — no commentary, no markdown fence.
+        Output: a single JSON array of those objects and nothing else.
+        Do not include explanations, prose, or markdown fences.
 
   - name: capture_artifacts
     type: data.set

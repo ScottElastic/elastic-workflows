@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Dispatcher — Route Indicators to Input Workflows"
 description: >
-  Inspects an incoming case/alert for indicator types and dispatches matching
-  child workflows that accept those indicators. The original SOAR playbook
-  used a community indicator-collect helper plus a playbook discovery API to
-  route data; here we lay out the same logic with placeholders for a Kibana
-  workflow-registry call and downstream workflow invocations.
+  Generic dispatcher: discovers candidate input workflows from the Kibana
+  workflow registry by tag, fetches the case's indicators, and launches
+  each candidate with those indicators as inputs. Requires at least one
+  `playbook_tag` and the `case_id`. The `community` repo is explicitly
+  rejected. Aggregation of child outputs is left to the caller via the
+  workflow execution API.
 enabled: true
 tags: ["splunk-soar", "investigation", "dispatcher", "routing", "translated"]
 
@@ -42,6 +43,10 @@ inputs:
     description: "Source case/alert whose indicators we are routing."
 
 consts:
+  # NOTE for operator: point workflow_registry_endpoint at your Kibana
+  # host's /api/workflows path. The child launches below append
+  # /{id}/execute, so each candidate workflow must already be deployed
+  # and addressable by id in this Kibana instance.
   workflow_registry_endpoint: "https://CHANGEME-kibana/api/workflows"
   workflow_registry_auth: "ApiKey CHANGEME"
 
@@ -78,7 +83,12 @@ steps:
       query:
         tags: "{{ inputs.playbook_tags | join: ',' }}"
         type: "input"
+    # Registry lookup — retry briefly then continue with empty list so
+    # downstream handles the "no candidates" case gracefully.
     on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
       continue: true
 
   - name: discovered_any_workflows
@@ -95,7 +105,11 @@ steps:
           headers:
             Authorization: "{{ consts.workflow_registry_auth }}"
             kbn-xsrf: "true"
+        # Read-only — retry then continue with empty indicator list.
         on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
           continue: true
 
       - name: build_dispatch_plan
@@ -131,7 +145,13 @@ steps:
                 Content-Type: "application/json"
               body:
                 inputs: ${{ steps.collect_indicators.output.indicators }}
+            # Dispatch is best-effort — continue so one bad child workflow
+            # doesn't prevent the rest from running. Each child handles its
+            # own destructive guardrails internally.
             on-failure:
+              retry:
+                max-attempts: 2
+                delay: "5s"
               continue: true
 
           - name: log_launch

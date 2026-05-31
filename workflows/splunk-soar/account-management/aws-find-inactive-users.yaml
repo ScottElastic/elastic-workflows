@@ -4,10 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "AWS IAM — Find Inactive Users"
 description: >
-  Discovers AWS IAM users whose passwords have not been used for the
-  configured idle window (90 days by default). Pulls each candidate's
-  group and policy details, records them as observables, and hands the
-  list off to the AWS bulk-disable workflow for further triage.
+  Daily sweep that flags AWS IAM users with stale passwords. Configurable
+  via `idle_days` (default 90). Pulls full user detail for each candidate,
+  records them as observable documents in an Elasticsearch index, and
+  hands the username list to the bulk-disable workflow with `approve:false`
+  so a human can review before any account is actually disabled.
 enabled: true
 tags: ["splunk-soar", "identity", "hygiene", "aws", "iam", "translated"]
 
@@ -33,6 +34,9 @@ consts:
   # Index where this workflow records the unused-account observables.
   inactive_users_index: "soar-aws-inactive-users"
   # Workflows API used to chain the bulk-disable workflow.
+  # NOTE for operator: replace workflows_api_base with your Kibana host and
+  # ensure the aws-disable-user-accounts workflow ID/slug below matches the
+  # deployed workflow in your Kibana environment.
   workflows_api_base: "https://CHANGEME-kibana.example.com/api/workflows"
   workflows_api_auth_header: "ApiKey CHANGEME_API_KEY"
 
@@ -46,10 +50,12 @@ steps:
       method: GET
       headers:
         Authorization: "{{ consts.aws_iam_auth_header }}"
+    # Listing is read-only — continue on failure with an empty user list
+    # so the rest of the run is a no-op rather than hard-failing the cron.
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   # Equivalent Phantom custom function: `community/datetime_modify` with
@@ -59,9 +65,12 @@ steps:
     connector-id: "CHANGEME-genai-connector"
     with:
       prompt: |
-        Return only an ISO-8601 timestamp in UTC ("%Y-%m-%dT%H:%M:%SZ") representing
-        exactly {{ inputs.idle_days }} days before the current moment. No prose, no
-        quoting, just the timestamp.
+        Compute one UTC timestamp exactly {{ inputs.idle_days }} days
+        before the current moment.
+        Output format: a single JSON object on one line, no prose, no
+        code fences:
+          {"cutoff_iso8601": "YYYY-MM-DDTHH:MM:SSZ"}
+        Use literal 'Z' suffix for UTC; no offsets, no fractional seconds.
 
   - name: process_inactive_candidates
     type: foreach
@@ -70,7 +79,7 @@ steps:
     steps:
       - name: is_inactive
         type: if
-        condition: "{{ item.PasswordLastUsed | size }} > 0 and {{ item.PasswordLastUsed }} < {{ steps.calculate_cutoff.output | strip }}"
+        condition: "{{ item.PasswordLastUsed | size }} > 0 and {{ item.PasswordLastUsed }} < {{ steps.calculate_cutoff.output.cutoff_iso8601 }}"
         steps:
           # Equivalent Phantom action: "get user" on the `aws_iam` asset.
           - name: get_unused_account_info
@@ -83,10 +92,12 @@ steps:
                 Content-Type: "application/json"
               body:
                 username: "{{ item.UserName }}"
+            # Enrichment lookup — continue so we still index the bare
+            # username even if the detail call fails.
             on-failure:
               retry:
-                max-attempts: 2
-                delay: "3s"
+                max-attempts: 3
+                delay: "5s"
               continue: true
 
           # Equivalent Phantom custom function: `community/artifact_create`.
@@ -117,10 +128,12 @@ steps:
         inputs:
           aws_usernames: "${{ steps.list_all_accounts.output.users | map: 'UserName' | default: [] }}"
           approve: false
+    # Hand-off to the dry-run disable workflow — continue so the scan job
+    # remains successful even if the chained dispatch is misconfigured.
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: log_summary
@@ -128,4 +141,4 @@ steps:
     with:
       message: |
         Inactive AWS user scan complete. Candidates flagged based on PasswordLastUsed
-        older than the {{ inputs.idle_days }}-day cutoff ({{ steps.calculate_cutoff.output | strip }}).
+        older than the {{ inputs.idle_days }}-day cutoff ({{ steps.calculate_cutoff.output.cutoff_iso8601 }}).

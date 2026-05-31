@@ -4,11 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "AWS IAM — Disable Inactive Users (Bulk)"
 description: >
-  Takes a list of AWS IAM usernames flagged as inactive, drops anyone that
-  is on the inactive-user allowlist (those are tagged for tracking but not
-  disabled), and disables the remaining accounts (including their access
-  keys) once the `approve` input is set. Reversible via the AWS IAM unlock
-  workflow.
+  Bulk-disables AWS IAM users flagged as inactive. Requires the list of
+  usernames and an explicit `approve: true` to actually execute (defaults
+  to dry-run). Allowlisted usernames are tagged but skipped. For each
+  disabled user, the user's access keys are also deactivated. Reversible
+  one user at a time via the AWS IAM unlocking workflow.
 enabled: true
 tags: ["splunk-soar", "identity", "account-lock", "aws", "iam", "bulk", "translated"]
 
@@ -86,10 +86,14 @@ steps:
                   body:
                     username: "{{ item }}"
                     disable_access_keys: true
+                # Destructive per-user action. Retry transient errors,
+                # then continue to the next user so a single API hiccup
+                # doesn't strand the rest of the batch — the per-user
+                # status is logged in the next step for audit.
                 on-failure:
                   retry:
-                    max-attempts: 2
-                    delay: "3s"
+                    max-attempts: 3
+                    delay: "5s"
                   continue: true
               - name: log_disabled
                 type: console

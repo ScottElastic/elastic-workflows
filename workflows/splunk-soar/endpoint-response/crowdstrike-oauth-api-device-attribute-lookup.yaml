@@ -4,11 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "CrowdStrike — Device Attribute Lookup"
 description: >
-  Takes a device value (either an IP address or a hostname) and queries
-  the CrowdStrike Falcon API for the latest attributes for that device.
-  When the input looks like an IPv4 address the workflow searches by
-  local/external IP; otherwise it falls back to a hostname filter. The
-  result is shaped into a normalized OCSF-style device observable.
+  Resolves a device value (IP or hostname) to CrowdStrike Falcon device
+  attributes. Acquires an OAuth2 bearer, branches on naive IPv4
+  detection to query by local/external IP or hostname filter, then
+  pulls the device entity record. Result is shaped into a normalized
+  OCSF-style device observable.
 enabled: true
 tags: ["splunk-soar", "endpoint-response", "crowdstrike", "device-info", "translated"]
 
@@ -24,9 +24,10 @@ inputs:
 consts:
   # CrowdStrike Falcon OAuth API. Replace base URL with your tenant's host
   # (e.g. api.crowdstrike.com, api.us-2.crowdstrike.com, etc.) and provide
-  # a bearer token from the OAuth2 token endpoint.
+  # OAuth2 client credentials minted from the Falcon console.
   crowdstrike_base_url: "https://api.crowdstrike.com"
-  crowdstrike_bearer: "Bearer CHANGEME_FALCON_OAUTH_TOKEN"
+  crowdstrike_client_id: "CHANGEME_FALCON_CLIENT_ID"
+  crowdstrike_client_secret: "CHANGEME_FALCON_CLIENT_SECRET"
 
 steps:
   - name: validate_device
@@ -37,6 +38,20 @@ steps:
         type: console
         with:
           message: "No device value supplied; nothing to query."
+
+  - name: get_token
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/oauth2/token"
+      method: POST
+      headers:
+        Content-Type: "application/x-www-form-urlencoded"
+        Accept: "application/json"
+      body: "client_id={{ consts.crowdstrike_client_id }}&client_secret={{ consts.crowdstrike_client_secret }}"
+    on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
 
   - name: detect_ipv4
     type: data.set
@@ -56,15 +71,15 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/devices/queries/devices/v1"
           method: GET
           headers:
-            Authorization: "{{ consts.crowdstrike_bearer }}"
+            Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
             Accept: "application/json"
           query:
             limit: 10
             filter: "local_ip:'{{ inputs.device }}',external_ip:'{{ inputs.device }}'"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: get_ip_device_details
@@ -73,13 +88,13 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices/v2"
           method: GET
           headers:
-            Authorization: "{{ consts.crowdstrike_bearer }}"
+            Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
           query:
             ids: "${{ steps.query_device_by_ip.output.resources }}"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: build_ip_observable
@@ -103,15 +118,15 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/devices/queries/devices/v1"
           method: GET
           headers:
-            Authorization: "{{ consts.crowdstrike_bearer }}"
+            Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
             Accept: "application/json"
           query:
             limit: 10
             filter: "hostname:'{{ inputs.device }}'"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: get_hostname_device_details
@@ -120,13 +135,13 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices/v2"
           method: GET
           headers:
-            Authorization: "{{ consts.crowdstrike_bearer }}"
+            Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
           query:
             ids: "${{ steps.query_device_by_hostname.output.resources }}"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: build_hostname_observable

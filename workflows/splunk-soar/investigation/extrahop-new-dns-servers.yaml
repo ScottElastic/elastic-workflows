@@ -4,9 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "ExtraHop — New DNS Server Discovery & Scan"
 description: >
-  Runs on a 30-minute cadence to surface newly seen DNS servers from ExtraHop.
-  For each new device it pulls profile/peer/protocol context and triggers a
-  Nessus scan using a configured policy.
+  Runs every 30 minutes. Queries ExtraHop for devices that became active as
+  DNS servers in the lookback window, pulls profile, peer, and protocol
+  context for each one, then launches a Nessus vulnerability scan using a
+  named scan policy supplied as an input. Requires the named Nessus policy
+  to already exist on the scanner.
 enabled: true
 tags: ["splunk-soar", "investigation", "extrahop", "dns", "nessus", "scheduled", "translated"]
 
@@ -23,15 +25,18 @@ inputs:
     description: "Name of the Nessus scan policy to apply against any newly seen DNS server."
 
 consts:
+  # ExtraHop REST — auth header `ExtraHop apikey=<key>`.
   extrahop_endpoint: "https://CHANGEME-extrahop/api/v1"
   extrahop_auth: "ExtraHop apikey=CHANGEME"
+  # Tenable Nessus REST — auth via X-ApiKeys header in a single string.
+  # See https://docs.tenable.com/nessus/Content/RESTAPIReference.htm.
   nessus_endpoint: "https://CHANGEME-nessus:8834"
-  nessus_auth: "X-ApiKeys: accessKey=CHANGEME; secretKey=CHANGEME"
-  lookback_minutes: 30
+  nessus_auth: "accessKey=CHANGEME; secretKey=CHANGEME"
+  # -1800000 ms = last 30 minutes (devices/search accepts ms timestamps).
+  active_from_ms: -1800000
 
 steps:
-  # TODO: replace these http stubs with native ExtraHop and Tenable connectors
-  # when they become available in Elastic Workflows.
+  # POST /devices/search with activity=dns_server returns devices acting as DNS.
   - name: get_new_dns_servers
     type: http
     with:
@@ -41,9 +46,16 @@ steps:
         Authorization: "{{ consts.extrahop_auth }}"
         Content-Type: "application/json"
       body:
-        active_from_time_minutes: "{{ consts.lookback_minutes }}"
-        activity_type: "dns_server"
+        active_from: "{{ consts.active_from_ms }}"
+        active_until: 0
+        filter:
+          field: "activity"
+          operand: "dns_server"
+          operator: "="
     on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: list_nessus_policies
@@ -52,8 +64,12 @@ steps:
       url: "{{ consts.nessus_endpoint }}/policies"
       method: GET
       headers:
-        Authorization: "{{ consts.nessus_auth }}"
+        X-ApiKeys: "{{ consts.nessus_auth }}"
+        Accept: "application/json"
     on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: any_new_servers_found
@@ -77,63 +93,88 @@ steps:
                   headers:
                     Authorization: "{{ consts.extrahop_auth }}"
                 on-failure:
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
                   continue: true
 
               - name: get_peers
                 type: http
                 with:
-                  url: "{{ consts.extrahop_endpoint }}/activitymaps"
+                  url: "{{ consts.extrahop_endpoint }}/activitymaps/query"
                   method: POST
                   headers:
                     Authorization: "{{ consts.extrahop_auth }}"
                     Content-Type: "application/json"
                   body:
-                    device_id: "{{ item.id }}"
-                    from_time_minutes: "{{ consts.lookback_minutes }}"
-                    peer_role: "any"
-                    protocol: "any"
+                    from: "{{ consts.active_from_ms }}"
+                    until: 0
+                    sources:
+                      - origins:
+                          - object_type: "device"
+                            object_id: "{{ item.id }}"
+                        steps:
+                          - relationships:
+                              - role: "any"
+                                protocol: "any"
                 on-failure:
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
                   continue: true
 
               - name: get_protocols
                 type: http
                 with:
-                  url: "{{ consts.extrahop_endpoint }}/activitymaps"
+                  url: "{{ consts.extrahop_endpoint }}/activitymaps/query"
                   method: POST
                   headers:
                     Authorization: "{{ consts.extrahop_auth }}"
                     Content-Type: "application/json"
                   body:
-                    device_id: "{{ item.id }}"
-                    from_time_minutes: "{{ consts.lookback_minutes }}"
-                    mode: "protocols"
+                    from: "{{ consts.active_from_ms }}"
+                    until: 0
+                    edge_annotations: ["protocols"]
+                    sources:
+                      - origins:
+                          - object_type: "device"
+                            object_id: "{{ item.id }}"
+                        steps:
+                          - relationships:
+                              - role: "any"
+                                protocol: "any"
                 on-failure:
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
                   continue: true
 
+              # Match the configured policy by name from the Nessus policy list.
               - name: pick_policy_id
                 type: data.set
-                # Picks the first policy whose name matches inputs.nessus_policy_name.
-                # In Phantom the filter was looser (==""); we use the input value.
                 with:
-                  matched_policies: ${{ steps.list_nessus_policies.output.policies }}
+                  matched_policies: "${{ steps.list_nessus_policies.output.policies | default: [] | where: 'name', inputs.nessus_policy_name }}"
 
+              # POST /scans creates a scan; settings.policy_id ties it to the template.
               - name: launch_nessus_scan
                 type: http
                 with:
                   url: "{{ consts.nessus_endpoint }}/scans"
                   method: POST
                   headers:
-                    Authorization: "{{ consts.nessus_auth }}"
+                    X-ApiKeys: "{{ consts.nessus_auth }}"
                     Content-Type: "application/json"
                   body:
-                    uuid: "{{ steps.pick_policy_id.output.matched_policies[0].id }}"
+                    uuid: "{{ steps.pick_policy_id.output.matched_policies[0].template_uuid }}"
                     settings:
                       name: "Auto-scan new DNS server {{ item.ipaddr4 }}"
                       text_targets: "{{ item.ipaddr4 }}"
                       policy_id: "{{ steps.pick_policy_id.output.matched_policies[0].id }}"
+                      enabled: false
+                      launch_now: true
                 on-failure:
                   retry:
-                    max-attempts: 2
+                    max-attempts: 3
                     delay: "5s"
                   continue: true
 

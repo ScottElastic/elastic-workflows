@@ -4,12 +4,14 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "AWS EC2 — Security Hub Finding Investigation & Notification"
 description: >
-  Investigates a Security Hub finding for an exposed EC2 instance. Fetches
-  EC2 metadata, security groups, host firewall rules, processes, and current
-  network connections; geolocates and looks up reputation on the remote IPs
-  involved; opens a Jira ticket and sends a Slack ping to the instance owner;
-  then prompts a responder before optionally invoking the EC2 Isolation
-  workflow as the response action.
+  Investigates a Security Hub finding for an exposed EC2 instance. Pulls EC2
+  metadata, security groups, host firewall rules, processes, and current
+  network connections; geolocates and reputation-checks any external remote
+  IPs; opens a Jira ticket via the native jira connector and notifies the
+  owner over Slack; then surfaces a console prompt asking whether to invoke
+  the EC2 isolation workflow. Inputs: `finding_id`, `instance_id`,
+  `severity_normalized` (gate: only proceeds when > 35), `remote_ips`.
+  AWS calls remain http stubs pending a first-class SigV4 connector.
 enabled: true
 tags: ["splunk-soar", "investigation", "aws", "ec2", "security-hub", "translated"]
 
@@ -44,15 +46,24 @@ inputs:
     default: "CHANGEME-slack-connector"
 
 consts:
+  # AWS query-string API endpoints. The Authorization header below is a stub
+  # — real callers must produce a SigV4 signature (AWS4-HMAC-SHA256). EC2
+  # actions documented at docs.aws.amazon.com/AWSEC2/latest/APIReference and
+  # the SecurityHub UpdateFindings/BatchUpdateFindings actions at
+  # docs.aws.amazon.com/securityhub/1.0/APIReference.
   aws_ec2_endpoint: "https://ec2.us-east-1.amazonaws.com"
-  aws_security_hub_endpoint: "https://securityhub.us-east-1.amazonaws.com"
-  aws_auth_header: "Bearer CHANGEME"
+  aws_securityhub_endpoint: "https://securityhub.us-east-1.amazonaws.com"
+  aws_auth_header: "AWS4-HMAC-SHA256 CHANGEME-sigv4-signature"
+  # In-house SSH execution proxy (no native Elastic SSH connector yet).
   ssh_proxy_endpoint: "https://CHANGEME-ssh-proxy.internal/run"
   ssh_proxy_auth: "Bearer CHANGEME"
-  maxmind_endpoint: "https://geoip.maxmind.com/geoip/v2.1/city/"
-  maxmind_auth: "Basic CHANGEME"
+  # MaxMind GeoIP2 Web Service — Basic auth with account-id:license-key.
+  # See dev.maxmind.com/geoip/docs/web-services.
+  maxmind_endpoint: "https://geoip.maxmind.com/geoip/v2.1/city"
+  maxmind_auth: "Basic CHANGEME_BASE64_ACCOUNT_LICENSE"
+  # RiskIQ PassiveTotal v2 — Basic auth with email:api_key.
   passivetotal_endpoint: "https://api.passivetotal.org/v2/enrichment"
-  passivetotal_auth: "Basic CHANGEME"
+  passivetotal_auth: "Basic CHANGEME_BASE64_EMAIL_KEY"
   internal_vpc_cidr: "172.31.0.0/16"
   # Console search link template for SecurityHub findings.
   securityhub_console_base: "https://console.aws.amazon.com/securityhub/home?region=us-east-1#/findings?search=Id%3D%255Coperator%255C%253AEQUALS%255C%253A"
@@ -62,26 +73,42 @@ steps:
     type: if
     condition: "{{ inputs.severity_normalized }} > 35"
     steps:
-      # TODO: replace http stubs with native AWS connectors (with SigV4) when
-      # available in Elastic Workflows.
+      # EC2 query API. SigV4-signed requests required — the auth header is a
+      # placeholder; in production wire this through an AWS signing connector
+      # or a signing proxy. EC2 Version: 2016-11-15 (or newer).
       - name: describe_ec2_instance
         type: http
         with:
-          url: "{{ consts.aws_ec2_endpoint }}/?Action=DescribeInstances&InstanceId.1={{ inputs.instance_id }}"
+          url: "{{ consts.aws_ec2_endpoint }}/"
           method: GET
           headers:
             Authorization: "{{ consts.aws_auth_header }}"
+          query:
+            Action: "DescribeInstances"
+            Version: "2016-11-15"
+            InstanceId.1: "{{ inputs.instance_id }}"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: list_security_groups
         type: http
         with:
-          url: "{{ consts.aws_ec2_endpoint }}/?Action=DescribeSecurityGroups"
+          url: "{{ consts.aws_ec2_endpoint }}/"
           method: GET
           headers:
             Authorization: "{{ consts.aws_auth_header }}"
+          query:
+            Action: "DescribeSecurityGroups"
+            Version: "2016-11-15"
+            "Filter.1.Name": "group-id"
+            "Filter.1.Value.1": "{{ steps.describe_ec2_instance.output.Reservations[0].Instances[0].SecurityGroups[0].GroupId | default: '' }}"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: list_firewall_rules_on_host
@@ -91,9 +118,13 @@ steps:
           method: POST
           headers:
             Authorization: "{{ consts.ssh_proxy_auth }}"
+            Content-Type: "application/json"
           body:
             host: "{{ steps.describe_ec2_instance.output.Reservations[0].Instances[0].NetworkInterfaces[0].Association.PublicDnsName }}"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: list_processes_on_host
@@ -103,9 +134,13 @@ steps:
           method: POST
           headers:
             Authorization: "{{ consts.ssh_proxy_auth }}"
+            Content-Type: "application/json"
           body:
             host: "{{ steps.describe_ec2_instance.output.Reservations[0].Instances[0].NetworkInterfaces[0].Association.PublicDnsName }}"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: list_connections_on_host
@@ -115,9 +150,13 @@ steps:
           method: POST
           headers:
             Authorization: "{{ consts.ssh_proxy_auth }}"
+            Content-Type: "application/json"
           body:
             host: "{{ steps.describe_ec2_instance.output.Reservations[0].Instances[0].NetworkInterfaces[0].Association.PublicDnsName }}"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: filter_external_connection_ips
@@ -134,16 +173,24 @@ steps:
         with:
           items: ${{ inputs.remote_ips }}
         steps:
+          # MaxMind GeoIP2 City — GET /geoip/v2.1/city/{ip}. Returns
+          # {city, country, continent, location, traits, ...}.
           - name: geolocate_finding_ip
             type: http
             with:
-              url: "{{ consts.maxmind_endpoint }}{{ item }}"
+              url: "{{ consts.maxmind_endpoint }}/{{ item }}"
               method: GET
               headers:
                 Authorization: "{{ consts.maxmind_auth }}"
+                Accept: "application/json"
             on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
               continue: true
 
+          # PassiveTotal enrichment — GET /v2/enrichment?query={ip}. Returns
+          # tags, classification, dynamic-dns/sinkhole flags, etc.
           - name: passivetotal_reputation_finding_ip
             type: http
             with:
@@ -151,9 +198,13 @@ steps:
               method: GET
               headers:
                 Authorization: "{{ consts.passivetotal_auth }}"
+                Accept: "application/json"
               query:
                 query: "{{ item }}"
             on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
               continue: true
 
       - name: build_finding_url
@@ -180,7 +231,14 @@ steps:
               description: "{{ steps.build_notification_body.output.summary }}"
               priority: "High"
               issuetype: "Bug"
+              labels:
+                - "security-hub"
+                - "ec2"
+                - "automated"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: notify_instance_owner
@@ -189,6 +247,9 @@ steps:
         with:
           message: "{{ steps.build_notification_body.output.summary }}"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       # The original playbook then issued a 30-minute analyst prompt and on
@@ -201,15 +262,27 @@ steps:
             Analyst decision required: should EC2 instance {{ inputs.instance_id }} be moved to the
             isolation Security Group? If yes, run the EC2 Instance Isolation workflow.
 
+      # SecurityHub BatchUpdateFindings — applies a Note to one or more
+      # findings. Uses the AWS JSON 1.1 protocol via x-amz-target header.
+      # See docs.aws.amazon.com/securityhub/1.0/APIReference/API_BatchUpdateFindings.html
       - name: note_to_securityhub_finding
         type: http
         with:
-          url: "{{ consts.aws_security_hub_endpoint }}/findings/{{ inputs.finding_id }}/notes"
+          url: "{{ consts.aws_securityhub_endpoint }}/findings/batchupdate"
           method: POST
           headers:
             Authorization: "{{ consts.aws_auth_header }}"
-            Content-Type: "application/json"
+            Content-Type: "application/x-amz-json-1.1"
+            X-Amz-Target: "SecurityHub.BatchUpdateFindings"
           body:
-            Text: "Investigated by Elastic Workflow; ticket created and owner notified."
+            FindingIdentifiers:
+              - Id: "{{ inputs.finding_id }}"
+                ProductArn: "{{ event.alerts[0].productArn | default: '' }}"
+            Note:
+              Text: "Investigated by Elastic Workflow; Jira ticket {{ steps.create_jira_ticket.output.external_id | default: 'unknown' }} created and owner notified."
+              UpdatedBy: "elastic-workflows"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true

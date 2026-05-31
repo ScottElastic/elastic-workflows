@@ -4,10 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Endpoint — Delete Detected Files"
 description: >
-  For each host/file path indicator, first reads the file via WinRM
-  (so the contents are captured for evidence), then deletes the file.
-  Useful when a SOC alert flags a malicious artifact such as a dropped
-  webshell that should be both preserved and removed.
+  Destructive endpoint remediation. For each {host, file_path} target,
+  captures the file's current contents over WinRM (for evidence
+  preservation) and then deletes the file. The delete step is fail-
+  loud — if the WinRM proxy can't reach the host the workflow aborts
+  rather than silently moving on. Intended for known-bad drops such as
+  webshells or persistence binaries.
 enabled: true
 tags: ["splunk-soar", "remediation", "endpoint", "winrm", "translated"]
 
@@ -51,6 +53,9 @@ steps:
             delay: "3s"
           continue: true
 
+      # Destructive — fail loud. Do NOT set continue: true here; if the
+      # delete fails the operator needs to know rather than have the
+      # workflow keep moving across the rest of the host list.
       - name: delete_file
         type: http
         with:
@@ -66,7 +71,6 @@ steps:
           retry:
             max-attempts: 2
             delay: "3s"
-          continue: true
 
       - name: log_delete_result
         type: console

@@ -4,14 +4,14 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "ThreatQuotient — Investigate and Respond"
 description: >
-  Enriches source and destination IPs against ThreatQuotient's threat
-  library and VirusTotal. If ThreatQuotient returns no record, the IP
-  is pushed back to ThreatQuotient as an IOC for review. Active
-  adversary-linked IPs are blocked on the Palo Alto firewall. URLs
-  observed by VirusTotal that exceed positive thresholds are also
-  promoted to IOCs and added to the URL block list. The workflow also
-  creates a new ThreatQ event and, if a vault file is supplied, attaches
-  it to the event.
+  Investigates the source and destination IPs on an alert: looks each up
+  in ThreatQuotient (TQ) and VirusTotal, creates a TQ event with an
+  optional file attachment, and either (a) blocks the IP on Palo Alto
+  Panorama and any VT-flagged URLs that exceed the positives threshold,
+  or (b) creates a Review-status IOC in TQ if TQ has no prior record.
+  Inputs: source_address, destination_address, internal_ranges (skip
+  list), optional vault_id. Destructive: pushes Panorama firewall
+  block commands.
 enabled: true
 tags: ["splunk-soar", "investigation", "threatquotient", "virustotal", "translated"]
 
@@ -39,15 +39,22 @@ inputs:
     description: "Optional file vault ID (uploads to ThreatQ event)."
 
 consts:
+  # ThreatQuotient ThreatQ on-prem appliance. Auth: bearer OAuth token
+  # obtained from POST /api/token. Endpoints: /indicators, /events,
+  # /attachments, /indicators/search.
   threatq_endpoint: "https://CHANGEME-threatq.internal/api"
   threatq_auth_header: "Bearer CHANGEME_TQ_TOKEN"
+  # Palo Alto Panorama XML API. Auth: ?key=<api_key>. Address-group
+  # updates require a commit; this stub assumes a pre-existing dynamic
+  # address group bound to a block policy.
   panorama_endpoint: "https://CHANGEME-panorama.internal"
+  panorama_api_key: "CHANGEME_PANORAMA_KEY"
+  panorama_block_group: "soar-block-list"
   virustotal_connector_id: "CHANGEME-virustotal-connector"
   vt_positives_threshold: 1
 
 steps:
   # Always create a ThreatQ event for this incident.
-  # TODO: replace with a native ThreatQuotient connector when available.
   - name: create_threatq_event
     type: http
     with:
@@ -57,9 +64,13 @@ steps:
         Authorization: "{{ consts.threatq_auth_header }}"
         Content-Type: "application/json"
       body:
-        title: "Phantom-translated investigation event"
+        title: "Elastic-translated investigation event"
         type: "Incident"
+        description: "Auto-created by elastic-workflows ThreatQuotient — Investigate and Respond. src={{ inputs.source_address | default: '-' }} dst={{ inputs.destination_address | default: '-' }}"
     on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   # If a file was attached to the alert, upload it to the ThreatQ event.
@@ -78,6 +89,9 @@ steps:
             vault_id: "{{ inputs.vault_id }}"
             event_id: "{{ steps.create_threatq_event.output.id | default: '' }}"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
   # Destination IP path.
@@ -95,6 +109,9 @@ steps:
           body:
             query: "{{ inputs.destination_address }}"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: dst_present_in_tq
@@ -113,17 +130,25 @@ steps:
             type: if
             condition: "{{ steps.dst_ip_reputation_tq.output.data | json | contains: 'Active' }}"
             steps:
-              # TODO: replace with Palo Alto Networks native connector.
+              # Panorama XML API: append IP to the dynamic address group.
+              # Destructive — no `continue: true` so the analyst sees failures.
               - name: block_dst_ip
                 type: http
                 with:
-                  url: "{{ consts.panorama_endpoint }}/api/?type=op"
+                  url: "{{ consts.panorama_endpoint }}/api/"
                   method: POST
                   headers:
                     Content-Type: "application/x-www-form-urlencoded"
-                  body: "cmd=block_ip&ip={{ inputs.destination_address }}"
+                  query:
+                    type: "config"
+                    action: "set"
+                    key: "{{ consts.panorama_api_key }}"
+                    xpath: "/config/shared/address-group/entry[@name='{{ consts.panorama_block_group }}']/static"
+                    element: "<member>{{ inputs.destination_address }}</member>"
                 on-failure:
-                  continue: true
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
 
           - name: dst_block_high_url
             type: if
@@ -141,18 +166,30 @@ steps:
                     indicator_type: "URL"
                     indicator_status: "Review"
                 on-failure:
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
                   continue: true
 
+              # Panorama XML API: register the URL on a dynamic URL category
+              # bound to a blocking security policy. Destructive — fail loud.
               - name: block_dst_url
                 type: http
                 with:
-                  url: "{{ consts.panorama_endpoint }}/api/?type=op"
+                  url: "{{ consts.panorama_endpoint }}/api/"
                   method: POST
-                  body:
-                    cmd: "block_url"
-                    source_step: "create_dst_url_ioc"
+                  headers:
+                    Content-Type: "application/x-www-form-urlencoded"
+                  query:
+                    type: "config"
+                    action: "set"
+                    key: "{{ consts.panorama_api_key }}"
+                    xpath: "/config/shared/profiles/custom-url-category/entry[@name='{{ consts.panorama_block_group }}']/list"
+                    element: "<member>${{ steps.dst_ip_reputation_vt.output.detected_urls | map: 'url' | first }}</member>"
                 on-failure:
-                  continue: true
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
         else:
           # No ThreatQ record yet → create an IOC for analyst review.
           - name: create_dst_ip_ioc
@@ -167,6 +204,9 @@ steps:
                 indicator_type: "IP Address"
                 indicator_status: "Review"
             on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
               continue: true
 
   # Source IP path (mirror image of destination).
@@ -184,6 +224,9 @@ steps:
           body:
             query: "{{ inputs.source_address }}"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: src_present_in_tq
@@ -205,11 +248,20 @@ steps:
               - name: block_src_ip
                 type: http
                 with:
-                  url: "{{ consts.panorama_endpoint }}/api/?type=op"
+                  url: "{{ consts.panorama_endpoint }}/api/"
                   method: POST
-                  body: "cmd=block_ip&ip={{ inputs.source_address }}"
+                  headers:
+                    Content-Type: "application/x-www-form-urlencoded"
+                  query:
+                    type: "config"
+                    action: "set"
+                    key: "{{ consts.panorama_api_key }}"
+                    xpath: "/config/shared/address-group/entry[@name='{{ consts.panorama_block_group }}']/static"
+                    element: "<member>{{ inputs.source_address }}</member>"
                 on-failure:
-                  continue: true
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
 
           - name: src_block_high_url
             type: if
@@ -227,18 +279,28 @@ steps:
                     indicator_type: "URL"
                     indicator_status: "Review"
                 on-failure:
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
                   continue: true
 
               - name: block_src_url
                 type: http
                 with:
-                  url: "{{ consts.panorama_endpoint }}/api/?type=op"
+                  url: "{{ consts.panorama_endpoint }}/api/"
                   method: POST
-                  body:
-                    cmd: "block_url"
-                    source_step: "create_src_url_ioc"
+                  headers:
+                    Content-Type: "application/x-www-form-urlencoded"
+                  query:
+                    type: "config"
+                    action: "set"
+                    key: "{{ consts.panorama_api_key }}"
+                    xpath: "/config/shared/profiles/custom-url-category/entry[@name='{{ consts.panorama_block_group }}']/list"
+                    element: "<member>${{ steps.src_ip_reputation_vt.output.detected_urls | map: 'url' | first }}</member>"
                 on-failure:
-                  continue: true
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
         else:
           - name: create_src_ip_ioc
             type: http
@@ -252,6 +314,9 @@ steps:
                 indicator_type: "IP Address"
                 indicator_status: "Review"
             on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
               continue: true
 
   - name: log_complete

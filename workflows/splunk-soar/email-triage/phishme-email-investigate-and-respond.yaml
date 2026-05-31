@@ -4,15 +4,14 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "PhishMe — Investigate and Respond"
 description: >
-  Reacts to high-impact phishing indicators imported from
-  Cofense/PhishMe. Pulls the PhishMe threat report, opens a
-  ServiceNow ticket as the case of record, then enriches IP,
-  domain, URL, and file-hash indicators via VirusTotal. Anything
-  scoring ten or more positives triggers blocking actions
-  (firewall block IP/URL, DNS block domain, EDR block hash) plus
-  an EDR hash hunt, and each response is appended back to the
-  ServiceNow ticket as a work note. The container is then escalated
-  to high severity and closed.
+  Reacts to a high-severity phishing indicator imported from Cofense/PhishMe.
+  When severity is "high", pulls the PhishMe threat report, creates a
+  ServiceNow incident, then per-indicator runs VirusTotal reputation on IP,
+  domain, URL, and file hash. Any indicator with >= 10 positives triggers a
+  block (PAN-OS for IP and URL, Cisco Umbrella for domain, Carbon Black for
+  hash plus an EDR hunt) and a work-note update on the ServiceNow ticket.
+  Lower-severity events still get reputation lookups but no ticketing or
+  blocking. Blocks are destructive (no continue: true on those steps).
 enabled: true
 tags: ["splunk-soar", "email-triage", "phishme", "cofense", "virustotal", "servicenow", "carbonblack", "translated"]
 
@@ -53,14 +52,22 @@ inputs:
 consts:
   virustotal_connector_id: "CHANGEME-virustotal-connector"
   servicenow_connector_id: "CHANGEME-servicenow-connector"
-  phishme_endpoint: "https://CHANGEME-phishme.cofense.com"
-  phishme_token: "Token CHANGEME"
-  pan_endpoint: "https://CHANGEME-pan.example.com"
+  # Cofense Intelligence API — see https://www.cofense.com/cofense-intelligence/.
+  # Auth: HTTP Basic with API user/key. Threat malware lookup is GET /apiv1/threat/malware/{id}.
+  phishme_endpoint: "https://www.threathq.com"
+  phishme_token: "Basic CHANGEME"
+  # PAN-OS XML API — key= query param.
+  pan_endpoint: "https://CHANGEME-pan.example.com/api"
   pan_api_key: "CHANGEME"
-  opendns_umbrella_endpoint: "https://management.api.umbrella.com"
-  opendns_umbrella_token: "Bearer CHANGEME"
+  pan_vsys: "vsys1"
+  pan_block_group: "SOAR_BLOCK"
+  # Cisco Umbrella Enforcement API — see s-platform.api.opendns.com docs.
+  opendns_umbrella_endpoint: "https://s-platform.api.opendns.com/1.0"
+  opendns_umbrella_customer_key: "CHANGEME"
+  # Carbon Black Response — POST /api/v1/banning/blacklist + /api/v6 processes/search_jobs.
   carbonblack_endpoint: "https://CHANGEME-cb.example.com"
   carbonblack_token: "CHANGEME"
+  carbonblack_org_key: "CHANGEME-org-key"
   positives_threshold: 10
 
 steps:
@@ -68,7 +75,7 @@ steps:
     type: if
     condition: "'{{ inputs.severity | default: '' }}' == 'high'"
     steps:
-      # Pull the PhishMe threat report — phantom asset: phishme.
+      # Cofense Intelligence: GET /apiv1/threat/malware/{id}.
       - name: get_phishme_report
         type: http
         with:
@@ -76,10 +83,11 @@ steps:
           method: GET
           headers:
             Authorization: "{{ consts.phishme_token }}"
+            Accept: "application/json"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       # Create the ServiceNow incident that subsequent blocks update.
@@ -121,18 +129,22 @@ steps:
             type: if
             condition: "{{ steps.ip_reputation.output.summary.total_positives | default: 0 }} >= {{ consts.positives_threshold }}"
             steps:
-              # phantom asset: pan — "block ip".
+              # PAN-OS: add IP to SOAR_BLOCK address group. Destructive.
               - name: block_ip
                 type: http
                 with:
-                  url: "{{ consts.pan_endpoint }}/api/?type=op"
+                  url: "{{ consts.pan_endpoint }}/"
                   method: POST
-                  headers:
-                    X-PAN-KEY: "{{ consts.pan_api_key }}"
-                  body:
-                    cmd: "<request><system><block><ip>{{ inputs.destination_ip }}</ip></block></system></request>"
+                  query:
+                    type: "config"
+                    action: "set"
+                    xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.pan_vsys }}']/address-group/entry[@name='{{ consts.pan_block_group }}']/static"
+                    element: "<member>{{ inputs.destination_ip }}</member>"
+                    key: "{{ consts.pan_api_key }}"
                 on-failure:
-                  continue: true
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
 
               - name: note_ip_block_to_servicenow
                 type: servicenow
@@ -165,20 +177,31 @@ steps:
             type: if
             condition: "{{ steps.domain_reputation.output.summary.total_positives | default: 0 }} >= {{ consts.positives_threshold }}"
             steps:
-              # phantom asset: opendns_umbrella — "block domain".
+              # Cisco Umbrella Enforcement: POST /events?customerKey=...
+              # Submits a security event that blocks the domain via Umbrella.
+              # Destructive — fail loudly.
               - name: block_domain
                 type: http
                 with:
-                  url: "{{ consts.opendns_umbrella_endpoint }}/policies/v2/domains"
+                  url: "{{ consts.opendns_umbrella_endpoint }}/events"
                   method: POST
+                  query:
+                    customerKey: "{{ consts.opendns_umbrella_customer_key }}"
                   headers:
-                    Authorization: "{{ consts.opendns_umbrella_token }}"
                     Content-Type: "application/json"
                   body:
-                    name: "{{ inputs.destination_domain }}"
-                    type: "blocked"
+                    alertTime: "{{ 'now' | date: '%Y-%m-%dT%H:%M:%S.0Z' }}"
+                    deviceId: "elastic-workflows"
+                    deviceVersion: "1.0"
+                    dstDomain: "{{ inputs.destination_domain }}"
+                    dstUrl: "http://{{ inputs.destination_domain }}/"
+                    eventTime: "{{ 'now' | date: '%Y-%m-%dT%H:%M:%S.0Z' }}"
+                    protocolVersion: "1.0a"
+                    providerName: "Security Platform"
                 on-failure:
-                  continue: true
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
 
               - name: note_domain_block_to_servicenow
                 type: servicenow
@@ -211,18 +234,23 @@ steps:
             type: if
             condition: "{{ steps.url_reputation.output.summary.total_positives | default: 0 }} >= {{ consts.positives_threshold }}"
             steps:
-              # phantom asset: pan — "block url".
+              # PAN-OS: add URL to a custom URL category (configured in
+              # PAN-OS as URL_BLOCK). Destructive.
               - name: block_url
                 type: http
                 with:
-                  url: "{{ consts.pan_endpoint }}/api/?type=op"
+                  url: "{{ consts.pan_endpoint }}/"
                   method: POST
-                  headers:
-                    X-PAN-KEY: "{{ consts.pan_api_key }}"
-                  body:
-                    cmd: "<request><system><block><url>{{ inputs.destination_url }}</url></block></system></request>"
+                  query:
+                    type: "config"
+                    action: "set"
+                    xpath: "/config/profiles/custom-url-category/entry[@name='URL_BLOCK']/list"
+                    element: "<member>{{ inputs.destination_url }}</member>"
+                    key: "{{ consts.pan_api_key }}"
                 on-failure:
-                  continue: true
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
 
               - name: note_url_block_to_servicenow
                 type: servicenow
@@ -255,24 +283,29 @@ steps:
             type: if
             condition: "{{ steps.hash_reputation.output.summary.total_positives | default: 0 }} >= {{ consts.positives_threshold }}"
             steps:
-              # phantom asset: carbonblack — "block hash".
+              # Carbon Black Response: ban the hash. Destructive.
               - name: block_hash_in_edr
                 type: http
                 with:
-                  url: "{{ consts.carbonblack_endpoint }}/api/v1/threatreport/blocklist"
+                  url: "{{ consts.carbonblack_endpoint }}/api/v1/banning/blacklist"
                   method: POST
                   headers:
                     X-Auth-Token: "{{ consts.carbonblack_token }}"
+                    Content-Type: "application/json"
                   body:
-                    md5: "{{ inputs.file_hash_md5 }}"
+                    md5hash: "{{ inputs.file_hash_md5 }}"
+                    text: "Elastic Workflows — PhishMe-driven block"
+                    enabled: true
                 on-failure:
-                  continue: true
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
 
-              # phantom asset: carbonblack — "hunt file".
+              # Carbon Black Enterprise: POST /api/investigate/v2/orgs/{org_key}/processes/search_jobs.
               - name: hunt_hash_in_edr
                 type: http
                 with:
-                  url: "{{ consts.carbonblack_endpoint }}/api/v6/orgs/CHANGEME/processes/search_jobs"
+                  url: "{{ consts.carbonblack_endpoint }}/api/investigate/v2/orgs/{{ consts.carbonblack_org_key }}/processes/search_jobs"
                   method: POST
                   headers:
                     X-Auth-Token: "{{ consts.carbonblack_token }}"
@@ -280,6 +313,9 @@ steps:
                   body:
                     query: "hash:{{ inputs.file_hash_md5 }}"
                 on-failure:
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
                   continue: true
 
               - name: note_hash_actions_to_servicenow

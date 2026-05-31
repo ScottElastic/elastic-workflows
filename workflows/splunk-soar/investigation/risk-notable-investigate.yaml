@@ -4,12 +4,14 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Splunk Risk Notable — Investigate"
 description: >
-  Bootstraps investigation of a risk notable: confirms whether the Risk
-  Investigation workbook exists, runs the preprocess and import-data
-  child workflows, then runs the enrichment child workflow. As each
-  child completes, the workflow updates the corresponding workbook task
-  with the returned note — or, when the workbook is not present, adds
-  the note directly as a case comment.
+  Top-level investigation dispatcher for a Splunk ES risk notable. Runs
+  the preprocess, import-data, and enrichment child workflows in order,
+  capturing each note onto the Kibana case (or — when the Risk
+  Investigation workbook is present — onto the matching workbook task).
+  Skips entirely when risk_rule_artifacts are already populated, since
+  that signals the notable has already been processed.
+  Inputs: container_id (required), event_id, workbook_present flag, and
+  the upstream risk_rule_artifacts array.
 enabled: true
 tags: ["splunk-soar", "investigation", "splunk", "risk-notable", "translated"]
 
@@ -38,6 +40,11 @@ inputs:
     description: "Pre-existing risk_rule artifacts (skip processing if non-empty)."
 
 consts:
+  # Operator wiring: kibana_case_id is the Cases UUID the notable's
+  # investigation notes are attached to. The three child workflow ids
+  # are returned by `GET /api/workflows` after the sibling preprocess /
+  # import-data / enrich workflows are imported into Kibana — paste
+  # those uuid values here so /api/workflows/{id}/run resolves them.
   kibana_case_id: "CHANGEME-case-id"
   child_preprocess_workflow: "CHANGEME-risk-notable-preprocess"
   child_import_workflow: "CHANGEME-risk-notable-import-data"
@@ -68,6 +75,9 @@ steps:
               status: "in_progress"
 
       # Always run preprocess + import_data + enrich chain in order.
+      # Retries swallow transient Kibana errors; downstream branches
+      # default note_title/note_content so a hard failure here doesn't
+      # break the chain.
       - name: run_preprocess
         type: http
         with:
@@ -78,6 +88,9 @@ steps:
               container_id: "{{ inputs.container_id }}"
               event_id: "{{ inputs.event_id }}"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: run_import_data
@@ -90,6 +103,9 @@ steps:
               container_id: "{{ inputs.container_id }}"
               event_id: "{{ inputs.event_id }}"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: import_note_decision
@@ -127,6 +143,9 @@ steps:
               container_id: "{{ inputs.container_id }}"
               event_id: "{{ inputs.event_id }}"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: enrich_note_decision

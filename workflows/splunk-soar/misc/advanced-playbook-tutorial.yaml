@@ -50,13 +50,13 @@ inputs:
     description: "Case to attach severity changes and notes to."
 
 consts:
-  # Original used ReversingLabs reputation; using vendor API stub here.
-  reversinglabs_endpoint: "https://api.reversinglabs.com/api/databrowser/malware_presence/query/sha1/CHANGEME"
-  reversinglabs_token: "Token CHANGEME_TOKEN"
-  # Tanium asset originally; stubbed via http.
+  # ReversingLabs TitaniumCloud — Malware Presence API (HTTP Basic).
+  reversinglabs_endpoint: "https://data.reversinglabs.com/api/databrowser/malware_presence/query/sha1"
+  reversinglabs_token: "Basic CHANGEME_BASE64_CREDENTIAL"
+  # Tanium Threat Response — process termination uses /api/v2/actions.
   tanium_endpoint: "https://CHANGEME-tanium.example.com/api/v2"
   tanium_token: "session-CHANGEME"
-  # Palo Alto Networks firewall.
+  # Palo Alto Networks PAN-OS XML API (key passed as query string).
   pan_endpoint: "https://CHANGEME-pan-fw.example.com/api"
   pan_api_key: "CHANGEME"
   # Slack channel where the analyst prompt lands.
@@ -65,18 +65,19 @@ consts:
   block_duration_minutes: 60
 
 steps:
-  # 1) File reputation lookup
+  # 1) File reputation lookup (ReversingLabs Malware Presence).
   - name: file_reputation
     type: http
     with:
-      url: "{{ consts.reversinglabs_endpoint }}/{{ inputs.file_hash }}"
+      url: "{{ consts.reversinglabs_endpoint }}/{{ inputs.file_hash }}?format=json"
       method: GET
       headers:
         Authorization: "{{ consts.reversinglabs_token }}"
+        Accept: "application/json"
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: extract_positives
@@ -128,9 +129,8 @@ steps:
                 timeout_seconds: 60
             on-failure:
               retry:
-                max-attempts: 2
+                max-attempts: 3
                 delay: "5s"
-              continue: true
 
       # 5) If source IP isn't already blocked, ask an analyst to block it
       - name: maybe_block_ip
@@ -149,31 +149,46 @@ steps:
 
                 Should we block this IP on PAN for {{ consts.block_duration_minutes }} minutes? Reply "Yes" or "No".
 
-          # Phantom uses phantom.prompt2 for a blocking analyst response. In
-          # Elastic Workflows we use an ai.prompt step for asynchronous
-          # human-in-the-loop decisions. Operators wire this to their analyst
-          # workflow / inbox.
+          # Phantom uses phantom.prompt2 for a blocking analyst response.
+          # In Elastic Workflows we use an ai.prompt step for async
+          # human-in-the-loop decisions. Wire this connector to your
+          # analyst inbox / Slack-with-reply integration.
           - name: collect_decision
             type: ai.prompt
             with:
-              prompt: "Analyst, should we temporarily block source IP {{ inputs.source_address }}? Reply Yes or No."
+              prompt: |
+                ANALYST APPROVAL REQUEST — temporary IP block
+
+                Source IP:         {{ inputs.source_address }}
+                File hash:         {{ inputs.file_hash }}
+                File name:         {{ inputs.file_name | default: '(unknown)' }}
+                Destination host:  {{ inputs.destination_address | default: '(unknown)' }}
+                Reputation hits:   {{ steps.extract_positives.output.positives }} (threshold {{ consts.positives_threshold }})
+                Proposed action:   block {{ inputs.source_address }} on PAN firewall for {{ consts.block_duration_minutes }} minutes (auto-revert).
+
+                Reply ONLY with a single word: YES to approve the block, NO to deny.
               timeout: "30m"
 
           - name: act_on_decision
             type: if
             condition: "{{ steps.collect_decision.output.response | downcase }} == 'yes'"
             steps:
-              # TODO: replace with a native PAN connector when one is available.
+              # TODO: replace with a native PAN connector when one is
+              # available. Destructive action: fail loud if the block does
+              # not commit. PAN-OS XML API uses op command + key in URL.
               - name: pan_block_ip
                 type: http
                 with:
-                  url: "{{ consts.pan_endpoint }}/?type=op&cmd=<request><address-block><ip>{{ inputs.source_address }}</ip></address-block></request>&key={{ consts.pan_api_key }}"
+                  url: "{{ consts.pan_endpoint }}"
                   method: POST
+                  query:
+                    type: "op"
+                    cmd: "<request><address-block><ip>{{ inputs.source_address }}</ip></address-block></request>"
+                    key: "{{ consts.pan_api_key }}"
                 on-failure:
                   retry:
-                    max-attempts: 2
+                    max-attempts: 3
                     delay: "5s"
-                  continue: true
 
               - name: schedule_unblock
                 type: console

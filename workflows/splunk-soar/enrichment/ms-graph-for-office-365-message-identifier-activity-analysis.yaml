@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "MS Graph O365 — Message Identifier Activity Analysis"
 description: >
-  Given an internet message id, pulls the list of mailboxes from an
-  Office 365 tenant and searches each for matches. Returns a normalized
-  per-mailbox observable record with sender, recipient, subject, and the
-  O365 message id. Note that this pattern hits one mailbox per call and
-  may run into rate limits at scale. Refer to D3FEND D3-IAA.
+  Given an Internet Message-ID, enumerates Office 365 mailboxes via
+  Microsoft Graph GET /users (filtering out unlicensed accounts) and
+  searches each via $filter on internetMessageId. Returns one observable
+  per mailbox with sender, recipient, subject, and the Graph message id.
+  Hits one mailbox per call and may run into Graph throttling at scale.
+  Maps to MITRE D3FEND D3-IAA.
 enabled: true
 tags: ["splunk-soar", "enrichment", "identifier-activity", "office-365", "ms-graph", "translated"]
 
@@ -19,9 +20,11 @@ inputs:
   - name: message_id
     type: string
     required: true
-    description: "Internet message id to locate across O365 mailboxes."
+    description: "Internet Message-ID to locate across O365 mailboxes."
 
 consts:
+  # Microsoft Graph v1.0. Bearer token via OAuth2 client-credentials.
+  # App permissions: User.Read.All, Mail.ReadBasic.All (or Mail.Read).
   graph_base: "https://graph.microsoft.com/v1.0"
   graph_auth_header: "Bearer CHANGEME_GRAPH_TOKEN"
 
@@ -30,7 +33,9 @@ steps:
     type: if
     condition: "{{ inputs.message_id | size }} > 0"
     steps:
-      # TODO: replace with native MS Graph connector once available.
+      # Microsoft Graph: GET /users with $filter on mail to skip unlicensed
+      # accounts. Pagination not handled — tenants > 999 mailboxes need
+      # follow-up calls against @odata.nextLink.
       - name: list_mailboxes
         type: http
         with:
@@ -38,29 +43,42 @@ steps:
           method: GET
           headers:
             Authorization: "{{ consts.graph_auth_header }}"
+            ConsistencyLevel: "eventual"
             Accept: "application/json"
+          query:
+            "$select": "id,userPrincipalName,mail,displayName"
+            "$filter": "mail ne null"
+            "$count": "true"
+            "$top": "999"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: per_mailbox_search
         type: foreach
         with:
-          items: "${{ steps.list_mailboxes.output.value }}"
+          items: "${{ steps.list_mailboxes.output.value | default: [] }}"
         steps:
+          # Microsoft Graph: GET /users/{id|UPN}/messages?$filter=internetMessageId eq '...'
+          # https://learn.microsoft.com/en-us/graph/api/user-list-messages
           - name: search_mailbox
             type: http
             with:
-              url: "{{ consts.graph_base }}/users/{{ item.mail }}/messages"
+              url: "{{ consts.graph_base }}/users/{{ item.userPrincipalName }}/messages"
               method: GET
               headers:
                 Authorization: "{{ consts.graph_auth_header }}"
                 Accept: "application/json"
               query:
-                $filter: "internetMessageId eq '{{ inputs.message_id }}'"
+                "$filter": "internetMessageId eq '{{ inputs.message_id }}'"
+                "$select": "id,subject,internetMessageId,from,sender,toRecipients,receivedDateTime,parentFolderId"
+                "$top": "10"
             on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
               continue: true
 
           - name: hits_in_mailbox
@@ -74,16 +92,20 @@ steps:
                     type: "internet message id"
                     value: "{{ inputs.message_id }}"
                     source: "MS Graph for Office365"
-                    recipient: "{{ item.mail }}"
+                    recipient: "{{ item.userPrincipalName }}"
+                    recipient_display: "{{ item.displayName | default: '' }}"
                     subject: "{{ steps.search_mailbox.output.value[0].subject | default: '' }}"
                     sender: "{{ steps.search_mailbox.output.value[0].sender.emailAddress.address | default: '' }}"
-                    o365_id: "{{ steps.search_mailbox.output.value[0].id | default: '' }}"
+                    from: "{{ steps.search_mailbox.output.value[0].from.emailAddress.address | default: '' }}"
+                    received_at: "{{ steps.search_mailbox.output.value[0].receivedDateTime | default: '' }}"
+                    parent_folder_id: "{{ steps.search_mailbox.output.value[0].parentFolderId | default: '' }}"
+                    graph_message_id: "{{ steps.search_mailbox.output.value[0].id | default: '' }}"
 
               - name: log_message_observable
                 type: console
                 with:
                   message: |
-                    Match in {{ item.mail }}: subject="{{ steps.search_mailbox.output.value[0].subject | default: '' }}", sender={{ steps.search_mailbox.output.value[0].sender.emailAddress.address | default: '' }}
+                    Match in {{ item.userPrincipalName }}: subject="{{ steps.search_mailbox.output.value[0].subject | default: '' }}" sender={{ steps.search_mailbox.output.value[0].sender.emailAddress.address | default: '' }}
 
       - name: log_summary
         type: console

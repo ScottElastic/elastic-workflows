@@ -4,10 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Splunk Attack Analyzer — Dynamic Analysis"
 description: >
-  Detonates URLs or files via Splunk Attack Analyzer (SAA), polls each
-  job until the forensics are complete, normalizes the SAA verdict to an
-  OCSF reputation score, and emits per-observable records with related
-  observables, malware classifications, and the SAA report link.
+  Submits URLs and/or files to Splunk Attack Analyzer (SAA) and waits for
+  per-job forensics. Inputs: optional arrays of URLs and vault ids
+  (file references). For each indicator the workflow submits a job, waits
+  for the configured poll interval, fetches the summary and screenshots,
+  normalizes the verdict to an OCSF-style reputation score, and emits a
+  per-observable record with the SAA report link.
 enabled: true
 tags: ["splunk-soar", "enrichment", "dynamic-analysis", "sandbox", "splunk-attack-analyzer", "translated"]
 

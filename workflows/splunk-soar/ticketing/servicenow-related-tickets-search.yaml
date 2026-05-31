@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "ServiceNow — Related Tickets Search"
 description: >
-  Accepts one or more search terms (typically a user or device) and
-  searches a configurable list of ServiceNow tables (incident, problem,
-  change, sc_request, sc_task, etc.) for tickets opened in the last 30
-  days that mention them. Produces a per-ticket observable record and a
-  human-readable summary of the matches.
+  Searches a configurable list of ServiceNow tables (incident, problem, change,
+  sc_request, sc_task, etc.) for tickets opened within the lookback window that
+  reference the supplied indicators. Queries each table via the ServiceNow Table
+  API (`GET /api/now/table/{tableName}`) with a `sysparm_query` filter and
+  emits a normalized per-ticket observable record. Inputs: `search_terms`
+  (required), `tables` (optional override), `lookback_days` (default 30).
 enabled: true
 tags: ["splunk-soar", "ticketing", "servicenow", "related-tickets", "translated"]
 
@@ -59,34 +60,43 @@ steps:
       tables: >-
         ${{ inputs.tables | default: consts.default_tables }}
 
-  - name: build_space_query
+  - name: build_or_clause
     type: data.set
     with:
-      # SOAR builds a space-separated single string from the array of terms.
-      query_string: "{{ inputs.search_terms | join: ' ' }}"
+      # ServiceNow sysparm_query OR clause: short_descriptionLIKE<term>^ORshort_descriptionLIKE<term2>...
+      # Caret-separated chains describe AND; ^OR introduces an OR'd term.
+      or_clause: "short_descriptionLIKE{{ inputs.search_terms | join: '^ORshort_descriptionLIKE' }}"
 
   - name: iterate_tables
     type: foreach
     with:
       items: ${{ steps.resolve_tables.output.tables }}
     steps:
-      # TODO: replace with a native ServiceNow connector subAction once
-      # `run query` is exposed. For now we hit the Table API directly.
+      # Per-table loop. We capture the table name in a local var so we don't
+      # collide with the inner foreach `item` (each ticket record).
+      - name: capture_table
+        type: data.set
+        with:
+          table_name: "{{ item }}"
+
+      # ServiceNow Table API GET. `active=true` and `sys_created_onONLast N days`
+      # narrow the result set; `sysparm_display_value=all` returns both the raw
+      # value and human-readable label for reference fields.
       - name: run_table_query
         type: http
         with:
-          url: "{{ consts.servicenow_instance_url }}/api/now/table/{{ item }}"
+          url: "{{ consts.servicenow_instance_url }}/api/now/table/{{ steps.capture_table.output.table_name }}"
           method: GET
           headers:
             Authorization: "{{ consts.servicenow_auth_header }}"
             Accept: "application/json"
           query:
-            sysparm_query: "active=true^IR_OR_QUERY={{ steps.build_space_query.output.query_string }}^opened_atRELATIVEGE@dayofweek@ago@{{ inputs.lookback_days | default: 30 }}"
-            sysparm_display_value: "true"
+            sysparm_query: "active=true^sys_created_onONLast {{ inputs.lookback_days | default: 30 }} days@javascript:gs.beginningOfLast{{ inputs.lookback_days | default: 30 }}Days()@javascript:gs.endOfToday()^{{ steps.build_or_clause.output.or_clause }}"
+            sysparm_display_value: "all"
             sysparm_limit: "100"
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "3s"
           continue: true
 
@@ -105,23 +115,23 @@ steps:
                   observable:
                     value: "{{ inputs.search_terms | first }}"
                     ticket:
-                      name: "{{ item.short_description | default: '' }}"
-                      id: "{{ item.sys_id | default: '' }}"
-                      number: "{{ item.number | default: '' }}"
-                      message: "{{ item.description | default: '' }}"
-                      start_time: "{{ item.sys_created_on | default: '' }}"
-                      end_time: "{{ item.closed_at | default: '' }}"
+                      name: "{{ item.short_description.value | default: item.short_description | default: '' }}"
+                      id: "{{ item.sys_id.value | default: item.sys_id | default: '' }}"
+                      number: "{{ item.number.value | default: item.number | default: '' }}"
+                      message: "{{ item.description.value | default: item.description | default: '' }}"
+                      start_time: "{{ item.sys_created_on.value | default: item.sys_created_on | default: '' }}"
+                      end_time: "{{ item.closed_at.value | default: item.closed_at | default: '' }}"
                       assigned_to: "{{ item.assigned_to.display_value | default: '' }}"
                       creator_name: "{{ item.caller_id.display_value | default: '' }}"
-                      state: "{{ item.state | default: '' }}"
-                      ticket_type: "{{ item }}"
+                      state: "{{ item.state.display_value | default: item.state | default: '' }}"
+                      ticket_type: "{{ steps.capture_table.output.table_name }}"
                     source: "ServiceNow"
-                    source_link: "{{ consts.servicenow_instance_url }}/nav_to.do?uri={{ item }}.do?sys_id={{ item.sys_id }}"
+                    source_link: "{{ consts.servicenow_instance_url }}/nav_to.do?uri={{ steps.capture_table.output.table_name }}.do?sys_id={{ item.sys_id.value | default: item.sys_id }}"
 
               - name: log_ticket
                 type: console
                 with:
-                  message: "Found SNOW {{ item.number | default: '?' }} in table {{ item }}: {{ item.short_description | default: '' }}"
+                  message: "Found SNOW {{ item.number.value | default: item.number | default: '?' }} in table {{ steps.capture_table.output.table_name }}: {{ item.short_description.value | default: item.short_description | default: '' }}"
 
   - name: emit_summary
     type: console

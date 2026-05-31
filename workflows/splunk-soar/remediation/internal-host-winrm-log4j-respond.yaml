@@ -4,10 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Log4j — WinRM Host Respond"
 description: >
-  Windows responder for suspected Log4Shell (CVE-2021-44228) exposure.
-  For each host and candidate file path, runs a Test-Path check via
-  WinRM, removes any files that exist, and optionally applies a
-  containment action (outbound block, forced shutdown, or both).
+  Destructive Log4Shell (CVE-2021-44228) responder for Windows hosts.
+  For each host + parallel file_path, calls Test-Path over WinRM and,
+  on a positive match, runs Remove-Item to delete the file. Optionally
+  applies a containment_action — New-NetFirewallRule outbound block,
+  forced shutdown, or both. Probe is forgiving; the remove and
+  containment steps are fail-loud.
 enabled: true
 tags: ["splunk-soar", "remediation", "log4j", "cve-2021-44228", "winrm", "translated"]
 
@@ -66,6 +68,7 @@ steps:
             type: if
             condition: '{{ steps.test_path.output.std_out | strip | downcase }} == "true"'
             steps:
+              # Destructive — fail loud on Remove-Item failure.
               - name: remove_item
                 type: http
                 with:
@@ -81,7 +84,6 @@ steps:
                   retry:
                     max-attempts: 2
                     delay: "3s"
-                  continue: true
 
   - name: dedup_hosts
     type: data.set
@@ -97,6 +99,7 @@ steps:
         type: if
         condition: '{{ inputs.containment_action }} == "Restrict Outbound Traffic"'
         steps:
+          # Destructive (host containment) — fail loud.
           - name: new_firewall_rule
             type: http
             with:
@@ -108,12 +111,15 @@ steps:
                 ip_hostname: "{{ item }}"
                 script_str: "$ProgressPreference = 'SilentlyContinue'; New-NetFirewallRule -DisplayName Splunk_SOAR_Quarantine -Direction Outbound -Enabled True -LocalPort Any -RemoteAddress Any -Action Block"
             on-failure:
-              continue: true
+              retry:
+                max-attempts: 2
+                delay: "3s"
 
       - name: shutdown_host
         type: if
         condition: '{{ inputs.containment_action }} == "Shutdown"'
         steps:
+          # Destructive — fail loud.
           - name: force_shutdown
             type: http
             with:
@@ -125,12 +131,15 @@ steps:
                 ip_hostname: "{{ item }}"
                 script_str: "$ProgressPreference = 'SilentlyContinue'; shutdown /f"
             on-failure:
-              continue: true
+              retry:
+                max-attempts: 2
+                delay: "3s"
 
       - name: block_and_shutdown
         type: if
         condition: '{{ inputs.containment_action }} == "Restrict Outbound Traffic and Shutdown"'
         steps:
+          # Destructive — fail loud.
           - name: rule_then_shutdown
             type: http
             with:
@@ -142,7 +151,9 @@ steps:
                 ip_hostname: "{{ item }}"
                 script_str: "$ProgressPreference = 'SilentlyContinue'; New-NetFirewallRule -DisplayName Splunk_SOAR_Quarantine -Direction Outbound -Enabled True -LocalPort Any -RemoteAddress Any -Action Block; shutdown /f"
             on-failure:
-              continue: true
+              retry:
+                max-attempts: 2
+                delay: "3s"
 
   - name: summary_note
     type: console

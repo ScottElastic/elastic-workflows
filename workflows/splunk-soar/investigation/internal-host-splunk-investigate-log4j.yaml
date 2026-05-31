@@ -4,10 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Splunk — Internal Host log4j Investigation (CVE-2021-44228)"
 description: >
-  Runs four Splunk searches against an internal host to gather context for a
-  log4j (CVE-2021-44228) investigation: notable-event history, Java process
-  metadata, processes spawned by Java, and ES asset details from the asset
-  lookup. Results are emitted to the workflow log for downstream consumers.
+  Collects log4j (CVE-2021-44228) context for an internal host by running
+  four Splunk searches via /services/search/jobs/export — notable event
+  history, Java process metadata from datamodel=Endpoint.Processes,
+  children of Java processes, and the ES asset_lookup_by_str row for the
+  host. Requires the host's IP or hostname. Read-only; no remediation.
 enabled: true
 tags: ["splunk-soar", "investigation", "log4j", "cve-2021-44228", "splunk", "translated"]
 
@@ -21,8 +22,11 @@ inputs:
     description: "Hostname or IP of the host to query about."
 
 consts:
+  # Splunk REST: /services/search/jobs/export streams synchronous results
+  # back to the caller. Auth uses a session token in the Authorization
+  # header per Splunk REST best practice.
   splunk_search_endpoint: "https://CHANGEME-splunk:8089/services/search/jobs/export"
-  splunk_auth_header: "Bearer CHANGEME"
+  splunk_auth_header: "Bearer CHANGEME_SPLUNK_TOKEN"
 
 steps:
   - name: build_notable_history_query
@@ -45,7 +49,6 @@ steps:
     with:
       query: "| inputlookup asset_lookup_by_str | search asset IN (\"{{ inputs.ip_or_hostname }}\") | eval category = mvjoin(category, \"; \")"
 
-  # TODO: replace with a native Splunk connector when available.
   - name: run_notable_history
     type: http
     with:
@@ -54,11 +57,12 @@ steps:
       headers:
         Authorization: "{{ consts.splunk_auth_header }}"
         Content-Type: "application/x-www-form-urlencoded"
-      body: "search={{ steps.build_notable_history_query.output.query }}&output_mode=json"
+      body: "search={{ steps.build_notable_history_query.output.query | url_encode }}&output_mode=json"
     on-failure:
       retry:
-        max-attempts: 2
+        max-attempts: 3
         delay: "5s"
+        on-status: [429, 502, 503, 504]
       continue: true
 
   - name: run_process_info
@@ -69,8 +73,12 @@ steps:
       headers:
         Authorization: "{{ consts.splunk_auth_header }}"
         Content-Type: "application/x-www-form-urlencoded"
-      body: "search={{ steps.build_process_info_query.output.query }}&output_mode=json"
+      body: "search={{ steps.build_process_info_query.output.query | url_encode }}&output_mode=json"
     on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
+        on-status: [429, 502, 503, 504]
       continue: true
 
   - name: run_children_of_java
@@ -81,8 +89,12 @@ steps:
       headers:
         Authorization: "{{ consts.splunk_auth_header }}"
         Content-Type: "application/x-www-form-urlencoded"
-      body: "search={{ steps.build_children_of_java_query.output.query }}&output_mode=json"
+      body: "search={{ steps.build_children_of_java_query.output.query | url_encode }}&output_mode=json"
     on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
+        on-status: [429, 502, 503, 504]
       continue: true
 
   - name: run_es_assets
@@ -93,8 +105,12 @@ steps:
       headers:
         Authorization: "{{ consts.splunk_auth_header }}"
         Content-Type: "application/x-www-form-urlencoded"
-      body: "search={{ steps.build_es_assets_query.output.query }}&output_mode=json"
+      body: "search={{ steps.build_es_assets_query.output.query | url_encode }}&output_mode=json"
     on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
+        on-status: [429, 502, 503, 504]
       continue: true
 
   - name: summary

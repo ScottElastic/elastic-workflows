@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "AWS EC2 — Instance Isolation"
 description: >
-  Network-isolates an EC2 instance by swapping all of its existing
-  security groups for a single quarantine group. Captures the
-  instance's security-group configuration before and after the change
-  so the snapshot can be attached to a case for forensics. Optionally
-  enumerates any open SSH connections to that instance.
+  Network-isolates an EC2 instance by replacing every security group on
+  its primary ENI with a single quarantine group. Captures the
+  before/after security-group configuration so the change can be
+  attached to a Kibana case for forensic review. Requires an AWS SigV4
+  signing proxy (see consts.ec2_endpoint) — AWS does not accept
+  unsigned API calls.
 enabled: true
 tags: ["splunk-soar", "endpoint-response", "aws", "ec2", "network-isolation", "translated"]
 
@@ -37,12 +38,18 @@ inputs:
     description: "Optional Kibana case id to attach a before/after comment to."
 
 consts:
-  # AWS calls require SigV4 signing, which the http step does not
-  # natively support. Wire this through an AWS sidecar (Lambda, API GW,
-  # signed proxy) or replace with a native AWS connector once one is
-  # available. Endpoint shown for reference only.
-  ec2_endpoint: "https://ec2.CHANGEME-region.amazonaws.com"
-  aws_auth_header: "AWS4-HMAC-SHA256 CHANGEME_SIGV4_SIGNATURE"
+  # AWS EC2 Query API endpoint:
+  #   https://ec2.<region>.amazonaws.com/?Action=...&Version=2016-11-15
+  # Every call must be SigV4-signed. The plain `http` step cannot sign
+  # requests, so operators MUST front this with one of:
+  #   * an AWS Lambda invoked via API Gateway with IAM auth
+  #   * an aws-sigv4-proxy sidecar (https://github.com/awslabs/aws-sigv4-proxy)
+  #   * a small signing middleware that forwards to the real endpoint
+  # Replace `sigv4_proxy_base` with that proxy's base URL; it should
+  # accept the same query string and forward it with a valid signature.
+  sigv4_proxy_base: "https://CHANGEME-sigv4-proxy.internal/ec2"
+  aws_region: "us-east-1"
+  aws_auth_header: "Bearer CHANGEME_PROXY_TOKEN"
 
 steps:
   - name: validate_input
@@ -54,65 +61,68 @@ steps:
         with:
           message: "instance_id is required."
 
-  # TODO: replace with a native AWS EC2 connector when one ships.
+  # GET DescribeInstances — Query API, parse Reservations[].Instances[].SecurityGroups[].GroupId
   - name: describe_instance_before
     type: http
     with:
-      url: "{{ consts.ec2_endpoint }}/?Action=DescribeInstances&Version=2016-11-15&InstanceId.1={{ inputs.instance_id }}"
+      url: "{{ consts.sigv4_proxy_base }}/?Action=DescribeInstances&Version=2016-11-15&InstanceId.1={{ inputs.instance_id }}&Region={{ inputs.region }}"
       method: GET
       headers:
         Authorization: "{{ consts.aws_auth_header }}"
+        Accept: "application/json"
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: capture_existing_sgs
     type: data.set
     with:
-      # In a real run, parse the DescribeInstances response and extract
-      # SecurityGroups[*].GroupId into this array.
+      # The SigV4 proxy is expected to return the EC2 Query response as JSON.
       existing_groups: "${{ steps.describe_instance_before.output.Reservations[0].Instances[0].SecurityGroups | default: [] }}"
 
+  # POST ModifyInstanceAttribute with a single GroupId.1 — replaces ALL
+  # security groups on the primary ENI with the quarantine SG. This is
+  # the canonical way to isolate; no separate per-SG revoke call needed.
+  # Destructive: no continue:true.
   - name: assign_isolation_sg
     type: http
     with:
-      url: "{{ consts.ec2_endpoint }}/?Action=ModifyInstanceAttribute&Version=2016-11-15&InstanceId={{ inputs.instance_id }}&GroupId.1={{ inputs.isolation_security_group }}"
+      url: "{{ consts.sigv4_proxy_base }}/?Action=ModifyInstanceAttribute&Version=2016-11-15&InstanceId={{ inputs.instance_id }}&GroupId.1={{ inputs.isolation_security_group }}&Region={{ inputs.region }}"
       method: POST
       headers:
         Authorization: "{{ consts.aws_auth_header }}"
+        Accept: "application/json"
     on-failure:
       retry:
-        max-attempts: 2
+        max-attempts: 3
         delay: "5s"
 
+  # The Phantom playbook ran a per-SG revoke loop here as a "safety belt".
+  # In AWS EC2 that is a no-op for isolation: ModifyInstanceAttribute
+  # above already replaces the ENI's group list atomically, and
+  # RevokeSecurityGroupIngress only edits rules *inside* a group (which
+  # would corrupt unrelated workloads using those SGs). We keep the step
+  # name so downstream references don't break, but it now just records
+  # the SG ids that were detached so the case comment can show them.
   - name: remove_existing_sgs
-    type: foreach
+    type: data.set
     with:
-      items: ${{ steps.capture_existing_sgs.output.existing_groups }}
-    steps:
-      - name: revoke_old_sg
-        type: http
-        with:
-          # ModifyInstanceAttribute with the post-isolation group set
-          # effectively replaces the existing list; this loop is a
-          # safety belt that mirrors the original Phantom action.
-          url: "{{ consts.ec2_endpoint }}/?Action=RevokeSecurityGroupIngress&Version=2016-11-15&GroupId={{ item.GroupId }}"
-          method: POST
-          headers:
-            Authorization: "{{ consts.aws_auth_header }}"
-        on-failure:
-          continue: true
+      detached_groups: "${{ steps.capture_existing_sgs.output.existing_groups | map: 'GroupId' | default: [] }}"
 
   - name: describe_instance_after
     type: http
     with:
-      url: "{{ consts.ec2_endpoint }}/?Action=DescribeInstances&Version=2016-11-15&InstanceId.1={{ inputs.instance_id }}"
+      url: "{{ consts.sigv4_proxy_base }}/?Action=DescribeInstances&Version=2016-11-15&InstanceId.1={{ inputs.instance_id }}&Region={{ inputs.region }}"
       method: GET
       headers:
         Authorization: "{{ consts.aws_auth_header }}"
+        Accept: "application/json"
     on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: build_change_comment

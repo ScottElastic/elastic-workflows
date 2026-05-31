@@ -4,9 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Palo Alto Panorama — Outbound URL Block"
 description: >
-  Pushes one or more URLs into a Panorama URL-filter rule on the "shared"
-  device group, commits the configuration, and emits a normalized observable
-  for each URL submitted. Implements MITRE D3FEND outbound traffic filtering
+  Adds one or more URLs to a custom URL category in Panorama (shared by
+  default) via the XML API, then commits the candidate configuration and
+  pushes it to managed firewalls. Each URL is added with
+  `type=config&action=set`, followed by a `type=commit` and a `commit-all`
+  to the target device group. Inputs: `urls` (array), `device_group`.
+  Implements MITRE D3FEND outbound traffic filtering
   (d3f:OutboundTrafficFiltering).
 enabled: true
 tags: ["splunk-soar", "network-control", "outbound-filter", "panorama", "palo-alto", "translated"]
@@ -26,11 +29,12 @@ inputs:
     description: "Panorama device group that owns the URL filter object."
 
 consts:
-  # Replace with the base URL of your Panorama appliance and an API key with
-  # configuration-edit privileges. Panorama API auth is keyed by `key=`.
+  # Panorama base URL and API key (obtain via /api/?type=keygen).
+  # XML API reference: https://docs.paloaltonetworks.com/pan-os/11-2/pan-os-panorama-api
   panorama_base_url: "https://CHANGEME-panorama.example.com"
   panorama_api_key: "CHANGEME-panorama-api-key"
-  # Name of the URL block list / category to mutate on each call.
+  # Custom URL category that this workflow appends to. Must already exist in
+  # Panorama (Objects > Custom Objects > URL Category).
   panorama_block_category: "elastic-workflow-block"
 
 steps:
@@ -48,9 +52,10 @@ steps:
     with:
       items: ${{ inputs.urls }}
     steps:
-      # TODO: replace with a native Panorama connector once available. This
-      # stub mirrors the Phantom "block url" action against the panorama asset
-      # by editing a custom URL category and then issuing a commit.
+      # Append the URL as a <member> under the custom URL category's list.
+      # action=set is additive — repeated calls with the same value are
+      # idempotent at the config layer. Destructive change — no
+      # `continue: true`.
       - name: block_url
         type: http
         with:
@@ -58,30 +63,22 @@ steps:
           method: POST
           headers:
             Content-Type: "application/x-www-form-urlencoded"
-          body: "type=config&action=set&xpath=/config/shared/profiles/custom-url-category/entry[@name='{{ consts.panorama_block_category }}']/list&element=<member>{{ item }}</member>&key={{ consts.panorama_api_key }}"
+          query:
+            type: "config"
+            action: "set"
+            xpath: "/config/shared/profiles/custom-url-category/entry[@name='{{ consts.panorama_block_category }}']/list"
+            element: "<member>{{ item }}</member>"
+            key: "{{ consts.panorama_api_key }}"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
-          continue: true
-
-      - name: commit_changes
-        type: http
-        with:
-          url: "{{ consts.panorama_base_url }}/api/"
-          method: POST
-          headers:
-            Content-Type: "application/x-www-form-urlencoded"
-          body: "type=commit&cmd=<commit></commit>&key={{ consts.panorama_api_key }}"
-        on-failure:
-          retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "5s"
-          continue: true
 
       - name: emit_observable
+        # XML API responses include `response[@status='success']`. The HTTP
+        # client surfaces this as `output.response.status` after parsing.
         type: if
-        condition: "{{ steps.block_url.output.status }} == 'success'"
+        condition: "{{ steps.block_url.output.response.status | default: steps.block_url.output['@status'] | default: '' }} == 'success'"
         steps:
           - name: capture_blocked_url
             type: data.set
@@ -92,10 +89,11 @@ steps:
                 source: "Panorama"
                 status: "blocked"
                 device_group: "{{ inputs.device_group }}"
+                category: "{{ consts.panorama_block_category }}"
           - name: log_blocked_url
             type: console
             with:
-              message: "URL {{ item }} added to Panorama block list ({{ inputs.device_group }})."
+              message: "URL {{ item }} added to Panorama custom category {{ consts.panorama_block_category }}."
         else:
           - name: log_block_failed
             type: console
@@ -103,3 +101,39 @@ steps:
               message: |
                 Panorama did not confirm a successful update for {{ item }}.
                 response={{ steps.block_url.output | json }}
+
+  # Commit the candidate configuration on Panorama itself, then push to the
+  # target device group so managed firewalls receive the change. Both
+  # destructive — no `continue: true`.
+  - name: commit_changes
+    type: http
+    with:
+      url: "{{ consts.panorama_base_url }}/api/"
+      method: POST
+      headers:
+        Content-Type: "application/x-www-form-urlencoded"
+      query:
+        type: "commit"
+        cmd: "<commit><description>Elastic Workflows URL block update</description></commit>"
+        key: "{{ consts.panorama_api_key }}"
+    on-failure:
+      retry:
+        max-attempts: 3
+        delay: "10s"
+
+  - name: commit_all_to_device_group
+    type: http
+    with:
+      url: "{{ consts.panorama_base_url }}/api/"
+      method: POST
+      headers:
+        Content-Type: "application/x-www-form-urlencoded"
+      query:
+        type: "commit"
+        action: "all"
+        cmd: "<commit-all><shared-policy><device-group><entry name='{{ inputs.device_group }}'/></device-group></shared-policy></commit-all>"
+        key: "{{ consts.panorama_api_key }}"
+    on-failure:
+      retry:
+        max-attempts: 3
+        delay: "10s"

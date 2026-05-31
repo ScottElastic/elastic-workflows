@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Corelight — DNS Alert Investigation"
 description: >
-  Investigates a Suricata DNS alert by pivoting through Zeek/Corelight data
-  in Splunk. Pulls the DNS log matching the alert UID, checks for traffic
-  between the source host and resolved IPs, queries connection/HTTP/SSL/file
-  log entries, runs Suricata correlations, and submits any extracted SHA1
-  file hashes to VirusTotal for reputation.
+  Investigates a Suricata DNS alert by pivoting through Zeek/Corelight data in
+  Splunk. Pulls the DNS log matching the Corelight UID, then sequentially
+  searches conn, http, ssl, files, and Suricata sourcetypes for related
+  activity between the source host and resolved IPs. Submits every SHA1 file
+  hash found in the files log to VirusTotal. Requires a Splunk REST token
+  with search export permission.
 enabled: true
 tags: ["splunk-soar", "investigation", "corelight", "splunk", "dns", "translated"]
 
@@ -35,6 +36,9 @@ inputs:
     description: "ISO 8601 timestamp of the alert; used to bound the Splunk search."
 
 consts:
+  # Splunk REST: POST /services/search/jobs/export streams results immediately.
+  # Auth: `Authorization: Bearer <token>` from a Splunk Enterprise token or
+  # user/role token. See https://docs.splunk.com/Documentation/Splunk/latest/RESTREF.
   splunk_search_endpoint: "https://CHANGEME-splunk.example.com:8089/services/search/jobs/export"
   splunk_auth_header: "Bearer CHANGEME_SPLUNK_TOKEN"
   virustotal_connector_id: "CHANGEME-virustotal-connector"
@@ -83,6 +87,9 @@ steps:
             Content-Type: "application/x-www-form-urlencoded"
           body: "search={{ steps.build_source_dest_query.output.query }}&output_mode=json"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: traffic_seen_between_hosts
@@ -109,6 +116,9 @@ steps:
                 Content-Type: "application/x-www-form-urlencoded"
               body: "search={{ steps.build_connection_query.output.query }}&output_mode=json"
             on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
               continue: true
 
           - name: keep_nonzero_byte_flows
@@ -130,6 +140,9 @@ steps:
                     Content-Type: "application/x-www-form-urlencoded"
                   body: "search={{ steps.build_http_query.output.query }}&output_mode=json"
                 on-failure:
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
                   continue: true
 
               - name: build_ssl_query
@@ -147,6 +160,9 @@ steps:
                     Content-Type: "application/x-www-form-urlencoded"
                   body: "search={{ steps.build_ssl_query.output.query }}&output_mode=json"
                 on-failure:
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
                   continue: true
 
               - name: build_suricata_query
@@ -164,6 +180,9 @@ steps:
                     Content-Type: "application/x-www-form-urlencoded"
                   body: "search={{ steps.build_suricata_query.output.query }}&output_mode=json"
                 on-failure:
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
                   continue: true
 
               - name: build_file_query
@@ -181,6 +200,9 @@ steps:
                     Content-Type: "application/x-www-form-urlencoded"
                   body: "search={{ steps.build_file_query.output.query }}&output_mode=json"
                 on-failure:
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
                   continue: true
 
               - name: check_for_files

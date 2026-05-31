@@ -4,10 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Microsoft Defender for Endpoint — Network Restore"
 description: >
-  Lifts network isolation from a Microsoft Defender for Endpoint device.
-  Takes a uid (device id or hostname), validates the input, calls the
-  Defender ATP unisolate-machine endpoint, and emits a host observable
-  describing the result. Maps to MITRE D3FEND d3f:RestoreNetworkAccess.
+  Lifts Defender for Endpoint network isolation via
+  POST /api/machines/{id}/unisolate. uid must be the Defender machineId.
+  Duplicate calls for the same machine return HTTP 400 with
+  "Action is already in progress" — operators should poll the machine
+  action to confirm completion. Maps to MITRE D3FEND d3f:RestoreNetworkAccess.
 enabled: true
 tags: ["splunk-soar", "endpoint-response", "microsoft-defender", "network-restore", "translated"]
 
@@ -18,7 +19,7 @@ inputs:
   - name: uid
     type: string
     required: true
-    description: "Defender ATP machine id or hostname."
+    description: "Defender for Endpoint machineId (GUID/hash form, not hostname)."
   - name: comment
     type: string
     required: false
@@ -26,8 +27,10 @@ inputs:
     default: "Restored by Elastic Workflow network-restore translation"
 
 consts:
-  defender_base_url: "https://api.securitycenter.microsoft.com"
-  defender_bearer: "Bearer CHANGEME_DEFENDER_GRAPH_TOKEN"
+  # Microsoft Defender for Endpoint unified API host. Bearer token via
+  # OAuth2 client-credentials. App permission: Machine.Isolate.
+  defender_base_url: "https://api.security.microsoft.com"
+  defender_bearer: "Bearer CHANGEME_DEFENDER_TOKEN"
 
 steps:
   - name: validate_uid
@@ -37,8 +40,11 @@ steps:
       - name: log_missing
         type: console
         with:
-          message: "A device uid must be supplied to lift isolation."
+          message: "A Defender machineId must be supplied to lift isolation."
 
+  # Defender API: POST /api/machines/{id}/unisolate
+  # https://learn.microsoft.com/en-us/defender-endpoint/api/unisolate-machine
+  # Returns 201 Created with a MachineAction body. Rate limits: 100/min, 1500/hr.
   - name: unisolate_machine
     type: http
     with:
@@ -51,7 +57,7 @@ steps:
         Comment: "{{ inputs.comment }}"
     on-failure:
       retry:
-        max-attempts: 2
+        max-attempts: 3
         delay: "5s"
 
   - name: build_host_observable
@@ -63,7 +69,9 @@ steps:
         source: "Microsoft Defender for Endpoint"
         action: "isolation-lifted"
         defender_action_id: "{{ steps.unisolate_machine.output.id | default: '' }}"
-        status: "{{ steps.unisolate_machine.output.status | default: 'pending' }}"
+        machine_id: "{{ steps.unisolate_machine.output.machineId | default: inputs.uid }}"
+        status: "{{ steps.unisolate_machine.output.status | default: 'Pending' }}"
+        requestor_comment: "{{ inputs.comment }}"
 
   - name: log_result
     type: console
@@ -71,3 +79,4 @@ steps:
       message: |
         Defender isolation lift requested for {{ inputs.uid }}.
         action_id={{ steps.build_host_observable.output.observable.defender_action_id }}
+        status={{ steps.build_host_observable.output.observable.status }}

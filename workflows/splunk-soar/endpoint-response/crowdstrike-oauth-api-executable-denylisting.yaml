@@ -4,11 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "CrowdStrike — Executable Denylisting"
 description: >
-  Adds a file hash to CrowdStrike Falcon as a custom IOC scoped to a
-  specific device. Validates that both a device value and a hash were
-  provided, queries the device to retrieve its device_id, then uploads
-  an indicator (action=prevent) targeted at that device. Emits a file
-  observable describing what was denylisted.
+  Adds a file hash to CrowdStrike Falcon as a custom IOC with
+  action=prevent. Validates inputs, exchanges Falcon API credentials
+  for an OAuth2 bearer, resolves the device, then uploads the indicator
+  via /iocs/entities/indicators/v1. Destructive: future executions of
+  that hash will be blocked across the matching scope.
 enabled: true
 tags: ["splunk-soar", "endpoint-response", "crowdstrike", "ioc", "denylist", "translated"]
 
@@ -27,7 +27,8 @@ inputs:
 
 consts:
   crowdstrike_base_url: "https://api.crowdstrike.com"
-  crowdstrike_bearer: "Bearer CHANGEME_FALCON_OAUTH_TOKEN"
+  crowdstrike_client_id: "CHANGEME_FALCON_CLIENT_ID"
+  crowdstrike_client_secret: "CHANGEME_FALCON_CLIENT_SECRET"
 
 steps:
   - name: validate_inputs
@@ -39,20 +40,34 @@ steps:
         with:
           message: "Both device and hash must be supplied to denylist an executable."
 
+  - name: get_token
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/oauth2/token"
+      method: POST
+      headers:
+        Content-Type: "application/x-www-form-urlencoded"
+        Accept: "application/json"
+      body: "client_id={{ consts.crowdstrike_client_id }}&client_secret={{ consts.crowdstrike_client_secret }}"
+    on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
+
   - name: query_device
     type: http
     with:
       url: "{{ consts.crowdstrike_base_url }}/devices/queries/devices/v1"
       method: GET
       headers:
-        Authorization: "{{ consts.crowdstrike_bearer }}"
+        Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
       query:
         limit: 1
         filter: "hostname:'{{ inputs.device }}'"
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: capture_device_id
@@ -66,7 +81,7 @@ steps:
       url: "{{ consts.crowdstrike_base_url }}/iocs/entities/indicators/v1"
       method: POST
       headers:
-        Authorization: "{{ consts.crowdstrike_bearer }}"
+        Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
         Content-Type: "application/json"
       body:
         indicators:
@@ -81,9 +96,8 @@ steps:
             source: "Elastic Workflow"
     on-failure:
       retry:
-        max-attempts: 2
+        max-attempts: 3
         delay: "5s"
-      continue: true
 
   - name: build_file_observable
     type: data.set

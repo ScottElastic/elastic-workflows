@@ -4,9 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "PhishTank — URL Reputation Analysis"
 description: >
-  Looks up one or more URLs in PhishTank, derives a normalized OCSF
-  reputation score from the response, and produces both a per-URL
-  observable record and a human-readable summary table.
+  Looks up each input URL against PhishTank's `checkurl` endpoint
+  (`POST` form-encoded `url=&format=json&app_key=`) and assigns an
+  OCSF score: 10/Malicious when in_database+valid, 5/May_not_be_Safe
+  when in_database but unverified, 0/Unknown otherwise. Requires a
+  PhishTank developer app_key.
 enabled: true
 tags: ["splunk-soar", "reputation", "url", "phishtank", "translated"]
 
@@ -30,8 +32,8 @@ steps:
     with:
       items: ${{ inputs.urls }}
     steps:
-      # TODO: PhishTank does not yet have a first-class Elastic connector.
-      # Using http stub against the public PhishTank API.
+      # PhishTank has no first-party Elastic connector; this is the
+      # canonical form-encoded POST against the public API.
       - name: url_reputation
         type: http
         with:
@@ -39,11 +41,12 @@ steps:
           method: POST
           headers:
             Content-Type: "application/x-www-form-urlencoded"
-          body: "url={{ item }}&format=json&app_key={{ consts.phishtank_app_key }}"
+            User-Agent: "phishtank/elastic-workflows"
+          body: "url={{ item | url_encode }}&format=json&app_key={{ consts.phishtank_app_key }}"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: classify

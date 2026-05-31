@@ -4,10 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Automated Enrichment"
 description: >
-  Orchestrator workflow that flips the case to open and then chains three
-  dispatcher workflows: identifier activity analysis, attribute lookup, and
-  related ticket search. Use as a one-call enrichment trigger when a new
-  alert lands.
+  Single-call enrichment chain for a fresh alert. Moves the optional
+  Kibana case to "open", then fans out to three child dispatchers in
+  sequence: identifier activity analysis, attribute lookup, and related
+  ticket search. Operator must wire the three child workflow IDs in the
+  `consts` block to their deployed Workflow slug/id.
 enabled: true
 tags: ["splunk-soar", "enrichment", "orchestrator", "translated"]
 
@@ -22,8 +23,11 @@ inputs:
     description: "Kibana case to mark as open prior to enrichment."
 
 consts:
-  # Workflow IDs to dispatch. Wire these to the actual workflow IDs created
-  # for the downstream dispatch workflows in this folder.
+  # NOTE for operator: each const below MUST be replaced with the
+  # workflow id/slug returned by `GET /api/workflows` for the
+  # corresponding dispatcher workflow in this same folder. The
+  # `kibana.request` steps below target `/api/workflows/{id}/run`, so
+  # these ids show up directly in the path.
   identifier_activity_workflow: "CHANGEME-identifier-activity-analysis-dispatch"
   attribute_lookup_workflow: "CHANGEME-attribute-lookup-dispatch"
   related_tickets_workflow: "CHANGEME-related-tickets-search-dispatch"
@@ -57,6 +61,9 @@ steps:
         inputs:
           case_id: "{{ inputs.case_id }}"
     on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
       continue: true
 
   - name: run_attribute_lookup_dispatch
@@ -68,6 +75,9 @@ steps:
         inputs:
           case_id: "{{ inputs.case_id }}"
     on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
       continue: true
 
   - name: run_related_tickets_dispatch
@@ -79,6 +89,9 @@ steps:
         inputs:
           case_id: "{{ inputs.case_id }}"
     on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
       continue: true
 
   - name: log_completion

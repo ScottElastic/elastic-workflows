@@ -4,10 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Nagios — Service Monitor Auto-Restart"
 description: >
-  Reacts to a Nagios PROBLEM Service Alert email by parsing the target host
-  and failing service out of the email subject, checking each value against
-  allowlists, and running an SSH "service <name> restart" command on the
-  target when both checks pass.
+  Reacts to a Nagios PROBLEM Service Alert email by parsing host and service
+  from the subject line, enforcing operator-supplied allowlists, and posting
+  a `service <name> restart` command to a remote SSH execution proxy when
+  both allowlist checks pass. The SSH step is a destructive remediation —
+  it runs without continue: true so a non-2xx response surfaces.
 enabled: true
 tags: ["splunk-soar", "investigation", "nagios", "ssh", "translated"]
 
@@ -31,8 +32,10 @@ inputs:
     description: "Approved Linux service names the workflow is allowed to restart."
 
 consts:
-  # SSH execution stub — point at your remote execution proxy or internal
-  # automation host. Original playbook used a SOAR SSH asset to run commands.
+  # TODO: There is no native SSH connector in Elastic Workflows. Point this at
+  # your internal remote-exec service (e.g. AWX/Tower, RunDeck, Salt API, or
+  # a thin custom SSH proxy). The body shape below assumes the proxy accepts
+  # {ip_hostname, command} and returns {status, stdout, stderr}.
   ssh_exec_endpoint: "https://CHANGEME-ssh-runner.internal/api/execute"
   ssh_exec_auth_header: "Bearer CHANGEME_TOKEN"
 
@@ -82,7 +85,7 @@ steps:
         type: if
         condition: "{{ inputs.host_allowlist | includes: steps.parse_host_and_service.output.host }} and {{ inputs.service_allowlist | includes: steps.parse_host_and_service.output.service }}"
         steps:
-          # TODO: replace with a real SSH/remote-exec connector when available.
+          # Destructive — restart fail must surface (no continue: true).
           - name: ssh_restart_service
             type: http
             with:
@@ -96,9 +99,8 @@ steps:
                 command: "service {{ steps.parse_host_and_service.output.service }} restart"
             on-failure:
               retry:
-                max-attempts: 2
+                max-attempts: 3
                 delay: "5s"
-              continue: true
 
           - name: log_restart_result
             type: console

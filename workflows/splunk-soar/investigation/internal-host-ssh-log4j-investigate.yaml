@@ -4,11 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Linux Host — SSH-based log4j Sweep (CVE-2021-44228)"
 description: >
-  Targeted SSH-based collector for log4j (CVE-2021-44228). Uploads and runs
-  a bash script on the target that captures the Java version, listings of
-  running Java processes (via ps and jps), scans every .jar on disk for the
-  vulnerable JndiLookup.class, and searches .war files for embedded log4j
-  jars. Outputs are zipped and copied back.
+  Scans a Linux host for evidence of CVE-2021-44228 (log4j JndiLookup).
+  Input: an IP or hostname reachable by the SSH proxy. Uploads a bash
+  collector that captures the Java version, ps/jps process listings,
+  every .jar on disk containing JndiLookup.class, and .war files with
+  embedded log4j jars; results are zipped on-target and copied back.
 enabled: true
 tags: ["splunk-soar", "investigation", "log4j", "cve-2021-44228", "ssh", "linux", "translated"]
 
@@ -41,7 +41,12 @@ steps:
         host: "{{ inputs.ip_or_hostname }}"
         destination: "{{ consts.remote_output_dir }}/{{ consts.collector_script_name }}"
         script_name: "{{ consts.collector_script_name }}"
+    # Read-only collection — continue so analyst still gets partial
+    # evidence if one step fails (upload / run / fetch are sequential).
     on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
       continue: true
 
   - name: run_log4j_collector
@@ -54,7 +59,12 @@ steps:
       body:
         host: "{{ inputs.ip_or_hostname }}"
         command: "bash {{ consts.remote_output_dir }}/{{ consts.collector_script_name }} {{ inputs.ip_or_hostname }}"
+    # Read-only collection — continue so analyst still gets partial
+    # evidence if one step fails (upload / run / fetch are sequential).
     on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
       continue: true
 
   - name: fetch_log4j_output
@@ -67,7 +77,12 @@ steps:
       body:
         host: "{{ inputs.ip_or_hostname }}"
         path: "{{ consts.remote_output_dir }}/{{ inputs.ip_or_hostname }}_ssh_log4j_output.zip"
+    # Read-only collection — continue so analyst still gets partial
+    # evidence if one step fails (upload / run / fetch are sequential).
     on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
       continue: true
 
   - name: investigation_summary

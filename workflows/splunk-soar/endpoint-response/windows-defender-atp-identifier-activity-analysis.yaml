@@ -4,10 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Windows Defender ATP — Identifier Activity Analysis"
 description: >
-  Takes a file hash and/or a domain and queries Microsoft Defender for
-  Endpoint for the list of devices that observed each indicator.
-  Produces a normalized observable per indicator with the device hit
-  list, and writes a short console summary.
+  Pivots on a file hash or domain to find every Defender-managed device
+  that observed the indicator. Calls /api/files/{sha}/machines and/or
+  /api/domains/{domain}/machines and builds a normalized observable per
+  indicator with the device hit list (computerDnsName, lastSeen, riskScore,
+  etc. as returned by Defender). Useful for blast-radius enumeration during
+  triage. Maps to MITRE D3FEND d3f:IdentifierActivityAnalysis.
 enabled: true
 tags: ["splunk-soar", "endpoint-response", "windows-defender-atp", "hunt", "translated"]
 
@@ -18,21 +20,28 @@ inputs:
   - name: file_hash
     type: string
     required: false
-    description: "File hash to look up via Defender ATP."
+    description: "SHA1 or SHA256 file hash to pivot on via Defender."
   - name: domain
     type: string
     required: false
-    description: "Domain to look up via Defender ATP."
+    description: "Domain to pivot on via Defender."
 
 consts:
-  defender_base_url: "https://api.securitycenter.microsoft.com"
-  defender_bearer: "Bearer CHANGEME_DEFENDER_GRAPH_TOKEN"
+  # Microsoft Defender for Endpoint unified API host. Bearer token via
+  # OAuth2 client-credentials. App permission: Machine.Read.All (file/domain
+  # device-list endpoints require Machine.Read.All).
+  defender_base_url: "https://api.security.microsoft.com"
+  defender_bearer: "Bearer CHANGEME_DEFENDER_TOKEN"
 
 steps:
   - name: branch_file
     type: if
     condition: "{{ inputs.file_hash | size }} > 0"
     steps:
+      # Defender API: GET /api/files/{Sha1 or Sha256}/machines
+      # Returns 200 with a collection { value: [machine, ...] } where each
+      # machine carries id, computerDnsName, osPlatform, lastSeen, riskScore,
+      # etc. Lookup-style enrichment — continue on failure.
       - name: get_file_devices
         type: http
         with:
@@ -40,10 +49,11 @@ steps:
           method: GET
           headers:
             Authorization: "{{ consts.defender_bearer }}"
+            Accept: "application/json"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: any_file_hits
@@ -56,7 +66,7 @@ steps:
               observable:
                 type: "hash"
                 value: "{{ inputs.file_hash }}"
-                source: "Microsoft Defender ATP"
+                source: "Microsoft Defender for Endpoint"
                 devices_seen: "${{ steps.get_file_devices.output.value | default: [] }}"
                 device_count: "{{ steps.get_file_devices.output.value | size }}"
 
@@ -64,6 +74,7 @@ steps:
     type: if
     condition: "{{ inputs.domain | size }} > 0"
     steps:
+      # Defender API: GET /api/domains/{domain}/machines
       - name: get_domain_devices
         type: http
         with:
@@ -71,10 +82,11 @@ steps:
           method: GET
           headers:
             Authorization: "{{ consts.defender_bearer }}"
+            Accept: "application/json"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: any_domain_hits
@@ -87,7 +99,7 @@ steps:
               observable:
                 type: "domain"
                 value: "{{ inputs.domain }}"
-                source: "Microsoft Defender ATP"
+                source: "Microsoft Defender for Endpoint"
                 devices_seen: "${{ steps.get_domain_devices.output.value | default: [] }}"
                 device_count: "{{ steps.get_domain_devices.output.value | size }}"
 

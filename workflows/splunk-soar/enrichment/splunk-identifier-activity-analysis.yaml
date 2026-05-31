@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Splunk — Identifier Activity Analysis"
 description: >
-  Searches Splunk data models for evidence of recent device or user
-  interaction with a given indicator (URL, file hash, domain, or IP).
-  Builds an SPL tstats query per indicator type, runs it over the last
-  30 days, and emits a per-device observable record. Defaults to a 30d
-  lookback window.
+  Hunts a single indicator (URL, file hash, domain, or IP) across the
+  Splunk CIM data models — Web, Endpoint.Processes, Network_Resolution,
+  Network_Traffic. Runs one tstats query per non-empty input via the
+  /services/search/jobs synchronous oneshot endpoint with a 30-day
+  default lookback and emits a per-indicator observable summarising the
+  matching hosts and users.
 enabled: true
 tags: ["splunk-soar", "enrichment", "identifier-activity", "splunk", "translated"]
 
@@ -44,15 +45,11 @@ steps:
     type: if
     condition: "{{ inputs.url | size }} > 0"
     steps:
-      # Equivalent of parse_url + build_url_query in the Phantom source.
+      # Splunk REST takes form-encoded `search=<SPL>` on a single line.
       - name: build_url_query
         type: data.set
         with:
-          query: |
-            count fillnull_value="Unknown" from datamodel=Web.Web where Web.url IN ("*{{ inputs.url }}*") by Web.src Web.user Web.url
-            | `drop_dm_object_name("Web")` | `get_asset(src)`
-            | fields url, src, src_asset_id, src_dns, src_ip, user
-            | fillnull value="Unknown"
+          query: '| tstats count fillnull_value="Unknown" from datamodel=Web.Web where Web.url IN ("*{{ inputs.url }}*") by Web.src Web.user Web.url | `drop_dm_object_name("Web")` | `get_asset(src)` | fields url, src, src_asset_id, src_dns, src_ip, user | fillnull value="Unknown"'
 
       - name: run_url_query
         type: http
@@ -62,11 +59,12 @@ steps:
           headers:
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
-          body: "search=| tstats {{ steps.build_url_query.output.query }}&earliest_time={{ consts.start_time }}&output_mode=json&adhoc_search_level={{ consts.search_mode }}"
+          body: "search={{ steps.build_url_query.output.query | url_encode }}&earliest_time={{ consts.start_time }}&exec_mode=oneshot&output_mode=json&adhoc_search_level={{ consts.search_mode }}"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
+            on-status: [429, 502, 503, 504]
           continue: true
 
       - name: url_results_present
@@ -95,14 +93,7 @@ steps:
       - name: build_file_query
         type: data.set
         with:
-          query: |
-            count fillnull_value="Unknown" values(Processes.process_name) as process_name
-            from datamodel=Endpoint.Processes
-            where (Processes.process_hash IN ("{{ inputs.file_hash }}") OR Processes.process_hash IN ("*{{ inputs.file_hash }}*"))
-            by Processes.dest Processes.user Processes.process_hash
-            | `drop_dm_object_name("Processes")` | `get_asset(dest)`
-            | fields process_hash, process_name, dest, dest_asset_id, dest_dns, dest_ip, user
-            | fillnull value="Unknown"
+          query: '| tstats count fillnull_value="Unknown" values(Processes.process_name) as process_name from datamodel=Endpoint.Processes where (Processes.process_hash IN ("{{ inputs.file_hash }}") OR Processes.process_hash IN ("*{{ inputs.file_hash }}*")) by Processes.dest Processes.user Processes.process_hash | `drop_dm_object_name("Processes")` | `get_asset(dest)` | fields process_hash, process_name, dest, dest_asset_id, dest_dns, dest_ip, user | fillnull value="Unknown"'
 
       - name: run_file_query
         type: http
@@ -112,11 +103,12 @@ steps:
           headers:
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
-          body: "search=| tstats {{ steps.build_file_query.output.query }}&earliest_time={{ consts.start_time }}&output_mode=json&adhoc_search_level={{ consts.search_mode }}"
+          body: "search={{ steps.build_file_query.output.query | url_encode }}&earliest_time={{ consts.start_time }}&exec_mode=oneshot&output_mode=json&adhoc_search_level={{ consts.search_mode }}"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
+            on-status: [429, 502, 503, 504]
           continue: true
 
       - name: file_results_present
@@ -145,13 +137,7 @@ steps:
       - name: build_domain_query
         type: data.set
         with:
-          query: |
-            count from datamodel=Network_Resolution where DNS.query IN ("{{ inputs.domain }}")
-            by DNS.src DNS.query
-            | `drop_dm_object_name("DNS")` | `get_asset(src)`
-            | fields query, src, src_asset_id, src_dns, src_ip, src_owner
-            | rename src_owner as src_user
-            | fillnull value="Unknown"
+          query: '| tstats count from datamodel=Network_Resolution where DNS.query IN ("{{ inputs.domain }}") by DNS.src DNS.query | `drop_dm_object_name("DNS")` | `get_asset(src)` | fields query, src, src_asset_id, src_dns, src_ip, src_owner | rename src_owner as src_user | fillnull value="Unknown"'
 
       - name: run_domain_query
         type: http
@@ -161,11 +147,12 @@ steps:
           headers:
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
-          body: "search=| tstats {{ steps.build_domain_query.output.query }}&earliest_time={{ consts.start_time }}&output_mode=json&adhoc_search_level={{ consts.search_mode }}"
+          body: "search={{ steps.build_domain_query.output.query | url_encode }}&earliest_time={{ consts.start_time }}&exec_mode=oneshot&output_mode=json&adhoc_search_level={{ consts.search_mode }}"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
+            on-status: [429, 502, 503, 504]
           continue: true
 
       - name: domain_results_present
@@ -194,13 +181,7 @@ steps:
       - name: build_ip_query
         type: data.set
         with:
-          query: |
-            count fillnull_value="Unknown" from datamodel=Network_Traffic
-            where All_Traffic.dest_ip IN ("{{ inputs.ip }}")
-            by All_Traffic.src All_Traffic.user All_Traffic.dest_ip
-            | `drop_dm_object_name("All_Traffic")` | `get_asset(src)`
-            | fields src, src_asset_id, src_dns, src_ip, dest_ip, user
-            | fillnull value="Unknown"
+          query: '| tstats count fillnull_value="Unknown" from datamodel=Network_Traffic where All_Traffic.dest_ip IN ("{{ inputs.ip }}") by All_Traffic.src All_Traffic.user All_Traffic.dest_ip | `drop_dm_object_name("All_Traffic")` | `get_asset(src)` | fields src, src_asset_id, src_dns, src_ip, dest_ip, user | fillnull value="Unknown"'
 
       - name: run_ip_query
         type: http
@@ -210,11 +191,12 @@ steps:
           headers:
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
-          body: "search=| tstats {{ steps.build_ip_query.output.query }}&earliest_time={{ consts.start_time }}&output_mode=json&adhoc_search_level={{ consts.search_mode }}"
+          body: "search={{ steps.build_ip_query.output.query | url_encode }}&earliest_time={{ consts.start_time }}&exec_mode=oneshot&output_mode=json&adhoc_search_level={{ consts.search_mode }}"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
+            on-status: [429, 502, 503, 504]
           continue: true
 
       - name: ip_results_present

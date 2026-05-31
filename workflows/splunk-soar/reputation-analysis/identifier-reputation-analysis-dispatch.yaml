@@ -4,11 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Identifier Reputation Analysis — Dispatch"
 description: >
-  Orchestrator that scans an alert for available indicators (URL, IP,
-  domain, file hash) and dispatches them to per-provider reputation
-  workflows. Aggregates the resulting observables, tags the original
-  indicators with their normalized score, and posts a summary back to
-  the associated case. Maps to MITRE D3FEND IdentifierReputationAnalysis.
+  Orchestrator that scans the triggering alert (or an explicit
+  `indicators` input) for URL / IP / domain / file hash observables
+  and fans out to per-provider reputation workflows via the Kibana
+  Workflows REST API (`POST /api/workflows/{id}/run`). Results from
+  VirusTotal and PhishTank are merged and, when a Kibana case ID is
+  supplied, posted as a case comment. Maps to MITRE D3FEND
+  IdentifierReputationAnalysis.
 enabled: true
 tags: ["splunk-soar", "reputation", "dispatch", "orchestrator", "translated"]
 

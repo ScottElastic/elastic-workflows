@@ -4,12 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Track Active Directory Administrator Users"
 description: >
-  Hourly sweep that compares the current AD Administrators group membership
-  against a tracked baseline. New members trigger a notification email and
-  are appended to the baseline. The original Phantom playbook bootstrapped
-  its own Generator asset on first run; the Elastic equivalent relies on a
-  scheduled trigger instead and persists the baseline in an Elasticsearch
-  index that operators wire up via the index input below.
+  Hourly drift-detection workflow that compares current Active Directory
+  Administrators group membership against a baseline stored in
+  Elasticsearch. Any new sAMAccountName triggers an email notification
+  and is appended to the baseline so it isn't re-flagged. On first run
+  the baseline_index will be empty and every current admin will be
+  reported — bootstrap by seeding the index manually if that is not
+  desired.
 enabled: true
 tags: ["splunk-soar", "misc", "active-directory", "identity", "translated"]
 
@@ -37,7 +38,13 @@ inputs:
     description: "Sender address for new-admin alerts."
 
 consts:
-  # Substitute with your LDAP/AD proxy and credentials.
+  # Active Directory has no public REST surface. Wire this URL to an
+  # internal LDAP-proxy that accepts:
+  #   POST { object_class: "group", object_name, all_users: false }
+  # and returns:
+  #   { users: [ { samaccountname: "...", distinguishedname: "..." }, ... ] }
+  # Backed by ldap3/ldapjs, a Workato/n8n webhook, or Microsoft Graph
+  # (groups/{id}/members) for cloud-only directories.
   ad_endpoint: "https://CHANGEME-ldap-proxy.internal/api/get-group-members"
   ad_auth_header: "Bearer CHANGEME_TOKEN"
   # Persistent baseline of known administrator sAMAccountNames.
@@ -46,8 +53,10 @@ consts:
   email_connector_id: "CHANGEME-email-connector"
 
 steps:
-  # Look up the current Administrators membership.
-  # TODO: replace with a native LDAP/AD connector when one is available.
+  # POST to the LDAP-proxy to enumerate current members of the AD group.
+  # Read-only enrichment — tolerate transient failures; downstream
+  # derive_new_admins will see an empty diff and the scheduled run will
+  # try again next interval.
   - name: get_admins
     type: http
     with:
@@ -62,8 +71,8 @@ steps:
         all_users: false
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: read_baseline
@@ -107,7 +116,7 @@ steps:
             {% endfor %}
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "5s"
           continue: true
 

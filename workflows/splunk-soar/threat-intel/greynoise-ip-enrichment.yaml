@@ -4,10 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "GreyNoise — IP Enrichment by Severity"
 description: >
-  Branches GreyNoise enrichment depth on the incoming event severity. High
-  severity events get a full IP reputation query; everything else gets a
-  lighter quick lookup. Designed to limit GreyNoise quota use to incidents
-  that warrant it.
+  Enriches the alert source IP against the GreyNoise v3 API, choosing
+  endpoint depth based on the event severity. High-severity events get
+  the full noise context (classification, actor, tags); lower-severity
+  events get the cheaper quick lookup. Pass source_ip / severity to
+  override the alert defaults. Read-only — no remediation side effects.
 enabled: true
 tags: ["splunk-soar", "threat-intel", "greynoise", "translated"]
 
@@ -26,7 +27,8 @@ inputs:
     description: "Override severity ('high' triggers full reputation). Defaults to alert severity."
 
 consts:
-  greynoise_base_url: "https://api.greynoise.io/v2"
+  # GreyNoise v3 API — auth: `key:` header.
+  greynoise_base_url: "https://api.greynoise.io/v3"
   greynoise_api_key: "CHANGEME-greynoise-api-key"
 
 steps:
@@ -44,7 +46,7 @@ steps:
     type: if
     condition: "{{ steps.derive_severity.output.severity }} == 'high'"
     steps:
-      # TODO: swap to native GreyNoise connector for full IP reputation.
+      # Full noise context (classification, actor, tags, last seen, RIOT).
       - name: ip_reputation
         type: http
         with:
@@ -55,7 +57,7 @@ steps:
             Accept: "application/json"
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "5s"
           continue: true
 
@@ -66,8 +68,10 @@ steps:
             GreyNoise reputation for {{ steps.derive_ip.output.ip }}:
             classification={{ steps.ip_reputation.output.classification | default: 'unknown' }}
             actor={{ steps.ip_reputation.output.actor | default: '' }}
+            tags={{ steps.ip_reputation.output.tags | default: [] | join: ',' }}
+            last_seen={{ steps.ip_reputation.output.last_seen | default: '' }}
     else:
-      # TODO: swap to native GreyNoise connector for the quick lookup endpoint.
+      # Quick lookup: code + noise/riot booleans only.
       - name: lookup_ip
         type: http
         with:
@@ -78,7 +82,7 @@ steps:
             Accept: "application/json"
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "5s"
           continue: true
 

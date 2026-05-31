@@ -4,12 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "User-Approved Endpoint Containment Ticket"
 description: >
-  When an alert carries a source IP, prompt an incident commander to decide
-  whether to create a containment ticket. If they approve, check the IP
-  against a baseline of "infected endpoints": a brand-new host produces a
-  fresh containment ticket and is added to the baseline; a host already on
-  the list gets a reinfection ticket. Regardless of branch, the case is
-  closed once the chosen sequence completes.
+  Human-in-the-loop containment ticket workflow. Given a source IP, an
+  incident commander is prompted Yes/No. On Yes, the IP is looked up in
+  an "infected-endpoints-baseline" Elasticsearch index: unknown IPs get
+  a fresh ArcSight containment case and are added to the baseline;
+  known IPs get a reinfection case. The originating Kibana case is
+  closed at the end of every approved branch.
 enabled: true
 tags: ["splunk-soar", "misc", "containment", "approval", "case-management", "translated"]
 
@@ -45,8 +45,18 @@ steps:
         type: ai.prompt
         with:
           prompt: |
-            Endpoint at {{ inputs.source_address }} has been deemed infected.
-            Should we create a containment ticket? Reply Yes or No.
+            You are an incident commander approval prompt. An endpoint
+            at IP {{ inputs.source_address }} has been flagged as
+            infected by automated detection. The next step would open a
+            containment case in the ticketing system and (if the host
+            is new) add it to the infected-endpoints baseline.
+
+            Decide whether the containment ticket should be opened.
+
+            Output: respond with EXACTLY one of the two strings:
+              Yes
+              No
+            Do not include explanation, punctuation, or whitespace.
           timeout: "60m"
 
       - name: on_approval

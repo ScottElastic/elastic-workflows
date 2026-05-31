@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Reinfected Endpoint — Triage"
 description: >
-  Decides whether an infected source address is a first-time hit or a
-  repeat offender by checking it against the infected_endpoints list,
-  files a ServiceNow ticket sized to the situation, and closes the
-  container. New addresses are appended to the list for future
-  comparisons.
+  Classifies an infected source address as new or repeat by checking it against
+  a passed-in list, then files a ServiceNow incident sized to the situation
+  (urgency 2) via the native servicenow connector. New addresses are appended
+  to a tracking index (`soar-state-infected-endpoints`) so future runs can
+  detect reinfections. Inputs: `source_address` (required), `infected_endpoints`
+  (current known list).
 enabled: true
 tags: ["splunk-soar", "investigation", "endpoint", "servicenow", "translated"]
 
@@ -59,6 +60,9 @@ steps:
                   description: "{{ steps.build_repeat_summary.output.summary }}"
                   urgency: "2"
             on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
               continue: true
         else:
           # First-time infection: add to list, then file ticket.
@@ -70,6 +74,9 @@ steps:
                 source_address: "{{ inputs.source_address }}"
                 added_at: "{{ now }}"
             on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
               continue: true
 
           - name: build_new_summary
@@ -88,6 +95,9 @@ steps:
                   description: "{{ steps.build_new_summary.output.summary }}"
                   urgency: "2"
             on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
               continue: true
 
   - name: log_complete

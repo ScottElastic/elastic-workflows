@@ -4,11 +4,14 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Risk Notable — Analyst Verdict and Response Launcher"
 description: >
-  Lists the response workflows tagged for risk notable use, presents them
-  to the analyst that ran this workflow, and launches the chosen response.
-  Skipped entirely for automation accounts. If the Risk Investigation
-  workbook is available, the Render Verdict task is opened, updated, and
-  closed alongside the response launch.
+  Verdict step at the end of risk-notable investigation. Lists the
+  workflows tagged response_option, takes the analyst's response_choice
+  input, and launches that workflow via /api/workflows/{id}/run. Records
+  the verdict via the SOAR workbook proxy when present, and skips
+  entirely for automation callers (caller_user_type=automation). When
+  no candidate workflows are found, the case gets an error comment.
+  Operator wiring: response_choice values must be the workflow id of one
+  of the registered response_option workflows.
 enabled: true
 tags: ["splunk-soar", "threat-intel", "risk-notable", "verdict", "translated"]
 
@@ -66,6 +69,9 @@ steps:
           query:
             tag: "{{ consts.response_tag }}"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: ensure_results
@@ -120,6 +126,8 @@ steps:
             condition: "{{ inputs.response_choice | size }} > 0 and {{ inputs.response_choice }} != 'Do Nothing'"
             steps:
               # TODO: replace with a native workflow-launch step when available.
+              # Response workflows may be destructive — retry on
+              # transient Kibana errors then fail loud.
               - name: launch_chosen_workflow
                 type: http
                 with:
@@ -132,7 +140,9 @@ steps:
                     inputs:
                       case_id: "{{ inputs.case_id }}"
                 on-failure:
-                  continue: true
+                  retry:
+                    max-attempts: 3
+                    delay: "5s"
 
               - name: close_verdict_task
                 type: http

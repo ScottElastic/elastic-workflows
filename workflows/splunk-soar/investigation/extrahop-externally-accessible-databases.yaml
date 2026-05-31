@@ -4,10 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "ExtraHop — Externally Accessible Database Investigation"
 description: >
-  Responds to a "publicly_exposed_db" ExtraHop detection by collecting profile,
-  peer, and protocol information for both the internal database server and the
-  external client over the past 30 minutes, and blocking the client IP on a
-  Palo Alto Networks NGFW.
+  Responds to an ExtraHop "publicly_exposed_db" detection. Looks up both the
+  internal database server and the external client via /devices/search, queries
+  /activitymaps/query for 30 minutes of peer and protocol context on each, then
+  adds the client IP to the SOAR_BLOCK address group on a Palo Alto NGFW.
+  Blocking is destructive (no continue: true on the PAN-OS step).
 enabled: true
 tags: ["splunk-soar", "investigation", "extrahop", "database", "pan", "translated"]
 
@@ -30,12 +31,16 @@ inputs:
     description: "Internal database server IP."
 
 consts:
+  # ExtraHop REST — auth header `ExtraHop apikey=<key>`. See docs.extrahop.com/current/rest-api-guide/.
   extrahop_endpoint: "https://CHANGEME-extrahop/api/v1"
   extrahop_auth: "ExtraHop apikey=CHANGEME"
+  # PAN-OS XML API — auth via key= query parameter.
   pan_endpoint: "https://CHANGEME-pan/api"
   pan_api_key: "CHANGEME"
-  lookback_minutes: 30
   pan_vsys: "vsys1"
+  pan_block_group: "SOAR_BLOCK"
+  # Activity-map window: -1800000 ms = last 30 minutes.
+  lookback_ms: -1800000
 
 steps:
   - name: only_handle_exposed_db
@@ -62,32 +67,52 @@ steps:
       - name: get_db_peers
         type: http
         with:
-          url: "{{ consts.extrahop_endpoint }}/activitymaps"
+          url: "{{ consts.extrahop_endpoint }}/activitymaps/query"
           method: POST
           headers:
             Authorization: "{{ consts.extrahop_auth }}"
             Content-Type: "application/json"
           body:
-            device_id: "{{ steps.get_db_device_info.output[0].id }}"
-            from_time_minutes: "{{ consts.lookback_minutes }}"
-            peer_role: "any"
-            protocol: "any"
+            from: "{{ consts.lookback_ms }}"
+            until: 0
+            sources:
+              - origins:
+                  - object_type: "device"
+                    object_id: "{{ steps.get_db_device_info.output[0].id }}"
+                steps:
+                  - relationships:
+                      - role: "any"
+                        protocol: "any"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: get_db_protocols
         type: http
         with:
-          url: "{{ consts.extrahop_endpoint }}/activitymaps"
+          url: "{{ consts.extrahop_endpoint }}/activitymaps/query"
           method: POST
           headers:
             Authorization: "{{ consts.extrahop_auth }}"
             Content-Type: "application/json"
           body:
-            device_id: "{{ steps.get_db_device_info.output[0].id }}"
-            from_time_minutes: "{{ consts.lookback_minutes }}"
-            mode: "protocols"
+            from: "{{ consts.lookback_ms }}"
+            until: 0
+            edge_annotations: ["protocols"]
+            sources:
+              - origins:
+                  - object_type: "device"
+                    object_id: "{{ steps.get_db_device_info.output[0].id }}"
+                steps:
+                  - relationships:
+                      - role: "any"
+                        protocol: "any"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       # External client side
@@ -110,45 +135,87 @@ steps:
       - name: get_client_peers
         type: http
         with:
-          url: "{{ consts.extrahop_endpoint }}/activitymaps"
+          url: "{{ consts.extrahop_endpoint }}/activitymaps/query"
           method: POST
           headers:
             Authorization: "{{ consts.extrahop_auth }}"
             Content-Type: "application/json"
           body:
-            device_id: "{{ steps.get_client_device_info.output[0].id }}"
-            from_time_minutes: "{{ consts.lookback_minutes }}"
-            peer_role: "any"
-            protocol: "any"
+            from: "{{ consts.lookback_ms }}"
+            until: 0
+            sources:
+              - origins:
+                  - object_type: "device"
+                    object_id: "{{ steps.get_client_device_info.output[0].id }}"
+                steps:
+                  - relationships:
+                      - role: "any"
+                        protocol: "any"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: get_client_protocols
         type: http
         with:
-          url: "{{ consts.extrahop_endpoint }}/activitymaps"
+          url: "{{ consts.extrahop_endpoint }}/activitymaps/query"
           method: POST
           headers:
             Authorization: "{{ consts.extrahop_auth }}"
             Content-Type: "application/json"
           body:
-            device_id: "{{ steps.get_client_device_info.output[0].id }}"
-            from_time_minutes: "{{ consts.lookback_minutes }}"
-            mode: "protocols"
+            from: "{{ consts.lookback_ms }}"
+            until: 0
+            edge_annotations: ["protocols"]
+            sources:
+              - origins:
+                  - object_type: "device"
+                    object_id: "{{ steps.get_client_device_info.output[0].id }}"
+                steps:
+                  - relationships:
+                      - role: "any"
+                        protocol: "any"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
-      # TODO: replace http stub with a native Palo Alto connector when added.
+      # PAN-OS XML API: add the external client IP to the SOAR address group.
+      # Destructive — no continue: true.
       - name: block_client_on_palo_alto
         type: http
         with:
-          url: "{{ consts.pan_endpoint }}/?type=config&action=set&xpath=/config/devices/entry/vsys/entry[@name='{{ consts.pan_vsys }}']/address-group/entry[@name='SOAR_block']/static&element=<member>{{ inputs.client_ip }}</member>&key={{ consts.pan_api_key }}"
+          url: "{{ consts.pan_endpoint }}/"
           method: POST
+          headers:
+            Content-Type: "application/x-www-form-urlencoded"
+          query:
+            type: "config"
+            action: "set"
+            xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.pan_vsys }}']/address-group/entry[@name='{{ consts.pan_block_group }}']/static"
+            element: "<member>{{ inputs.client_ip }}</member>"
+            key: "{{ consts.pan_api_key }}"
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "5s"
-          continue: true
+
+      - name: commit_block
+        type: http
+        with:
+          url: "{{ consts.pan_endpoint }}/"
+          method: POST
+          query:
+            type: "commit"
+            cmd: "<commit></commit>"
+            key: "{{ consts.pan_api_key }}"
+        on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
 
       - name: investigation_summary
         type: console

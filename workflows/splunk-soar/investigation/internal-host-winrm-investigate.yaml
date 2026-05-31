@@ -4,11 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Windows Host — WinRM Investigation"
 description: >
-  Collects host context from a Windows endpoint over WinRM: process list,
-  active TCP connections, active sessions, plus a PowerShell collection
-  script that exports autoruns, installed programs, listening sockets,
-  processes, services, scheduled tasks, local users, and local groups to
-  CSV, zips them, copies the zip back, and removes the temp files.
+  Live forensic snapshot of a Windows endpoint over WinRM. Input: an IP
+  or hostname reachable by the WinRM proxy. Collects process list,
+  active TCP connections, and active sessions, then runs an inline
+  PowerShell collector that exports autoruns, installed programs,
+  listening sockets, processes, services, scheduled tasks, local users,
+  and local groups to CSV, zips them, copies the zip back, and removes
+  the temp files on-target.
 enabled: true
 tags: ["splunk-soar", "investigation", "endpoint", "winrm", "windows", "translated"]
 
@@ -37,7 +39,12 @@ steps:
         Authorization: "{{ consts.winrm_proxy_auth }}"
       body:
         host: "{{ inputs.ip_or_hostname }}"
+    # Read-only collection — continue so analyst gets partial data if
+    # any single command fails. Cleanup is also best-effort.
     on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
       continue: true
 
   - name: list_connections
@@ -49,7 +56,12 @@ steps:
         Authorization: "{{ consts.winrm_proxy_auth }}"
       body:
         host: "{{ inputs.ip_or_hostname }}"
+    # Read-only collection — continue so analyst gets partial data if
+    # any single command fails. Cleanup is also best-effort.
     on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
       continue: true
 
   - name: list_sessions
@@ -61,7 +73,12 @@ steps:
         Authorization: "{{ consts.winrm_proxy_auth }}"
       body:
         host: "{{ inputs.ip_or_hostname }}"
+    # Read-only collection — continue so analyst gets partial data if
+    # any single command fails. Cleanup is also best-effort.
     on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
       continue: true
 
   - name: build_collect_script
@@ -82,7 +99,12 @@ steps:
       body:
         host: "{{ inputs.ip_or_hostname }}"
         script: "{{ steps.build_collect_script.output.script }}"
+    # Read-only collection — continue so analyst gets partial data if
+    # any single command fails. Cleanup is also best-effort.
     on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
       continue: true
 
   - name: fetch_collect_zip
@@ -95,7 +117,12 @@ steps:
       body:
         host: "{{ inputs.ip_or_hostname }}"
         path: ".\\{{ inputs.ip_or_hostname }}-SOARFetch.zip"
+    # Read-only collection — continue so analyst gets partial data if
+    # any single command fails. Cleanup is also best-effort.
     on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
       continue: true
 
   - name: cleanup_collect_files
@@ -108,7 +135,12 @@ steps:
       body:
         host: "{{ inputs.ip_or_hostname }}"
         script: "Remove-Item -Path .\\{{ inputs.ip_or_hostname }}-SOARFetch*"
+    # Read-only collection — continue so analyst gets partial data if
+    # any single command fails. Cleanup is also best-effort.
     on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
       continue: true
 
   - name: investigation_summary

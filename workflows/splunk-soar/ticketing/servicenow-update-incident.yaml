@@ -4,10 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "ServiceNow — Update Incident with Investigation Note"
 description: >
-  Sends a comment from an Elastic Security investigation onto a ServiceNow
-  incident. If a SNOW incident id was supplied directly the workflow uses
-  it; otherwise it queries SNOW for incidents tied to the affected entity
-  and prompts an analyst to choose which incident to update.
+  Posts a free-form analyst note as a comment on a ServiceNow incident via the
+  Kibana servicenow connector (`pushToService` with `correlation_id`). When
+  `snow_incident` is supplied it updates that ticket directly; otherwise it
+  searches the SNOW `incident` table for recent tickets tied to `entity` and
+  asks an LLM to recommend which one to update. Inputs: `note` (required),
+  `snow_incident` (optional sys_id or number), `entity` (used for discovery).
 enabled: true
 tags: ["splunk-soar", "ticketing", "servicenow", "update", "translated"]
 
@@ -70,8 +72,9 @@ steps:
         with:
           message: "Updated SNOW incident {{ inputs.snow_incident }} with the supplied note."
     else:
-      # Discovery path: look up related incidents for the entity and prompt
-      # the analyst to choose which one to update.
+      # Discovery path: query SNOW Table API for recent incidents tied to the
+      # entity. servicenow connector has no generic query subAction so we go
+      # direct to /api/now/table/incident.
       - name: lookup_related
         type: http
         with:
@@ -81,9 +84,14 @@ steps:
             Authorization: "{{ consts.servicenow_auth_header }}"
             Accept: "application/json"
           query:
-            sysparm_query: "cmdb_ci.name={{ inputs.entity }}^sys_created_onONLast%207%20days"
-            sysparm_limit: "100"
+            sysparm_query: "cmdb_ci.name={{ inputs.entity }}^sys_created_onONLast 7 days@javascript:gs.beginningOfLast7Days()@javascript:gs.endOfToday()"
+            sysparm_fields: "number,sys_id,short_description,state,opened_at,assigned_to,priority"
+            sysparm_display_value: "all"
+            sysparm_limit: "50"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "3s"
           continue: true
 
       - name: build_prompt_message
@@ -91,9 +99,9 @@ steps:
         with:
           related_summary: "${{ steps.lookup_related.output.result | default: [] }}"
 
-      # TODO: integrate with an analyst-input action when available
-      # (e.g. Kibana Cases prompt or a Slack interactive message). For now
-      # we surface the candidate list to the console for review.
+      # No native interactive prompt step exists yet; we use ai.prompt to
+      # recommend a target, then surface candidates to the console so an
+      # analyst can re-run with snow_incident set.
       - name: surface_candidates
         type: console
         with:
@@ -105,13 +113,24 @@ steps:
         type: ai.prompt
         with:
           prompt: |
-            You are a SOC analyst helper. Given this list of ServiceNow
-            incidents and the note text, recommend the single incident
-            number that most likely should receive the note. Reply with
-            just the incident number.
+            You are a SOC triage assistant. Pick the single ServiceNow incident
+            from the candidate list below that best matches the analyst note,
+            using these signals (in order): (1) `short_description` keyword
+            overlap with the note, (2) most recent `opened_at`, (3) `state`
+            still open (not Resolved/Closed/Cancelled).
 
-            Note: {{ inputs.note }}
-            Incidents: {{ steps.build_prompt_message.output.related_summary | json }}
+            Respond with a JSON object only — no prose, no markdown fence —
+            with this exact shape:
+            {"incident_number": "INC0010023", "sys_id": "<32-char hex>", "confidence": "high|medium|low", "reason": "<one sentence>"}
+
+            If the candidate list is empty or no incident is a credible match,
+            return: {"incident_number": null, "sys_id": null, "confidence": "low", "reason": "no match"}
+
+            Analyst note:
+            {{ inputs.note }}
+
+            Candidate incidents (ServiceNow Table API result objects):
+            {{ steps.build_prompt_message.output.related_summary | json }}
         on-failure:
           continue: true
 

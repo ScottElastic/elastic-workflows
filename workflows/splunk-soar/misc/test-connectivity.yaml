@@ -4,11 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Connector Health Check"
 description: >
-  Equivalent of Phantom's "run test connectivity on every configured asset"
-  workflow. The Elastic translation enumerates configured Kibana connectors
-  and exercises each one with a lightweight ping (or an HTTP HEAD against
-  a documented connector health endpoint). Operators add specific connector
-  IDs to the inputs list for the connectors they want included.
+  Daily reachability probe for the Kibana connectors listed in
+  inputs.connector_ids. Each id is hit via the connector GET endpoint
+  (a 200 means the connector definition resolves on this deployment).
+  Emits a per-connector `probe` record and a console line; suitable as
+  an input to a downstream dashboard or alert on connector regressions.
 enabled: true
 tags: ["splunk-soar", "misc", "connector-health", "diagnostic", "translated"]
 

@@ -4,14 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Symantec IOC — Sandbox Detonation and Enrichment"
 description: >
-  Detonates a vault file inside Symantec Content Analysis, retrieves the
-  resulting report, then runs multiple reputation queries against the
-  observed indicators in parallel: file hash via VirusTotal and
-  ReversingLabs, URLs via Google Safe Browsing and Symantec DeepSight,
-  domains via OpenDNS Investigate, IPs via Anomali ThreatStream, and
-  URL traffic ranking via the legacy Alexa lookup. All results are folded
-  into a single summary that is attached as work notes on a new
-  ServiceNow incident.
+  Detonates a vault file inside Symantec Content Analysis, retrieves
+  the resulting sandbox report, then enriches each observed indicator:
+  file hash via VirusTotal and ReversingLabs, URLs via Google Safe
+  Browsing / Symantec DeepSight / Alexa, observed hosts via OpenDNS
+  Investigate (domains) and Anomali ThreatStream (IPs). Folds the
+  results into a work-notes summary and creates a new ServiceNow
+  incident with that summary.
 enabled: true
 tags: ["splunk-soar", "threat-intel", "symantec", "sandbox", "translated"]
 
@@ -58,6 +57,7 @@ steps:
       headers:
         Authorization: "{{ consts.content_analysis_token }}"
         Content-Type: "application/json"
+        Accept: "application/json"
       body:
         vault_id: "{{ inputs.vault_id }}"
         environment: "IntelliVM"
@@ -65,8 +65,8 @@ steps:
         source: "Elastic Workflows"
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "5s"
+        max-attempts: 3
+        delay: "10s"
 
   - name: content_analysis_get_report
     type: http
@@ -78,8 +78,8 @@ steps:
         Accept: "application/json"
     on-failure:
       retry:
-        max-attempts: 3
-        delay: "10s"
+        max-attempts: 5
+        delay: "15s"
 
   - name: extract_iocs
     type: data.set

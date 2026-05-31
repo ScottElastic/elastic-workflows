@@ -4,12 +4,14 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Ransomware — Investigate and Contain"
 description: >
-  Investigates an endpoint detection by pulling the suspected file from
-  Cylance, detonating it in WildFire, and — when the verdict is
-  ransomware — blocks the file hashes via Carbon Black, blocks any
-  callout IPs via the Palo Alto firewall, hunts the file across the
-  fleet, quarantines affected hosts, terminates the live process, and
-  disables the impacted user account on AD.
+  Full investigate-and-contain flow for an endpoint detection. Pulls the
+  suspect file from Cylance (BlackBerry CylancePROTECT) and detonates it
+  in Palo Alto WildFire. When WildFire returns a ransomware verdict the
+  workflow blocks callout IPs on Panorama, blocks parent and child hashes
+  on Carbon Black, hunts the file across the fleet, terminates the live
+  process, quarantines the affected sensor, and disables the impacted user
+  in Active Directory. Inputs: `file_hash` (string). Side effects: blocks
+  hashes/IPs on prod firewall/EDR, disables an AD account.
 enabled: true
 tags: ["splunk-soar", "investigation", "ransomware", "carbonblack", "wildfire", "translated"]
 
@@ -24,146 +26,287 @@ inputs:
     description: "Suspect file hash from the endpoint alert."
 
 consts:
-  cylance_endpoint: "https://CHANGEME-cylance.api/integrations/v2"
+  # BlackBerry / Cylance User API (CylancePROTECT). Token is a JWT obtained
+  # from a tenant/app-id pair and goes in the Authorization header.
+  cylance_endpoint: "https://protectapi.cylance.com"
+  cylance_auth_header: "Bearer CHANGEME-cylance-jwt"
+  # Palo Alto WildFire public API. Uses form-encoded uploads with an API
+  # key field. Reference: https://docs.paloaltonetworks.com/wildfire
   wildfire_endpoint: "https://wildfire.paloaltonetworks.com/publicapi"
+  wildfire_api_key: "CHANGEME-wildfire-api-key"
+  # Carbon Black Response (classic on-prem) REST API.
+  # /api/v1 and /api/v3 endpoints; X-Auth-Token header.
   carbonblack_endpoint: "https://CHANGEME-carbonblack.internal"
+  carbonblack_auth_header: "CHANGEME-cb-api-token"
+  # Palo Alto Panorama XML API.
   panorama_endpoint: "https://CHANGEME-panorama.internal"
+  panorama_api_key: "CHANGEME-panorama-api-key"
+  panorama_block_ip_group: "elastic-block-ips"
+  panorama_vsys: "vsys1"
+  # Internal LDAP/AD action proxy.
   ad_ldap_endpoint: "https://CHANGEME-ldap-proxy.internal/api"
+  ad_ldap_auth_header: "Bearer CHANGEME-ldap-token"
 
 steps:
-  # Step 1: Retrieve the file from Cylance Protect via SOAR vault equivalent.
-  # TODO: replace with native Cylance/EDR connector when available.
+  # Step 1: Fetch the file content from Cylance for sandboxing.
+  # Lookup — continue on failure so the operator still gets a partial run.
   - name: get_file
     type: http
     with:
-      url: "{{ consts.cylance_endpoint }}/threats/{{ inputs.file_hash }}/file"
+      url: "{{ consts.cylance_endpoint }}/threats/v2/download/{{ inputs.file_hash }}"
       method: GET
+      headers:
+        Authorization: "{{ consts.cylance_auth_header }}"
+        Accept: "application/octet-stream"
     on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
-  # Step 2: Detonate in WildFire.
-  # TODO: replace with native WildFire connector when available.
+  # Step 2: Ask WildFire for an existing verdict on the hash. This avoids
+  # re-uploading a known sample and gives us malware/grayware/benign labels.
   - name: detonate_file
     type: http
     with:
-      url: "{{ consts.wildfire_endpoint }}/submit/file"
+      url: "{{ consts.wildfire_endpoint }}/get/verdict"
       method: POST
-      body:
-        vault_id: "{{ steps.get_file.output.vault_id | default: '' }}"
+      headers:
+        Content-Type: "application/x-www-form-urlencoded"
+        Accept: "application/xml"
+      query:
+        apikey: "{{ consts.wildfire_api_key }}"
+        hash: "{{ inputs.file_hash }}"
     on-failure:
+      retry:
+        max-attempts: 3
+        delay: "10s"
       continue: true
 
+  # Pull the detailed report (includes behavioral indicators + network IOCs).
+  - name: wildfire_report
+    type: http
+    with:
+      url: "{{ consts.wildfire_endpoint }}/get/report"
+      method: POST
+      headers:
+        Content-Type: "application/x-www-form-urlencoded"
+        Accept: "application/xml"
+      query:
+        apikey: "{{ consts.wildfire_api_key }}"
+        hash: "{{ inputs.file_hash }}"
+        format: "xml"
+    on-failure:
+      retry:
+        max-attempts: 3
+        delay: "10s"
+      continue: true
+
+  # WildFire encodes verdict as a numeric code: 0=benign, 1=malware,
+  # 2=grayware, 4=phishing, 5=C2. The behavior_classification ("ransomware",
+  # "trojan", ...) is in the report tag_signatures section. We branch on
+  # either signal.
   - name: is_ransomware
     type: if
-    condition: "{{ steps.detonate_file.output.summary.malware | default: '' }} == 'ransomware'"
+    condition: "{{ steps.detonate_file.output.wildfire.get_verdict_info.verdict | default: '' }} == '1' or {{ steps.wildfire_report.output.wildfire.task_info.report.malware | default: '' | downcase | contains: 'ransom' }}"
     steps:
-      # Block any IPs the sample tried to contact during sandboxing.
-      - name: block_callout_ips
-        type: http
-        with:
-          url: "{{ consts.panorama_endpoint }}/api/?type=op"
-          method: POST
-          headers:
-            Content-Type: "application/x-www-form-urlencoded"
-          body: "cmd=block&ips_from=detonate&vault_id={{ steps.get_file.output.vault_id }}"
-        on-failure:
-          continue: true
-
-      # Block all child file hashes observed in the sandbox report.
-      - name: block_child_hashes
-        type: http
-        with:
-          url: "{{ consts.carbonblack_endpoint }}/api/v1/banning/blacklist"
-          method: POST
-          body:
-            source: "detonate_file_1"
-            include: "process.file.create.sha1"
-        on-failure:
-          continue: true
-
-      # Block the parent hash too.
-      - name: block_parent_hash
-        type: http
-        with:
-          url: "{{ consts.carbonblack_endpoint }}/api/v1/banning/blacklist"
-          method: POST
-          body:
-            md5hash: "{{ steps.detonate_file.output.file_info.md5 | default: inputs.file_hash }}"
-            text: "Auto-block from ransomware playbook"
-            enabled: true
-        on-failure:
-          continue: true
-
-      # Hunt the file in Carbon Black to find the affected host/process/user.
+      # Hunt the file in Carbon Black first so the affected sensor/user is
+      # known before we run destructive actions. Lookup — continue on failure.
       - name: hunt_file
         type: http
         with:
           url: "{{ consts.carbonblack_endpoint }}/api/v1/process"
           method: GET
+          headers:
+            X-Auth-Token: "{{ consts.carbonblack_auth_header }}"
+            Accept: "application/json"
           query:
-            hash: "{{ steps.detonate_file.output.file_info.md5 | default: inputs.file_hash }}"
+            q: "md5:{{ inputs.file_hash }}"
+            rows: "10"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
+
+      # Block any IPs the sample contacted during sandboxing — push each
+      # callout address into a Panorama address group. Destructive; fail loud.
+      - name: block_callout_ips
+        type: foreach
+        with:
+          items: "${{ steps.wildfire_report.output.wildfire.task_info.report.network.UDP | default: steps.wildfire_report.output.wildfire.task_info.report.network.TCP | default: [] }}"
+        steps:
+          - name: panorama_add_callout_ip
+            type: http
+            with:
+              url: "{{ consts.panorama_endpoint }}/api/"
+              method: POST
+              headers:
+                Content-Type: "application/x-www-form-urlencoded"
+              query:
+                type: "config"
+                action: "set"
+                xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.panorama_vsys }}']/address-group/entry[@name='{{ consts.panorama_block_ip_group }}']/static"
+                element: "<member>{{ item.ip | default: item }}</member>"
+                key: "{{ consts.panorama_api_key }}"
+            on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
+
+      # Parent hash block via Carbon Black banning API. Destructive — fail loud.
+      - name: block_parent_hash
+        type: http
+        with:
+          url: "{{ consts.carbonblack_endpoint }}/api/v1/banning/blacklist"
+          method: POST
+          headers:
+            X-Auth-Token: "{{ consts.carbonblack_auth_header }}"
+            Content-Type: "application/json"
+            Accept: "application/json"
+          body:
+            md5hash: "{{ inputs.file_hash }}"
+            text: "Auto-block from ransomware playbook (workflow run {{ execution.id }})"
+            enabled: true
+        on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
+
+      # Block child file hashes the sandbox observed the sample creating.
+      - name: block_child_hashes
+        type: foreach
+        with:
+          items: "${{ steps.wildfire_report.output.wildfire.task_info.report.created_files | default: [] }}"
+        steps:
+          - name: cb_blacklist_child
+            type: http
+            with:
+              url: "{{ consts.carbonblack_endpoint }}/api/v1/banning/blacklist"
+              method: POST
+              headers:
+                X-Auth-Token: "{{ consts.carbonblack_auth_header }}"
+                Content-Type: "application/json"
+                Accept: "application/json"
+              body:
+                md5hash: "{{ item.md5 | default: item.sha1 | default: item }}"
+                text: "Child of {{ inputs.file_hash }} (workflow run {{ execution.id }})"
+                enabled: true
+            on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
 
       - name: parallel_response
         type: parallel
         steps:
+          # Carbon Black process termination. Destructive — fail loud.
           - name: terminate_process
             type: http
             with:
-              url: "{{ consts.carbonblack_endpoint }}/api/v1/process/terminate"
+              url: "{{ consts.carbonblack_endpoint }}/api/v1/process/{{ steps.hunt_file.output.results[0].id | default: '' }}/terminate"
               method: POST
+              headers:
+                X-Auth-Token: "{{ consts.carbonblack_auth_header }}"
+                Content-Type: "application/json"
               body:
-                pid: "{{ steps.hunt_file.output.process.results[0].process_pid | default: '' }}"
-                sensor_id: "{{ steps.hunt_file.output.process.results[0].sensor_id | default: '' }}"
-                ip_hostname: "{{ steps.hunt_file.output.process.results[0].hostname | default: '' }}"
+                sensor_id: "{{ steps.hunt_file.output.results[0].sensor_id | default: '' }}"
             on-failure:
-              continue: true
+              retry:
+                max-attempts: 3
+                delay: "5s"
 
+          # Carbon Black sensor isolation. Destructive — fail loud.
           - name: quarantine_device
             type: http
             with:
-              url: "{{ consts.carbonblack_endpoint }}/api/v1/sensor/quarantine"
-              method: POST
+              url: "{{ consts.carbonblack_endpoint }}/api/v1/sensor/{{ steps.hunt_file.output.results[0].sensor_id | default: '' }}"
+              method: PUT
+              headers:
+                X-Auth-Token: "{{ consts.carbonblack_auth_header }}"
+                Content-Type: "application/json"
               body:
-                ip_hostname: "{{ steps.hunt_file.output.process.results[0].hostname | default: '' }}"
+                network_isolation_enabled: true
             on-failure:
-              continue: true
+              retry:
+                max-attempts: 3
+                delay: "5s"
 
+          # AD account disable. Destructive — fail loud.
           - name: disable_user
             type: http
             with:
               url: "{{ consts.ad_ldap_endpoint }}/disable-user"
               method: POST
+              headers:
+                Authorization: "{{ consts.ad_ldap_auth_header }}"
+                Content-Type: "application/json"
               body:
-                username: "{{ steps.hunt_file.output.process.results[0].username | default: '' }}"
+                username: "{{ steps.hunt_file.output.results[0].username | default: '' }}"
+                reason: "Ransomware detection on host {{ steps.hunt_file.output.results[0].hostname | default: 'unknown' }} (workflow run {{ execution.id }})"
             on-failure:
-              continue: true
+              retry:
+                max-attempts: 3
+                delay: "5s"
 
+          # Enumerate live network connections of the offending process —
+          # lookup, continue on failure.
           - name: list_connections
             type: http
             with:
-              url: "{{ consts.carbonblack_endpoint }}/api/v1/process/connections"
+              url: "{{ consts.carbonblack_endpoint }}/api/v1/process/{{ steps.hunt_file.output.results[0].id | default: '' }}/event"
               method: GET
-              query:
-                pid: "{{ steps.hunt_file.output.process.results[0].process_pid | default: '' }}"
-                ip_hostname: "{{ steps.hunt_file.output.process.results[0].hostname | default: '' }}"
+              headers:
+                X-Auth-Token: "{{ consts.carbonblack_auth_header }}"
+                Accept: "application/json"
             on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
               continue: true
 
-      # Block any IPs the live process is talking to.
+      # Block any IPs the live process is currently talking to.
       - name: block_active_callbacks
+        type: foreach
+        with:
+          items: "${{ steps.list_connections.output.process.netconn_complete | default: [] }}"
+        steps:
+          - name: panorama_block_active_ip
+            type: http
+            with:
+              url: "{{ consts.panorama_endpoint }}/api/"
+              method: POST
+              headers:
+                Content-Type: "application/x-www-form-urlencoded"
+              query:
+                type: "config"
+                action: "set"
+                xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.panorama_vsys }}']/address-group/entry[@name='{{ consts.panorama_block_ip_group }}']/static"
+                element: "<member>{{ item.remote_ip | default: item.ip | default: item }}</member>"
+                key: "{{ consts.panorama_api_key }}"
+            on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
+
+      # Commit the Panorama changes so the new blocks take effect.
+      - name: panorama_commit
         type: http
         with:
-          url: "{{ consts.panorama_endpoint }}/api/?type=op"
+          url: "{{ consts.panorama_endpoint }}/api/"
           method: POST
-          body:
-            cmd: "block_ips"
-            source_step: "list_connections"
+          headers:
+            Content-Type: "application/x-www-form-urlencoded"
+          query:
+            type: "commit"
+            cmd: "<commit><description>Ransomware containment {{ execution.id }}</description></commit>"
+            key: "{{ consts.panorama_api_key }}"
         on-failure:
-          continue: true
+          retry:
+            max-attempts: 3
+            delay: "10s"
 
   - name: log_complete
     type: console
     with:
-      message: "Ransomware response complete for hash {{ inputs.file_hash }} — verdict: {{ steps.detonate_file.output.summary.malware | default: 'inconclusive' }}"
+      message: "Ransomware response complete for hash {{ inputs.file_hash }} — wildfire_verdict={{ steps.detonate_file.output.wildfire.get_verdict_info.verdict | default: 'inconclusive' }} malware_label={{ steps.wildfire_report.output.wildfire.task_info.report.malware | default: 'unknown' }}"

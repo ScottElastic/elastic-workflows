@@ -4,10 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "TruSTAR Intelligence Management — Enrich Indicators"
 description: >
-  Pulls indicator reputation from TruSTAR Intelligence Management for a
-  set of supplied indicators, tags any matches with the returned priority
-  score, and emits a concise findings summary. Intended to be invoked as a
-  child workflow by a parent threat-investigation flow.
+  Child workflow: takes a list of indicators (any type), enriches each
+  via the TruSTAR / Splunk Intelligence Management metadata endpoint,
+  tags indicators with priority > 0, and logs per-indicator findings
+  plus Station deep-links. Note: TruSTAR APIs are being deprecated in
+  favour of Splunk Mission Control — treat the http steps as stubs.
 enabled: true
 tags: ["splunk-soar", "threat-intel", "trustar", "intelligence-management", "translated"]
 
@@ -21,6 +22,8 @@ inputs:
     description: "List of indicator values (IPs, hashes, domains, etc.) to enrich."
 
 consts:
+  # TruSTAR / Splunk Intelligence Management v1.3 — deprecated; replace
+  # with a Splunk Mission Control connector when available.
   trustar_endpoint: "https://api.trustar.co/api/1.3"
   trustar_auth_header: "Bearer CHANGEME_TRUSTAR_TOKEN"
   station_search_url: "https://station.trustar.co/browse/search"
@@ -31,7 +34,6 @@ steps:
     with:
       items: ${{ inputs.indicators }}
     steps:
-      # TODO: swap to a native TruSTAR / Intelligence Management connector when one ships.
       - name: indicator_reputation
         type: http
         with:
@@ -45,7 +47,7 @@ steps:
             limit: 10000
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "5s"
           continue: true
 
@@ -63,7 +65,6 @@ steps:
         type: if
         condition: "{{ steps.indicator_reputation.output.priorityScore | default: 0 }} > 0"
         steps:
-          # TODO: replace with the platform-native indicator tagging API once available.
           - name: tag_with_priority
             type: http
             with:
@@ -76,6 +77,9 @@ steps:
                 indicator: "{{ item }}"
                 tag: "priority_{{ steps.indicator_reputation.output.priorityScore }}"
             on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
               continue: true
 
       - name: log_indicator

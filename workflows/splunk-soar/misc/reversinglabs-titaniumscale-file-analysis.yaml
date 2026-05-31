@@ -4,10 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "ReversingLabs TitaniumScale — File Detonation"
 description: >
-  Submits each vaulted file to a ReversingLabs TitaniumScale appliance for
-  static and dynamic analysis, asks for the full report, and surfaces the
-  TC classification (malicious / suspicious / known / unknown) for each
-  sample. The classification list is returned for downstream automation.
+  Submits each input SHA-256 to a ReversingLabs TitaniumScale
+  appliance via `POST /api/tiscale/v1/upload?full_report=true`, then
+  surfaces the TitaniumCore classification (MALICIOUS / SUSPICIOUS /
+  KNOWN / UNKNOWN) per sample. The body assumes the file is already
+  resident on the appliance, keyed by hash; replace with a multipart
+  upload step if you need to push the bytes from the workflow runner.
 enabled: true
 tags: ["splunk-soar", "misc", "file-analysis", "reversinglabs", "titaniumscale", "translated"]
 
@@ -43,25 +45,31 @@ steps:
           headers:
             Authorization: "{{ consts.titaniumscale_token }}"
             Content-Type: "application/json"
+            Accept: "application/json"
+          query:
+            full_report: "true"
           body:
-            vault_id: "{{ item }}"
-            full_report: true
+            sha256: "{{ item }}"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "5s"
+            max-attempts: 3
+            delay: "10s"
           continue: true
 
       - name: record_classification
         type: data.set
         with:
           observable:
-            type: "vault_id"
+            type: "hash"
             value: "{{ item }}"
+            source: "ReversingLabs TitaniumScale"
             classification: "{{ steps.titaniumscale_detonate.output.tc_report.classification.classification | default: 'unknown' }}"
+            classification_factor: "{{ steps.titaniumscale_detonate.output.tc_report.classification.factor | default: 0 }}"
+            threat_name: "{{ steps.titaniumscale_detonate.output.tc_report.classification.result | default: '' }}"
+            sample_type: "{{ steps.titaniumscale_detonate.output.tc_report.info.file.file_type | default: '' }}"
 
       - name: log_classification
         type: console
         with:
           message: |
-            File {{ item }} TitaniumScale verdict: {{ steps.record_classification.output.observable.classification }}
+            File {{ item }} TitaniumScale verdict: {{ steps.record_classification.output.observable.classification }} threat={{ steps.record_classification.output.observable.threat_name }}

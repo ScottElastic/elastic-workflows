@@ -4,8 +4,10 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "ReversingLabs TitaniumCloud — URL Reputation"
 description: >
-  Queries ReversingLabs TitaniumCloud for URL reputation. For each URL,
-  records the returned classification.
+  Queries the ReversingLabs TitaniumCloud URL Threat Intelligence
+  (TCA-0403) report endpoint for each input URL and records the
+  classification, categories, third-party reputation statistics, and
+  first/last-seen timestamps on a per-URL observable.
 enabled: true
 tags: ["splunk-soar", "reputation", "url", "reversinglabs", "translated"]
 
@@ -38,6 +40,7 @@ steps:
           headers:
             Authorization: "{{ consts.rl_auth_header }}"
             Content-Type: "application/json"
+            Accept: "application/json"
           body:
             rl:
               query:
@@ -45,8 +48,8 @@ steps:
                 response_format: "json"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: store_classification
@@ -57,9 +60,17 @@ steps:
             type: "url"
             source: "ReversingLabs TitaniumCloud"
             classification: "{{ steps.rl_url_reputation.output.rl.classification | default: 'UNKNOWN' }}"
+            categories: "{{ steps.rl_url_reputation.output.rl.categories | default: [] }}"
+            first_seen: "{{ steps.rl_url_reputation.output.rl.first_seen | default: '' }}"
+            last_seen: "{{ steps.rl_url_reputation.output.rl.last_seen | default: '' }}"
+            third_party_stats:
+              malicious: "{{ steps.rl_url_reputation.output.rl.third_party_reputations.statistics.malicious | default: 0 }}"
+              clean: "{{ steps.rl_url_reputation.output.rl.third_party_reputations.statistics.clean | default: 0 }}"
+              undetected: "{{ steps.rl_url_reputation.output.rl.third_party_reputations.statistics.undetected | default: 0 }}"
+              total: "{{ steps.rl_url_reputation.output.rl.third_party_reputations.statistics.total | default: 0 }}"
 
       - name: log_url_classification
         type: console
         with:
           message: |
-            URL {{ item }} classification={{ steps.rl_url_reputation.output.rl.classification | default: 'UNKNOWN' }}
+            URL {{ item }} classification={{ steps.rl_url_reputation.output.rl.classification | default: 'UNKNOWN' }} malicious={{ steps.rl_url_reputation.output.rl.third_party_reputations.statistics.malicious | default: 0 }}

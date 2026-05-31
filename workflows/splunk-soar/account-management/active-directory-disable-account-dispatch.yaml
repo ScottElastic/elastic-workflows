@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Active Directory — Disable Account Dispatch"
 description: >
-  Orchestrator that invokes downstream "disable account" workflows tagged
-  with active_directory + disable_account (for example AD LDAP, Azure AD,
-  and AWS IAM lock workflows). Each downstream workflow returns an
-  observable; this playbook normalizes the records, tags the related
-  indicator, and writes a short summary back to the originating case.
+  Fan-out dispatcher that locks a user across AD LDAP, Azure AD, and AWS IAM
+  by invoking each provider-specific child workflow in turn. Required input:
+  the target user identifier. Optional Kibana case id receives a consolidated
+  status comment. Side effect: each downstream call disables the account in
+  the corresponding directory — operator must wire the child workflow IDs
+  via the Workflows API consts below.
 enabled: true
 tags:
   - "splunk-soar"
@@ -36,6 +37,9 @@ consts:
   # resolved via `community/dispatch_input_playbooks`; in Elastic, call
   # the Workflows API directly (or replace with `kibana.request` once a
   # native sub-workflow primitive exists).
+  # NOTE for operator: wire each downstream workflow's slug/id below to the
+  # actual deployed workflow IDs in your Kibana environment, then point
+  # workflows_api_base at your Kibana host.
   workflows_api_base: "https://CHANGEME-kibana.example.com/api/workflows"
   workflows_api_auth_header: "ApiKey CHANGEME_API_KEY"
 
@@ -52,10 +56,13 @@ steps:
       body:
         inputs:
           user: "{{ inputs.user }}"
+    # Dispatch is best-effort across providers — continue so a failure in
+    # one directory doesn't block locks in the others. Each downstream
+    # workflow is itself destructive and will fail loud internally.
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: dispatch_azure_ad_lock
@@ -70,10 +77,13 @@ steps:
       body:
         inputs:
           user: "{{ inputs.user }}"
+    # Dispatch is best-effort across providers — continue so a failure in
+    # one directory doesn't block locks in the others. Each downstream
+    # workflow is itself destructive and will fail loud internally.
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: dispatch_aws_iam_lock
@@ -88,10 +98,13 @@ steps:
       body:
         inputs:
           user: "{{ inputs.user }}"
+    # Dispatch is best-effort across providers — continue so a failure in
+    # one directory doesn't block locks in the others. Each downstream
+    # workflow is itself destructive and will fail loud internally.
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
+        max-attempts: 3
+        delay: "5s"
       continue: true
 
   - name: normalize_observables

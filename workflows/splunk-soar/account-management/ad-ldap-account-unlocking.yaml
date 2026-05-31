@@ -4,10 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "AD LDAP — Account Unlocking"
 description: >
-  Re-enables a Microsoft AD user account via the LDAP connector. Takes a
-  username, verifies it is not blank, invokes the AD LDAP "enable account"
-  action against the sAMAccountName, and surfaces a normalized observable
-  with the outcome.
+  Re-enables a Microsoft Active Directory user account by clearing the
+  ACCOUNTDISABLE (0x2) bit on userAccountControl through an internal LDAP
+  proxy. Takes a sAMAccountName and returns a normalized observable
+  containing the enable status and resolved DN. AD has no public REST
+  surface — operators must wire the proxy URL below to their LDAP bridge
+  or Microsoft Graph (for cloud-joined accounts).
 enabled: true
 tags: ["splunk-soar", "identity", "account-unlock", "ad-ldap", "translated"]
 
@@ -21,9 +23,14 @@ inputs:
     description: "AD sAMAccountName of the user to re-enable."
 
 consts:
-  # Point this at your AD LDAP integration. The original Phantom playbook
-  # talked to a SOAR asset; in Elastic, wire this to whatever bridges to
-  # AD (LDAP proxy, webhook-backed automation, or LDAPS endpoint).
+  # Active Directory does not expose a public REST API. Wire this URL to an
+  # internal LDAP-proxy (ldap3/ldapjs sidecar, an existing automation
+  # webhook, or Microsoft Graph for cloud-only users). The proxy is
+  # expected to:
+  #   * authenticate to AD with sufficient rights
+  #   * locate the user by sAMAccountName
+  #   * clear userAccountControl bit 0x2 (ACCOUNTDISABLE)
+  #   * return JSON { status, message, user_dn }
   ad_ldap_endpoint: "https://CHANGEME-ldap-proxy.internal/api/enable-account"
   ad_ldap_auth_header: "Bearer CHANGEME_TOKEN"
 
@@ -37,9 +44,8 @@ steps:
         with:
           message: "No user provided — aborting."
 
-  # TODO: replace this http stub with a real AD LDAP connector once available
-  # in Elastic Workflows. The original Phantom playbook used the
-  # `microsoft ad ldap` asset's "enable account" action.
+  # Re-enabling an account is also a sensitive identity action — retry,
+  # but fail loud rather than silently swallow errors.
   - name: enable_account
     type: http
     with:
@@ -51,11 +57,11 @@ steps:
       body:
         user: "{{ inputs.user }}"
         use_samaccountname: true
+        action: "enable"
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
-      continue: true
+        max-attempts: 3
+        delay: "5s"
 
   - name: build_observable
     type: data.set

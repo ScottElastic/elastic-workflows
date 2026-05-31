@@ -4,12 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Heads-Up Display Pinning Sample"
 description: >
-  Demonstration playbook for Phantom's pinned HUD cards. The original adds
-  four pin tiles to the case banner: affected IP count, affected user count,
-  most recent destination domain, and an IOC roll-up (count, most recent
-  value, and the set of IOC types observed). The Elastic translation surfaces
-  the same fields as structured case comments and a summary data object,
-  since there is no first-class HUD pinning in Kibana Cases today.
+  Demonstration / template workflow. Rolls up the SOAR-style HUD pin
+  tiles — affected IP count, affected user count, most recent
+  destination domain, and an IOC summary (count, most recent value,
+  distinct types) — into a single case comment and a `hud_summary`
+  data object that downstream workflows can read. Kibana Cases has no
+  pinned-card primitive, so the summary is text-only.
 enabled: true
 tags: ["splunk-soar", "misc", "case-summary", "hud", "translated"]
 

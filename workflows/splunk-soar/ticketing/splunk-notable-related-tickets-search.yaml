@@ -4,10 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Splunk Notable — Related Tickets Search"
 description: >
-  Searches Splunk Enterprise Security notable events for matches against
-  one or more indicators (typically a user or device) over the last 24
-  hours. Returns a normalized per-notable observable record and a brief
-  summary of the matches that downstream playbooks can roll up.
+  Searches the Splunk ES `notable` index for events matching any of the
+  supplied indicators (user, host, IP) over a configurable lookback (24h
+  default) and returns one normalized observable per match with the
+  notable id, rule, owner, and state. Run via /services/search/jobs with
+  exec_mode=oneshot so results come back in one POST.
 enabled: true
 tags: ["splunk-soar", "ticketing", "splunk", "notable", "related-tickets", "translated"]
 
@@ -26,9 +27,10 @@ inputs:
     description: "Splunk time-range string. Default -24h."
 
 consts:
-  # No native Splunk workflow connector yet — stub against the Splunk REST API.
+  # No native Splunk workflow connector yet — call the Splunk REST API
+  # directly. Use a Bearer auth token issued from Splunk.
   splunk_endpoint: "https://CHANGEME-splunk.internal:8089"
-  splunk_auth_header: "Bearer CHANGEME_TOKEN"
+  splunk_auth_header: "Bearer CHANGEME_SPLUNK_TOKEN"
 
 steps:
   - name: guard_inputs
@@ -48,8 +50,6 @@ steps:
       wildcarded: "*{{ inputs.search_terms | join: '*,*' }}*"
       spl: "search `notable` | search _raw IN (*{{ inputs.search_terms | join: '*,*' }}*)"
 
-  # TODO: replace with a native Splunk connector subAction when available.
-  # Original SOAR action: `run query` on the splunk asset.
   - name: search_notables
     type: http
     with:
@@ -58,11 +58,12 @@ steps:
       headers:
         Authorization: "{{ consts.splunk_auth_header }}"
         Content-Type: "application/x-www-form-urlencoded"
-      body: "search={{ steps.build_query.output.spl }}&earliest_time={{ inputs.lookback | default: '-24h' }}&latest_time=now&exec_mode=oneshot&output_mode=json&adhoc_search_level=smart"
+      body: "search={{ steps.build_query.output.spl | url_encode }}&earliest_time={{ inputs.lookback | default: '-24h' }}&latest_time=now&exec_mode=oneshot&output_mode=json&adhoc_search_level=smart"
     on-failure:
       retry:
-        max-attempts: 2
+        max-attempts: 3
         delay: "5s"
+        on-status: [429, 502, 503, 504]
       continue: true
 
   - name: have_results

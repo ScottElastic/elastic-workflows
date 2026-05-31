@@ -4,11 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Let's Encrypt — Phishing Domain Investigation"
 description: >
-  Investigates a domain or URL suspected of credential-harvesting phishing.
-  Queries Censys for TLS certificates matching the domain; if every result
-  is issued by Let's Encrypt and there are fewer than 50 hits, screenshots
-  the URLs, runs them through urlscan.io, and queries PassiveTotal whois.
-  Otherwise the playbook bails with a comment explaining why.
+  Investigates a domain or URL suspected of Let's Encrypt-backed phishing.
+  Queries crt.sh for certificates issued to the domain; if every issuer is
+  Let's Encrypt and the result set is small (<= 50 certs), screenshots the
+  URL, submits it to urlscan.io for analysis, and runs a PassiveTotal whois
+  lookup. Posts the combined summary back to an optional Kibana case.
 enabled: true
 tags: ["splunk-soar", "investigation", "phishing", "lets-encrypt", "censys", "urlscan", "translated"]
 
@@ -30,38 +30,44 @@ inputs:
     description: "Optional Kibana case to post the comment to."
 
 consts:
-  censys_endpoint: "https://search.censys.io/api/v1/search/certificates"
-  censys_auth: "Basic CHANGEME"
+  # crt.sh is a free public Certificate Transparency log search.
+  # JSON output: array of objects with issuer_name, name_value, not_before, etc.
+  crtsh_endpoint: "https://crt.sh"
   urlscan_endpoint: "https://urlscan.io/api/v1/scan/"
   urlscan_api_key: "CHANGEME"
   screenshot_endpoint: "https://api.screenshotmachine.com/"
   screenshot_api_key: "CHANGEME"
   passivetotal_endpoint: "https://api.passivetotal.org/v2/whois"
   passivetotal_auth: "Basic CHANGEME"
-  # Issuer DN used by the original Phantom playbook
-  lets_encrypt_issuer_dn: "C=US, O=Let's Encrypt, CN=Let's Encrypt Authority X3"
-  censys_result_limit: 50
+  # Substring matched against the crt.sh issuer_name field.
+  lets_encrypt_issuer_substring: "Let's Encrypt"
+  cert_result_limit: 50
 
 steps:
-  - name: censys_query_certificate
+  # crt.sh: GET /?q=<domain>&output=json — no auth required.
+  - name: crtsh_query_certificate
     type: http
     with:
-      url: "{{ consts.censys_endpoint }}"
-      method: POST
-      headers:
-        Authorization: "{{ consts.censys_auth }}"
-        Content-Type: "application/json"
-      body:
-        query: "\"{{ inputs.domain }}\""
+      url: "{{ consts.crtsh_endpoint }}/"
+      method: GET
+      query:
+        q: "{{ inputs.domain }}"
+        output: "json"
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
+        max-attempts: 3
+        delay: "5s"
       continue: true
+
+  - name: count_le_certs
+    type: data.set
+    with:
+      total: "{{ steps.crtsh_query_certificate.output | default: [] | size }}"
+      le_only: "{{ steps.crtsh_query_certificate.output | default: [] | all_match: 'issuer_name', consts.lets_encrypt_issuer_substring }}"
 
   - name: under_result_cap_and_lets_encrypt
     type: if
-    condition: "({{ steps.censys_query_certificate.output.metadata.count | default: 0 }} <= {{ consts.censys_result_limit }}) and ('{{ steps.censys_query_certificate.output.results[0].parsed_issuer_dn | default: '' }}' == '{{ consts.lets_encrypt_issuer_dn }}')"
+    condition: "({{ steps.count_le_certs.output.total | default: 0 }} <= {{ consts.cert_result_limit }}) and ({{ steps.count_le_certs.output.le_only }} == true) and ({{ steps.count_le_certs.output.total }} > 0)"
     steps:
       - name: screenshot_url
         type: http
@@ -73,6 +79,9 @@ steps:
             url: "{{ inputs.url }}"
             dimension: "Normal"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: urlscan_url
@@ -87,6 +96,9 @@ steps:
             url: "{{ inputs.url }}"
             visibility: "private"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: passivetotal_whois
@@ -99,15 +111,24 @@ steps:
           query:
             query: "{{ inputs.domain }}"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
           continue: true
 
       - name: build_associated_data
         type: data.set
         with:
           summary: |
-            Censys SSL Cert Information:
-              Issuer DN: {{ steps.censys_query_certificate.output.results[0].parsed_issuer_dn | default: 'n/a' }}
-              Subjects: {{ steps.censys_query_certificate.output.results[0].parsed_subject_dn | default: 'n/a' }}
+            Certificate Transparency (crt.sh):
+              Total certs seen: {{ steps.count_le_certs.output.total | default: 0 }}
+              First issuer: {{ steps.crtsh_query_certificate.output[0].issuer_name | default: 'n/a' }}
+              First SAN list: {{ steps.crtsh_query_certificate.output[0].name_value | default: 'n/a' }}
+              All Let's Encrypt: {{ steps.count_le_certs.output.le_only }}
+
+            URLScan:
+              Result UUID: {{ steps.urlscan_url.output.uuid | default: 'n/a' }}
+              Result URL:  {{ steps.urlscan_url.output.result | default: 'n/a' }}
 
             PassiveTotal Whois:
               Organization: {{ steps.passivetotal_whois.output.organization | default: 'n/a' }}
@@ -134,7 +155,7 @@ steps:
         with:
           message: |
             Skipping deep investigation for {{ inputs.domain }}.
-            Censys returned {{ steps.censys_query_certificate.output.metadata.count | default: 0 }} matches,
-            first issuer DN was '{{ steps.censys_query_certificate.output.results[0].parsed_issuer_dn | default: 'unknown' }}'.
-            The playbook only proceeds when results are <= {{ consts.censys_result_limit }}
-            and every issuer matches Let's Encrypt.
+            crt.sh returned {{ steps.count_le_certs.output.total | default: 0 }} certs;
+            all-Let's-Encrypt flag was {{ steps.count_le_certs.output.le_only | default: 'unknown' }}.
+            The playbook only proceeds when there are 1-{{ consts.cert_result_limit }} certs
+            and every issuer name contains '{{ consts.lets_encrypt_issuer_substring }}'.

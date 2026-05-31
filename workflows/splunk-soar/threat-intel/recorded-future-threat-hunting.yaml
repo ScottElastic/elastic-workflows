@@ -4,14 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Recorded Future — Threat Hunting Pivot"
 description: >
-  Starts from a single destination IP, pulls the Recorded Future risk
-  score and gates further work behind a configurable threshold. When the
-  threshold trips, the workflow pulls related IPs, domains, hashes, and
-  CVEs from Recorded Future and runs four Splunk searches looking for any
-  sightings of those entities across firewall, DNS, endpoint and
-  vulnerability data. If any related entity shows up in more than ten
-  events the analyst is prompted to add the originating IPs to the
-  organisation block list and a summary email is sent.
+  Starts from one destination IP, gates on its Recorded Future risk
+  score (default >= 90), then pivots through related IPs, domains,
+  hashes and CVEs by running four Splunk REST searches across firewall,
+  DNS, endpoint and vulnerability data. If any pivot returns sightings,
+  emails the SOC and emits a review console message listing the IPs the
+  analyst should add to the block list. Read-only by itself — the
+  blocking step is a human review handoff.
 enabled: true
 tags: ["splunk-soar", "threat-intel", "recorded-future", "splunk", "threat-hunting", "translated"]
 
@@ -31,8 +30,10 @@ inputs:
     description: "Recorded Future risk score required to launch the hunting pivot."
 
 consts:
+  # Recorded Future v2 — auth: `X-RFToken` header.
   recorded_future_base: "https://api.recordedfuture.com/v2"
   recorded_future_token: "CHANGEME-recorded-future-token"
+  # Splunk REST API — auth: bearer token.
   splunk_base: "https://CHANGEME-splunk.internal:8089"
   splunk_auth_header: "Bearer CHANGEME_SPLUNK_TOKEN"
   notify_to: "soc@example.com"
@@ -44,7 +45,6 @@ steps:
     with:
       ip: "{{ inputs.destination_ip | default: event.alerts[0].destination.ip | default: '' }}"
 
-  # TODO: swap to the native Recorded Future connector once available.
   - name: rf_ip_reputation
     type: http
     with:
@@ -53,9 +53,11 @@ steps:
       headers:
         X-RFToken: "{{ consts.recorded_future_token }}"
         Accept: "application/json"
+      query:
+        fields: "risk,intelCard"
     on-failure:
       retry:
-        max-attempts: 2
+        max-attempts: 3
         delay: "5s"
 
   - name: above_threshold
@@ -74,7 +76,7 @@ steps:
             fields: "relatedEntities,risk"
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "5s"
 
       # Bucket related entities by type for the Splunk pivots below.
@@ -86,7 +88,7 @@ steps:
           related_ips: "{{ steps.rf_ip_intelligence.output.data.relatedEntities | where: 'type', 'IpAddress' | default: [] }}"
           related_domains: "{{ steps.rf_ip_intelligence.output.data.relatedEntities | where: 'type', 'InternetDomainName' | default: [] }}"
 
-      # TODO: replace these http stubs with the native Splunk connector when supported.
+      # Four parallel Splunk REST searches across the related entity types.
       - name: hunt_ips_in_splunk
         type: http
         with:
@@ -98,7 +100,7 @@ steps:
           body: "search=search sourcetype=pan:t* earliest=-1d latest=now [| inputlookup huntip.csv | fields IP] | stats count by dest_ip&output_mode=json"
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "5s"
           continue: true
 
@@ -113,7 +115,7 @@ steps:
           body: "search=search sourcetype=pan:threat earliest=-1d latest=now [| inputlookup huntdomain.csv | fields domain] | stats count by dest_hostname&output_mode=json"
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "5s"
           continue: true
 
@@ -128,7 +130,7 @@ steps:
           body: "search=search index=main sourcetype=symantec:ep:risk:file earliest=-1d latest=now [| inputlookup hunthash.csv | fields hash] | stats count by file_hash&output_mode=json"
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "5s"
           continue: true
 
@@ -143,7 +145,7 @@ steps:
           body: "search=search index=main sourcetype=\"tenable:sc:vuln\" earliest=-7d latest=now [| inputlookup huntvuln.csv | fields vuln] | stats count by cve&output_mode=json"
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "5s"
           continue: true
 
@@ -172,8 +174,10 @@ steps:
               subject: "Malicious IP {{ steps.derive_ip.output.ip }} with related entities found"
               message: "{{ steps.build_email_body.output.body }}"
 
-      # TODO: this used to be an analyst prompt2 + add_list. Replace with a native
-      # human approval step or a Kibana case-based gate when supported.
+      # Original playbook used an interactive analyst prompt + add_list call.
+      # Until a native human-approval step lands, emit a REVIEW message for
+      # the on-call analyst — pair with a Kibana case or Slack handoff in
+      # your parent workflow.
       - name: ask_to_block
         type: console
         with:

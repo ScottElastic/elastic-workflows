@@ -4,11 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "log4j — Master Investigation Orchestrator (CVE-2021-44228)"
 description: >
-  Top-level orchestrator for the log4j (CVE-2021-44228) investigation. Reads
-  a configured list of potential affected hosts (and OS family), runs Splunk
-  context searches, then dispatches per-host investigation workflows for
-  Linux (SSH) and Windows (WinRM) — including dedicated log4j sweeps — and
-  finally chains into the log4j response playbook.
+  Top-level orchestrator for a CVE-2021-44228 investigation. Input: a
+  list of `{ip_or_hostname, os_family}` objects (os_family is unix,
+  windows, or unknown — unknown runs both branches). Fans out a Splunk
+  context search across all hosts, then per-host SSH/WinRM general and
+  log4j sweep investigations, and finally chains into the dedicated
+  log4j response workflow. Operator must wire all six child workflow
+  IDs in the `consts` block.
 enabled: true
 tags: ["splunk-soar", "investigation", "log4j", "cve-2021-44228", "orchestrator", "translated"]
 
@@ -25,6 +27,10 @@ inputs:
       os_family may be 'unix', 'windows', or 'unknown' (unknown runs both branches).
 
 consts:
+  # NOTE for operator: every workflow id below must match the slug/id
+  # returned by `GET /api/workflows` for the corresponding child
+  # workflow. The dispatch calls below append /{id}/execute to the
+  # workflow_runner_endpoint, so a stale/wrong id will simply 404.
   workflow_runner_endpoint: "https://CHANGEME-kibana/api/workflows"
   workflow_runner_auth: "ApiKey CHANGEME"
   splunk_log4j_workflow_id: "CHANGEME-internal_host_splunk_investigate_log4j"
@@ -62,7 +68,12 @@ steps:
           body:
             inputs:
               ip_or_hostname: "{{ inputs.hosts | map: 'ip_or_hostname' | join: ',' }}"
+        # Per-host dispatch is best-effort — continue so one bad host
+        # doesn't strand the rest of the sweep.
         on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
           continue: true
 
       - name: per_host_dispatch
@@ -150,5 +161,10 @@ steps:
           body:
             inputs:
               hosts: ${{ inputs.hosts }}
+        # Per-host dispatch is best-effort — continue so one bad host
+        # doesn't strand the rest of the sweep.
         on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
           continue: true

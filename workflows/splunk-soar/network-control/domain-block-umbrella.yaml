@@ -4,12 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Cisco Umbrella — Block Domain (Tag on Success)"
 description: >
-  A lightweight Umbrella domain-blocking flow. For each input domain, calls
-  the Umbrella Enforcement API to deny the domain, then on a successful
-  response tags the indicator as "blocked" so downstream rules and dashboards
-  can pick it up. Original SOAR playbook also wrote indicator tags via the
-  community/indicator_tag function — here we surface them as a structured
-  step output you can plumb into your threat-intel index.
+  Lightweight Umbrella domain-blocking flow. For each input domain, posts
+  a security event to the Cisco Umbrella Enforcement API and — on success
+  — writes a `blocked` tag back to the configured indicator index so SIEM
+  rules and dashboards can recognize already-actioned IOCs. Inputs:
+  `domains` (array). Side effect: appends documents to `indicator_index`.
 enabled: true
 tags: ["splunk-soar", "network-control", "dns-denylist", "cisco-umbrella", "translated"]
 
@@ -23,11 +22,13 @@ inputs:
     description: "Domains to block via Cisco Umbrella."
 
 consts:
+  # Cisco Umbrella Enforcement API.
+  # Reference: https://developer.cisco.com/docs/cloud-security/enforcement-api/
   umbrella_enforcement_endpoint: "https://s-platform.api.opendns.com/1.0/events"
   umbrella_customer_key: "CHANGEME-umbrella-customer-key"
   umbrella_source_name: "Elastic Workflows"
-  # If you want the "blocked" tag persisted somewhere, point this at your
-  # indicator/observables index. Leave as CHANGEME otherwise.
+  umbrella_device_id: "elastic-workflow"
+  # Target index for the blocked-indicator tag document.
   indicator_index: "CHANGEME-threat-indicators"
 
 steps:
@@ -36,7 +37,10 @@ steps:
     with:
       items: ${{ inputs.domains }}
     steps:
-      # TODO: swap to a native Cisco Umbrella connector when one ships.
+      # Submit the domain as a security event. Umbrella accepts the request
+      # asynchronously and returns 202 with `{id, disposition}`. Destructive
+      # action — no `continue: true`, but allow a few retries on transient
+      # network failure.
       - name: cisco_umbrella_block_domain
         type: http
         with:
@@ -44,25 +48,29 @@ steps:
           method: POST
           headers:
             Content-Type: "application/json"
+            Accept: "application/json"
           body:
-            alertTime: "{{ execution.id }}"
-            deviceId: "elastic-workflow"
+            alertTime: "{{ now | date: '%Y-%m-%dT%H:%M:%S.000Z' }}"
+            deviceId: "{{ consts.umbrella_device_id }}"
             deviceVersion: "1.0"
             dstDomain: "{{ item }}"
-            eventTime: "{{ execution.id }}"
+            eventTime: "{{ now | date: '%Y-%m-%dT%H:%M:%S.000Z' }}"
             providerName: "{{ consts.umbrella_source_name }}"
+            eventSeverity: "HIGH"
+            eventType: "Botnet"
+            eventDescription: "Domain submitted for DNS denylisting by Elastic Workflows."
+            protocolVersion: "1.0a"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
-          continue: true
+            max-attempts: 3
+            delay: "5s"
 
       - name: tag_blocked_domain
         type: if
-        condition: "{{ steps.cisco_umbrella_block_domain.output.status }} == 'success'"
+        condition: "{{ steps.cisco_umbrella_block_domain.output.id | default: '' | size }} > 0"
         steps:
-          # Records a "blocked" tag against the indicator. Adjust the index
-          # mapping/destination to fit your IOC store.
+          # Records a "blocked" tag against the indicator. Tag writes are
+          # bookkeeping — safe to continue on failure.
           - name: write_indicator_tag
             type: elasticsearch.index
             with:
@@ -72,10 +80,16 @@ steps:
                 type: "domain"
                 tags: ["blocked"]
                 source: "Cisco Umbrella"
+                umbrella_event_id: "{{ steps.cisco_umbrella_block_domain.output.id }}"
+                disposition: "{{ steps.cisco_umbrella_block_domain.output.disposition | default: 'unknown' }}"
                 workflow_run: "{{ execution.id }}"
+                "@timestamp": "{{ now }}"
             on-failure:
+              retry:
+                max-attempts: 3
+                delay: "5s"
               continue: true
           - name: log_tagged
             type: console
             with:
-              message: "Domain {{ item }} blocked in Umbrella and tagged 'blocked'."
+              message: "Domain {{ item }} blocked in Umbrella (event_id={{ steps.cisco_umbrella_block_domain.output.id }}); indicator tagged 'blocked'."

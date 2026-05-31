@@ -4,10 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Splunk ES — Close Investigation"
 description: >
-  Finishes an investigation by closing both the Kibana case and the
-  corresponding Splunk Enterprise Security notable. A short comment
-  with the executing user, the case ID, and the close timestamp is
-  written back into the Splunk notable.
+  Closes the Kibana case and the matching Splunk ES notable event in one
+  step. Sets the case status to closed and posts the case id, closing
+  user, and timestamp back into the notable via /services/notable_update
+  with status=closed. Requires container_id (Kibana case id) and event_id
+  (Splunk notable ruleUID).
 enabled: true
 tags: ["splunk-soar", "investigation", "splunk", "close", "translated"]
 
@@ -44,6 +45,8 @@ steps:
       user: "{{ inputs.closing_user | default: 'workflow-automation' }}"
       timestamp: "{{ inputs.close_time | default: 'now' }}"
 
+  # Close the Kibana case. No continue:true — closing is the primary intent
+  # of this workflow, fail loud if Kibana rejects the patch.
   - name: close_kibana_case
     type: kibana.request
     with:
@@ -55,9 +58,9 @@ steps:
             status: "closed"
     on-failure:
       retry:
-        max-attempts: 2
-        delay: "3s"
-      continue: true
+        max-attempts: 3
+        delay: "5s"
+        on-status: [429, 502, 503, 504]
 
   - name: ensure_event_id_present
     type: if
@@ -68,6 +71,8 @@ steps:
         with:
           comment: "Elastic case {{ inputs.container_id }} closed at {{ steps.resolve_user.output.timestamp }} by {{ steps.resolve_user.output.user }}"
 
+      # Destructive: mark notable closed. No continue:true — operator must
+      # see this fail so the notable is not left dangling on a closed case.
       - name: close_splunk_notable
         type: http
         with:
@@ -76,12 +81,12 @@ steps:
           headers:
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
-          body: "ruleUIDs={{ inputs.event_id }}&status=closed&comment={{ steps.build_close_comment.output.comment }}"
+          body: "ruleUIDs={{ inputs.event_id }}&status=5&comment={{ steps.build_close_comment.output.comment | url_encode }}&output_mode=json"
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "5s"
-          continue: true
+            on-status: [429, 502, 503, 504]
 
   - name: log_complete
     type: console

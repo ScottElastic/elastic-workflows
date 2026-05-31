@@ -4,14 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Splunk — Automated Email Investigation"
 description: >
-  End-to-end triage for a reported phishing email stored as an .eml
-  or .msg artifact in the vault. Detonates the message in Splunk
-  Attack Analyzer, splits the related observables, and for any
-  url/file indicator with an OCSF score above suspicious it pivots
-  into Splunk to find every identity that interacted with the
-  indicator. Aggregates per-IoC reputation observables and per-
-  identity interaction observables into a single set of findings,
-  and merges all sub-reports into a final analyst note.
+  Triages a reported phishing email stored as a SOAR vault attachment.
+  Submits the message to Splunk Attack Analyzer, classifies each related
+  observable by OCSF reputation score, and for url/file indicators above
+  the malicious threshold pivots into Splunk via /services/search/jobs/export
+  to find every host or user that interacted with the indicator. Requires
+  a vault_id (or container_id to scan all .eml/.msg in the container).
 enabled: true
 tags: ["splunk-soar", "email-triage", "investigation", "splunk", "ocsf", "translated"]
 
@@ -30,26 +28,39 @@ inputs:
     description: "Optional vault container scope."
 
 consts:
+  # Splunk Attack Analyzer REST: POST /v1/jobs accepts URLs/files and returns
+  # an OCSF observable bundle once analysis completes.
   splunk_attack_analyzer_endpoint: "https://CHANGEME-saa.api.splunk.com"
-  splunk_attack_analyzer_token: "Bearer CHANGEME"
+  splunk_attack_analyzer_token: "Bearer CHANGEME_SAA_TOKEN"
+  # Splunk Enterprise REST: /services/search/jobs/export streams synchronous
+  # results back without requiring sid polling.
   splunk_search_endpoint: "https://CHANGEME-splunk.example.com:8089"
-  splunk_search_token: "Bearer CHANGEME"
+  splunk_search_token: "Bearer CHANGEME_SPLUNK_TOKEN"
+  # Splunk SOAR REST (only used to list vault items).
+  soar_endpoint: "https://CHANGEME-soar.local"
+  soar_auth_header: "ph-auth-token: CHANGEME_SOAR_TOKEN"
   # OCSF reputation score above which indicators are considered actionable.
   malicious_score_threshold: 5
 
 steps:
-  # Phantom community function: vault_list — enumerate vault items.
+  # Splunk SOAR REST: GET /rest/container_attachment lists vault files for a
+  # container. Operators wire ph-auth-token via consts.
   - name: list_vault_items
     type: http
     with:
-      url: "https://CHANGEME-soar.local/rest/container_attachment"
+      url: "{{ consts.soar_endpoint }}/rest/container_attachment"
       method: GET
       headers:
-        Authorization: "Bearer CHANGEME_TOKEN"
+        ph-auth-token: "{{ consts.soar_auth_header }}"
       query:
         vault_id: "{{ inputs.vault_id | default: '' }}"
         container_id: "{{ inputs.container_id | default: '' }}"
+        _filter_name__iendswith: "'.eml','.msg'"
     on-failure:
+      retry:
+        max-attempts: 3
+        delay: "5s"
+        on-status: [429, 502, 503, 504]
       continue: true
 
   # Phantom block: fiter_email_items — keep only .eml/.msg items.
@@ -99,6 +110,8 @@ steps:
             condition: "'{{ item.type }}' == 'url' and {{ item.reputation.score_id | default: 0 }} > {{ consts.malicious_score_threshold }}"
             steps:
               # Sub-playbook: Splunk_Identifier_Activity_Analysis (url).
+              # /services/search/jobs/export streams results back as soon as
+              # the job runs; form-encoded body per Splunk REST.
               - name: who_clicked_url
                 type: http
                 with:
@@ -106,13 +119,13 @@ steps:
                   method: POST
                   headers:
                     Authorization: "{{ consts.splunk_search_token }}"
-                  body:
-                    search: "search index=proxy url=\"{{ item.value }}\" | stats count by user, src_ip"
-                    output_mode: "json"
+                    Content-Type: "application/x-www-form-urlencoded"
+                  body: "search=search+index%3Dproxy+url%3D%22{{ item.value }}%22+%7C+stats+count+by+user%2C+src_ip&output_mode=json"
                 on-failure:
                   retry:
-                    max-attempts: 2
-                    delay: "3s"
+                    max-attempts: 3
+                    delay: "5s"
+                    on-status: [429, 502, 503, 504]
                   continue: true
 
               - name: record_url_interaction
@@ -141,13 +154,13 @@ steps:
                   method: POST
                   headers:
                     Authorization: "{{ consts.splunk_search_token }}"
-                  body:
-                    search: "search index=edr sha256=\"{{ item.attributes.sha256 }}\" | stats count by user, host"
-                    output_mode: "json"
+                    Content-Type: "application/x-www-form-urlencoded"
+                  body: "search=search+index%3Dedr+sha256%3D%22{{ item.attributes.sha256 }}%22+%7C+stats+count+by+user%2C+host&output_mode=json"
                 on-failure:
                   retry:
-                    max-attempts: 2
-                    delay: "3s"
+                    max-attempts: 3
+                    delay: "5s"
+                    on-status: [429, 502, 503, 504]
                   continue: true
 
               - name: record_file_interaction
@@ -166,13 +179,13 @@ steps:
           method: POST
           headers:
             Authorization: "{{ consts.splunk_search_token }}"
-          body:
-            search: "search index=email message_id=\"{{ steps.detonate_in_attack_analyzer.output.observable.message_id | default: '' }}\" | stats count by recipient"
-            output_mode: "json"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search=search+index%3Demail+message_id%3D%22{{ steps.detonate_in_attack_analyzer.output.observable.message_id | default: '' }}%22+%7C+stats+count+by+recipient&output_mode=json"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
+            on-status: [429, 502, 503, 504]
           continue: true
 
       # convert_to_artifacts: build a single artifact array from reputation

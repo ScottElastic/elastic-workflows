@@ -4,10 +4,13 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Risk Notable — Protect Assets and Users"
 description: >
-  Looks up user and host indicators against Splunk ES Asset & Identity
-  tables, asks an analyst (or AI step) which matching entities to act on,
-  and routes the chosen names to the appropriate containment workflows
-  for assets and identities.
+  Auto-containment dispatcher for a Splunk ES risk notable. Looks up the
+  observed user and host strings against identity_lookup_expanded and
+  asset_lookup_by_str in Splunk, lets an AI step (or analyst) pick which
+  entities to act on, then fans out to each registered asset and
+  identity containment workflow with the chosen names. Caller supplies
+  users/hosts plus arrays of containment-workflow descriptors with
+  full_name and input_spec.
 enabled: true
 tags: ["splunk-soar", "remediation", "splunk-es", "risk-notable", "protect", "translated"]
 
@@ -33,8 +36,10 @@ inputs:
     description: "Available identity-containment workflows with { full_name, input_spec }."
 
 consts:
-  splunk_endpoint: "https://CHANGEME-splunk.internal/services/search/jobs"
-  splunk_auth_header: "Bearer CHANGEME_TOKEN"
+  # Splunk REST: /services/search/jobs with exec_mode=oneshot returns the
+  # inputlookup rows synchronously. Token belongs in a Bearer header.
+  splunk_endpoint: "https://CHANGEME-splunk.internal:8089/services/search/jobs"
+  splunk_auth_header: "Bearer CHANGEME_SPLUNK_TOKEN"
   workflow_runner_base: "/api/workflows"
 
 steps:
@@ -59,10 +64,13 @@ steps:
           method: POST
           headers:
             Authorization: "{{ consts.splunk_auth_header }}"
-          body:
-            search: '| inputlookup identity_lookup_expanded | search identity IN ({{ inputs.users | map: "raw" | json }}) | eval category=mvjoin(category, "; ")'
-            output_mode: "json"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search={{ '| inputlookup identity_lookup_expanded | search identity IN (' | append: inputs.users | join: ',' | append: ') | eval category=mvjoin(category, \"; \")' | url_encode }}&exec_mode=oneshot&output_mode=json"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
+            on-status: [429, 502, 503, 504]
           continue: true
 
   - name: have_hosts
@@ -76,24 +84,38 @@ steps:
           method: POST
           headers:
             Authorization: "{{ consts.splunk_auth_header }}"
-          body:
-            search: '| inputlookup asset_lookup_by_str | search asset IN ({{ inputs.hosts | map: "raw" | json }}) | eval category=mvjoin(category, "; ")'
-            output_mode: "json"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search={{ '| inputlookup asset_lookup_by_str | search asset IN (' | append: inputs.hosts | join: ',' | append: ') | eval category=mvjoin(category, \"; \")' | url_encode }}&exec_mode=oneshot&output_mode=json"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
+            on-status: [429, 502, 503, 504]
           continue: true
 
-  # In the source playbook an analyst was prompted per entity. Here, an AI
-  # step decides which to act on; swap for a manual approval if your SOC
-  # requires human-in-the-loop.
+  # Recommend which entities to contain based on the Splunk Asset & Identity
+  # matches. Swap this for a manual approval gate if the SOC requires HITL.
   - name: ai_select_entities
     type: ai.prompt
     connector-id: "CHANGEME-llm-connector"
     with:
       prompt: |
-        Decide which entities to contain. Reply with a JSON object:
-        { "users_to_contain": [...], "hosts_to_contain": [...] }
-        Asset matches: {{ steps.asset_search.output.results | default: [] | json }}
+        You are recommending which entities to auto-contain after a Splunk
+        ES risk notable. The Splunk Asset & Identity tables returned the
+        matches below.
+
+        Rules:
+        - Only recommend containing entities that are NOT marked as
+          privileged_account, executive, or critical asset category.
+        - Skip entities with category containing "service" or "test".
+        - If unsure, leave the entity out — false positives are worse than
+          missed contains here.
+
+        Return exactly this JSON shape and nothing else:
+          {"users_to_contain": ["..."], "hosts_to_contain": ["..."]}
+
         Identity matches: {{ steps.identity_search.output.results | default: [] | json }}
+        Asset matches: {{ steps.asset_search.output.results | default: [] | json }}
 
   - name: parse_selection
     type: data.set

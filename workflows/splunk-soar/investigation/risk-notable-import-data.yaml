@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Splunk Risk Notable — Import Contributing Events"
 description: >
-  Runs a Splunk Datamodel:Risk query for a notable's risk_object, parses
-  each contributing event into an artifact-shaped record (Splunk CIM →
-  Phantom CEF mapping), tags high-risk events, and builds a markdown
-  summary note with a MITRE ATT&CK breakdown by tactic and technique.
-  The note is suitable for inlining into a case comment.
+  Pulls the contributing risk events for a Splunk ES notable
+  (datamodel=Risk.All_Risk) via /services/search/jobs/export, transforms
+  each row into an artifact-shaped record with CIM→CEF mapping, indexes
+  them in Elasticsearch, and builds a markdown MITRE ATT&CK breakdown
+  suitable for a case comment. Requires container_id, event_id,
+  risk_object, risk_object_type, and the notable's info_min/max_time.
 enabled: true
 tags: ["splunk-soar", "investigation", "splunk", "risk-notable", "import", "mitre", "translated"]
 
@@ -85,37 +86,40 @@ steps:
           headers:
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
-          body: "search=|search {{ steps.compose_risk_query.output.query }}&output_mode=json"
+          body: "search={{ steps.compose_risk_query.output.query | url_encode }}&output_mode=json"
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "5s"
+            on-status: [429, 502, 503, 504]
           continue: true
 
       - name: results_present
         type: if
         condition: "${{ steps.run_risk_query.output.summary.total_events | default: 0 }} > 0"
         steps:
-          # Phantom: parse_risk_results_1 — convert each Splunk row into an
-          # artifact JSON with CIM→CEF mapping, threat objects, etc.
-          # Modeled here as an ai.prompt that produces the same structure.
-          # TODO: connect to your preferred LLM connector or replace with a
-          # deterministic transformer if available.
+          # Convert each Splunk Risk row into an artifact-shaped record with
+          # Splunk CIM → ArcSight CEF field renaming.
           - name: parse_risk_results
             type: ai.prompt
             connector-id: "CHANGEME-llm-connector"
             with:
               prompt: |
-                You will receive raw rows from a Splunk Datamodel:Risk search.
-                For each row, produce a JSON object with:
-                  - cef_data: row fields, with CIM names rewritten to CEF
-                    (src→sourceAddress|sourceHostName, dest→destinationAddress|destinationHostName,
-                    user→destinationUserName, file_hash→fileHash, url→requestURL, etc.)
-                  - tags: extracted from rule_attack_tactic_technique
-                  - data: structured threat_object and risk_event entries
-                  - name: from search_name
-                  - description: from risk_message or description
-                Output a JSON array, one entry per row.
+                Convert Splunk Datamodel:Risk rows to artifact records. For
+                each row, emit one JSON object with these fields and nothing
+                else:
+                  - cef_data: object remapping CIM fields to CEF
+                      src -> sourceAddress (if IPv4) or sourceHostName
+                      dest -> destinationAddress (if IPv4) or destinationHostName
+                      user -> destinationUserName
+                      file_hash -> fileHash
+                      url -> requestURL
+                  - tags: array of strings parsed from rule_attack_tactic_technique
+                  - data: { threat_object, risk_event } from the row
+                  - name: search_name (string)
+                  - description: risk_message, else description (string)
+                  - calculated_risk_score: number
+                Return only a JSON array. No prose, no markdown fences.
 
                 Rows: {{ steps.run_risk_query.output | json }}
 
@@ -134,20 +138,24 @@ steps:
             on-failure:
               continue: true
 
-          # Build a MITRE ATT&CK summary grouped by tactic/technique.
-          # Original Phantom block does this in Python — modeled as
-          # an LLM-assisted summary step here.
+          # Group the parsed artifacts by MITRE ATT&CK tactic and technique
+          # and emit a markdown summary.
           - name: build_mitre_summary
             type: ai.prompt
             connector-id: "CHANGEME-llm-connector"
             with:
               prompt: |
-                Given the parsed artifacts below, produce a markdown summary
-                organized by MITRE ATT&CK tactic and technique. For each
-                tactic produce an "## Tactic Name" heading, then for each
-                technique a "- #### Technique: TID" line followed by a
-                bulleted list of the underlying risk_message values. If no
-                MITRE data exists, output: "No Tactics / Techniques available in contributing risk events."
+                Build a markdown MITRE ATT&CK summary from these artifacts.
+                Group by tactic, then technique. Format:
+                  ## <Tactic Name>
+                  - #### Technique: <Tnnnn>
+                    - <risk_message>
+                    - <risk_message>
+                Sort tactics by total calculated_risk_score descending.
+                Deduplicate identical risk_message values within a technique.
+                If no MITRE tags exist on any artifact, return exactly:
+                "No Tactics / Techniques available in contributing risk events."
+                Return only markdown. No code fences, no commentary.
 
                 Artifacts: {{ steps.parse_risk_results.output | json }}
 

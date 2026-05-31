@@ -4,11 +4,12 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Splunk Risk Notable — Preprocess"
 description: >
-  Prepares a Splunk ES risk notable for investigation: marks the notable
-  artifact as evidence, renames the canonical artifact, pins a deep-link
-  to the ES incident-review screen, posts a back-reference comment into
-  the Splunk notable, and updates the case name, description, and
-  severity to mirror the source data.
+  Prepares a Splunk ES risk notable for investigation: records the notable
+  artifact as evidence on the Kibana case, pins a deep-link to the ES
+  incident-review screen, sets the notable to in_progress via
+  /services/notable_update with a back-reference comment, and updates the
+  case title, description, and severity to mirror the notable source and
+  urgency.
 enabled: true
 tags: ["splunk-soar", "investigation", "splunk", "risk-notable", "preprocess", "translated"]
 
@@ -51,7 +52,10 @@ inputs:
     description: "URL pointing to this case in Kibana."
 
 consts:
+  # Splunk Enterprise REST. notable_update is form-encoded and takes
+  # ruleUIDs (comma-separated event_ids), status, comment, urgency, owner.
   splunk_endpoint: "https://CHANGEME-splunk.internal:8089"
+  splunk_auth_header: "Bearer CHANGEME_SPLUNK_TOKEN"
   splunk_ui_host: "CHANGEME-splunk-ui"
   kibana_case_id: "CHANGEME-case-id"
 
@@ -103,12 +107,14 @@ steps:
           url: "{{ consts.splunk_endpoint }}/services/notable_update"
           method: POST
           headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
-          body: "ruleUIDs={{ inputs.event_id }}&comment={{ steps.build_es_back_reference.output.note }}&status=in_progress"
+          body: "ruleUIDs={{ inputs.event_id }}&comment={{ steps.build_es_back_reference.output.note | url_encode }}&status=in_progress&output_mode=json"
         on-failure:
           retry:
-            max-attempts: 2
+            max-attempts: 3
             delay: "5s"
+            on-status: [429, 502, 503, 504]
           continue: true
 
       # Update case metadata to reflect the notable. Elastic Workflows does

@@ -4,10 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Endpoint — Terminate Spawned Processes"
 description: >
-  Kills a known-malicious process and any children it has spawned.
-  For each {host, pid} pair, terminates the parent process via WinRM,
-  searches Splunk for any child processes (parent_process_id == pid),
-  and terminates those children too.
+  Terminates a known-malicious process tree on one or more Windows hosts.
+  For each {host, pid} pair, kills the parent via a WinRM proxy, then
+  queries Splunk for any children where parent_process_id == pid and
+  kills those too. Destructive: any kill failure halts the host's branch
+  so the operator can intervene.
 enabled: true
 tags: ["splunk-soar", "remediation", "endpoint", "process-kill", "winrm", "translated"]
 
@@ -22,9 +23,11 @@ inputs:
 
 consts:
   winrm_endpoint: "https://CHANGEME-winrm-proxy.internal/api/terminate-process"
-  winrm_auth_header: "Bearer CHANGEME_TOKEN"
-  splunk_search_endpoint: "https://CHANGEME-splunk.internal/services/search/jobs"
-  splunk_auth_header: "Bearer CHANGEME_TOKEN"
+  winrm_auth_header: "Bearer CHANGEME_WINRM_TOKEN"
+  # Splunk REST: /services/search/jobs returns children synchronously
+  # when exec_mode=oneshot.
+  splunk_search_endpoint: "https://CHANGEME-splunk.internal:8089/services/search/jobs"
+  splunk_auth_header: "Bearer CHANGEME_SPLUNK_TOKEN"
 
 steps:
   - name: terminate_parents
@@ -32,6 +35,8 @@ steps:
     with:
       items: ${{ inputs.parent_processes }}
     steps:
+      # Destructive: terminate the parent process. No continue:true — if the
+      # kill fails, the operator needs to see it before we hunt for children.
       - name: terminate_parent
         type: http
         with:
@@ -45,11 +50,13 @@ steps:
             pid: "{{ item.pid }}"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
-          continue: true
+            max-attempts: 3
+            delay: "5s"
+            on-status: [429, 502, 503, 504]
 
       # Discover any children the parent spawned, via Splunk search.
+      # Enrichment step — continue:true so a Splunk outage doesn't block
+      # the rest of the workflow (parent is already terminated).
       - name: find_children
         type: http
         with:
@@ -57,10 +64,13 @@ steps:
           method: POST
           headers:
             Authorization: "{{ consts.splunk_auth_header }}"
-          body:
-            search: "search index=* dest={{ item.host }} parent_process_id={{ item.pid }} | fields ProcessId"
-            output_mode: "json"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search=search+index%3D*+dest%3D{{ item.host }}+parent_process_id%3D{{ item.pid }}+%7C+fields+ProcessId&exec_mode=oneshot&output_mode=json"
         on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
+            on-status: [429, 502, 503, 504]
           continue: true
 
       - name: terminate_children
@@ -68,6 +78,7 @@ steps:
         with:
           items: '${{ steps.find_children.output.results | default: [] }}'
         steps:
+          # Destructive: terminate each child. No continue:true.
           - name: terminate_child
             type: http
             with:
@@ -80,7 +91,10 @@ steps:
                 ip_hostname: "{{ item.host }}"
                 pid: "{{ item.ProcessId }}"
             on-failure:
-              continue: true
+              retry:
+                max-attempts: 3
+                delay: "5s"
+                on-status: [429, 502, 503, 504]
 
       - name: log_pair_complete
         type: console

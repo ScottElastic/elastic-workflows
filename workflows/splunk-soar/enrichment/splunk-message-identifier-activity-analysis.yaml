@@ -4,10 +4,11 @@
 # ─────────────────────────────────────────────────────────────────────
 name: "Splunk — Message Identifier Activity Analysis"
 description: >
-  Searches the Splunk Email data model for evidence of a message id,
-  subject, or sender. Returns one observable per matching message with
-  recipient, addressee, subject, sender, and message id captured.
-  Implements D3FEND D3-IAA over Splunk Email telemetry.
+  Searches the Splunk Email CIM data model (Email.All_Email) via the
+  /services/search/jobs synchronous oneshot endpoint for messages
+  matching a message_id, subject, or sender, and emits one observable
+  per match capturing recipient, addressee, subject, sender, and
+  message_id. Implements D3FEND D3-IAA over Splunk Email telemetry.
 enabled: true
 tags: ["splunk-soar", "enrichment", "identifier-activity", "splunk", "email", "translated"]
 
@@ -41,16 +42,7 @@ steps:
       - name: build_message_query
         type: data.set
         with:
-          query: |
-            summariesonly=false fillnull_value="Unknown" count from datamodel=Email.All_Email
-            where (All_Email.message_id IN ("{{ inputs.message_id | default: '' }}")
-                   OR All_Email.subject IN ("{{ inputs.subject | default: '' }}")
-                   OR All_Email.src_user IN ("{{ inputs.sender | default: '' }}"))
-            by All_Email.orig_recipient, All_Email.recipient, All_Email.src_user, All_Email.subject, All_Email.message_id
-            | `drop_dm_object_name("All_Email")`
-            | rename orig_recipient as Addressee, recipient as Recipient, src_user as Sender, subject as Subject, message_id as Message_Id
-            | fields Addressee, Recipient, Sender, Subject, Message_Id
-            | fillnull value="Unknown"
+          query: '| tstats summariesonly=false fillnull_value="Unknown" count from datamodel=Email.All_Email where (All_Email.message_id IN ("{{ inputs.message_id | default: '''' }}") OR All_Email.subject IN ("{{ inputs.subject | default: '''' }}") OR All_Email.src_user IN ("{{ inputs.sender | default: '''' }}")) by All_Email.orig_recipient, All_Email.recipient, All_Email.src_user, All_Email.subject, All_Email.message_id | `drop_dm_object_name("All_Email")` | rename orig_recipient as Addressee, recipient as Recipient, src_user as Sender, subject as Subject, message_id as Message_Id | fields Addressee, Recipient, Sender, Subject, Message_Id | fillnull value="Unknown"'
 
       - name: run_message_query
         type: http
@@ -60,11 +52,12 @@ steps:
           headers:
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
-          body: "search=| tstats {{ steps.build_message_query.output.query }}&output_mode=json&adhoc_search_level={{ consts.search_mode }}"
+          body: "search={{ steps.build_message_query.output.query | url_encode }}&exec_mode=oneshot&output_mode=json&adhoc_search_level={{ consts.search_mode }}"
         on-failure:
           retry:
-            max-attempts: 2
-            delay: "3s"
+            max-attempts: 3
+            delay: "5s"
+            on-status: [429, 502, 503, 504]
           continue: true
 
       - name: results_present

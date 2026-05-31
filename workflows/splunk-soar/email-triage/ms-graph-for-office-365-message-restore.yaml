@@ -1,0 +1,106 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "MS Graph O365 — Message Restore"
+description: >
+  Recovers a soft-deleted Office 365 message from a user's
+  Recoverable Items folder back into their Inbox. Looks up the
+  message by Internet Message ID against the deletions folder via
+  Microsoft Graph, moves it to Inbox, and emits a normalized
+  observable. Maps to D3FEND RestoreEmail.
+enabled: true
+tags: ["splunk-soar", "email-triage", "email-restore", "o365", "ms-graph", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: email
+    type: array
+    required: true
+    description: "Mailboxes containing the message to restore."
+  - name: message_id
+    type: array
+    required: true
+    description: "Internet Message IDs to restore. Paired by position with email."
+
+consts:
+  graph_endpoint: "https://graph.microsoft.com/v1.0"
+  graph_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  - name: validate_inputs
+    type: if
+    condition: "{{ inputs.email | size }} == 0 or {{ inputs.message_id | size }} == 0"
+    steps:
+      - name: log_missing_input
+        type: console
+        with:
+          message: "Either email or message_id input is empty — aborting."
+
+  - name: process_each_target
+    type: foreach
+    with:
+      items: ${{ inputs.message_id }}
+    steps:
+      # Search the RecoverableItemsDeletions folder for the message.
+      # TODO: swap for a Graph connector once available.
+      - name: locate_deleted_message
+        type: http
+        with:
+          url: "{{ consts.graph_endpoint }}/users/{{ inputs.email[loop.index0] }}/mailFolders/RecoverableItemsDeletions/messages"
+          method: GET
+          headers:
+            Authorization: "{{ consts.graph_auth_header }}"
+          query:
+            $filter: "internetMessageId eq '{{ item }}'"
+            $select: "id,subject,internetMessageId"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: check_message_found
+        type: if
+        condition: "{{ steps.locate_deleted_message.output.value | size }} >= 1"
+        steps:
+          # Move the recovered message back to Inbox.
+          # Phantom asset: ms_graph_for_office_365 — "move email".
+          - name: move_to_inbox
+            type: http
+            with:
+              url: "{{ consts.graph_endpoint }}/users/{{ inputs.email[loop.index0] }}/messages/{{ steps.locate_deleted_message.output.value[0].id }}/move"
+              method: POST
+              headers:
+                Authorization: "{{ consts.graph_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                destinationId: "inbox"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+          - name: record_observable
+            type: data.set
+            with:
+              observable:
+                type: "Internet Message ID"
+                source: "MS Graph for Office365"
+                value: "{{ item }}"
+                mailbox: "{{ inputs.email[loop.index0] }}"
+                status: "restored"
+                message: "{{ steps.move_to_inbox.output.message | default: 'moved from RecoverableItemsDeletions to Inbox' }}"
+
+          - name: log_restore
+            type: console
+            with:
+              message: "Restored {{ item }} to {{ inputs.email[loop.index0] }}"
+        else:
+          - name: log_no_match
+            type: console
+            with:
+              message: "Message {{ item }} not in {{ inputs.email[loop.index0] }} deletions — cannot restore."

@@ -1,0 +1,137 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "DNS Denylisting — Dispatch"
+description: >
+  Coordinates DNS denylisting across configured providers. Extracts domain
+  indicators from an incoming alert/case, fans them out to vendor-specific
+  block workflows (e.g. Cisco Umbrella), tags successfully blocked indicators
+  as "blocked" in the indicator store, and posts a short summary back to the
+  originating case. Implements MITRE D3FEND DNS denylisting
+  (d3f:DNSDenylisting).
+enabled: true
+tags: ["splunk-soar", "network-control", "dns-denylist", "dispatch", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: domains
+    type: array
+    required: false
+    description: >
+      Optional explicit list of domains to block. If empty, the workflow
+      pulls domain indicators from the triggering alert.
+  - name: kibana_case_id
+    type: string
+    required: false
+    description: "Case to update with the dispatch summary, if any."
+
+consts:
+  # Endpoint for the per-vendor "block domain" sibling workflow. Replace with
+  # your imported workflow ID (or call the workflow directly via the
+  # workflows API).
+  vendor_workflows_endpoint: "https://CHANGEME-kibana.example.com/api/workflows"
+  vendor_workflows_auth: "ApiKey CHANGEME-kibana-api-key"
+  # Index where indicator "blocked" tags are persisted.
+  indicator_index: "CHANGEME-threat-indicators"
+
+steps:
+  # Phantom's "artifact_exists" check is reframed here as: do we have any
+  # domains to act on at all (either from inputs or the alert payload)?
+  - name: gather_domains
+    type: data.set
+    with:
+      domains: "${{ inputs.domains | default: event.alerts[0].threat.indicator.url.domain | default: [] }}"
+
+  - name: any_domains
+    type: if
+    condition: "{{ steps.gather_domains.output.domains | size }} > 0"
+    steps:
+      # Dispatches each domain to vendor-specific DNS denylisting workflows.
+      # The Phantom equivalent called community/dispatch_input_playbooks with
+      # the "denylist" tag; in Elastic Workflows you typically import the
+      # vendor workflows once and invoke them by name/ID via the workflows API.
+      - name: dispatch_per_domain
+        type: foreach
+        with:
+          items: ${{ steps.gather_domains.output.domains }}
+        steps:
+          - name: invoke_umbrella_block
+            type: http
+            with:
+              url: "{{ consts.vendor_workflows_endpoint }}/cisco-umbrella-dns-denylisting/run"
+              method: POST
+              headers:
+                kbn-xsrf: "true"
+                x-elastic-internal-origin: "Kibana"
+                Content-Type: "application/json"
+                Authorization: "{{ consts.vendor_workflows_auth }}"
+              body:
+                inputs:
+                  domains:
+                    - "{{ item }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+          # Mirror the "tag_indicators" step from the SOAR playbook: any
+          # domain handed to a successful vendor run is recorded with a
+          # "blocked" tag in the indicator index.
+          - name: tag_indicator_blocked
+            type: if
+            condition: "{{ steps.invoke_umbrella_block.output.status }} == 'success'"
+            steps:
+              - name: write_blocked_tag
+                type: elasticsearch.index
+                with:
+                  index: "{{ consts.indicator_index }}"
+                  document:
+                    indicator: "{{ item }}"
+                    type: "domain"
+                    tags: ["blocked"]
+                    source: "Elastic Workflows / DNS Denylisting Dispatch"
+                    workflow_run: "{{ execution.id }}"
+                on-failure:
+                  continue: true
+
+      # Replaces the SOAR markdown report template with a brief summary.
+      - name: build_summary
+        type: data.set
+        with:
+          summary:
+            domain_count: "{{ steps.gather_domains.output.domains | size }}"
+            domains: ${{ steps.gather_domains.output.domains }}
+            workflow_run: "{{ execution.id }}"
+
+      - name: log_summary
+        type: console
+        with:
+          message: |
+            DNS Denylisting Dispatch:
+            domains={{ steps.gather_domains.output.domains | size }}
+            run={{ execution.id }}
+
+      # Equivalent to the Phantom "update_isolation_task" step: drop the
+      # summary onto the linked Kibana case if the caller passed one.
+      - name: post_to_case
+        type: if
+        condition: "{{ inputs.kibana_case_id | size }} > 0"
+        steps:
+          - name: comment_on_case
+            type: kibana.addCaseComment
+            with:
+              caseId: "{{ inputs.kibana_case_id }}"
+              comment: |
+                DNS Denylisting Dispatch completed.
+                Domains processed: {{ steps.gather_domains.output.domains | size }}
+                Run ID: {{ execution.id }}
+    else:
+      - name: log_no_domains
+        type: console
+        with:
+          message: "No domain indicators available for DNS denylisting dispatch."

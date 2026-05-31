@@ -1,0 +1,75 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Connector Health Check"
+description: >
+  Equivalent of Phantom's "run test connectivity on every configured asset"
+  workflow. The Elastic translation enumerates configured Kibana connectors
+  and exercises each one with a lightweight ping (or an HTTP HEAD against
+  a documented connector health endpoint). Operators add specific connector
+  IDs to the inputs list for the connectors they want included.
+enabled: true
+tags: ["splunk-soar", "misc", "connector-health", "diagnostic", "translated"]
+
+triggers:
+  - type: manual
+  - type: scheduled
+    with:
+      every: "1d"
+
+inputs:
+  - name: connector_ids
+    type: array
+    required: true
+    description: >
+      List of Kibana connector IDs to test. Each should be reachable via
+      the standard kibana action APIs.
+
+consts:
+  # Kibana base URL for direct action invocation. Set to your deployment.
+  kibana_url: "https://CHANGEME-kibana.example.com"
+  kibana_api_key: "ApiKey CHANGEME"
+
+steps:
+  - name: validate_inputs
+    type: if
+    condition: "{{ inputs.connector_ids | size }} == 0"
+    steps:
+      - name: log_no_connectors
+        type: console
+        with:
+          message: "No connector IDs supplied — nothing to test."
+
+  - name: test_each_connector
+    type: foreach
+    with:
+      items: ${{ inputs.connector_ids }}
+    steps:
+      - name: probe_connector
+        type: http
+        with:
+          url: "{{ consts.kibana_url }}/api/actions/connector/{{ item }}"
+          method: GET
+          headers:
+            Authorization: "{{ consts.kibana_api_key }}"
+            kbn-xsrf: "true"
+            x-elastic-internal-origin: "Kibana"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: record_status
+        type: data.set
+        with:
+          probe:
+            connector_id: "{{ item }}"
+            reachable: "{{ steps.probe_connector.output.status }} == 'success'"
+            details: "{{ steps.probe_connector.output | json }}"
+
+      - name: log_probe
+        type: console
+        with:
+          message: "Connector {{ item }} reachable={{ steps.record_status.output.probe.reachable }}"

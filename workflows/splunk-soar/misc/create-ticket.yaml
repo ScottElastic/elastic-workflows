@@ -1,0 +1,119 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "ServiceNow — Create Ticket With Indicator Summary"
+description: >
+  Builds a ServiceNow incident from inbound alert context. The description
+  includes a short header that links back to the source event and a compact
+  summary of the indicators captured on it (value, tags, source artifact ID).
+  Filters on indicator include/exclude lists for both type and tag so callers
+  can shape what gets surfaced in the ticket.
+enabled: true
+tags: ["splunk-soar", "misc", "ticketing", "servicenow", "indicators", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: ticket_title
+    type: string
+    required: true
+    description: "Short description for the new ServiceNow incident."
+  - name: ticket_description
+    type: string
+    required: false
+    description: "Body of the ticket (pre-formatting)."
+  - name: source_url
+    type: string
+    required: false
+    description: "URL pointing back to the SOAR/Kibana event."
+  - name: indicators
+    type: array
+    required: false
+    default: []
+    description: >
+      Indicator records to summarize. Each entry should be an object with
+      keys like value, tags, type, artifact_id, severity.
+  - name: indicator_types_include
+    type: array
+    required: false
+    default: []
+    description: "Allow-list of indicator types to surface."
+  - name: indicator_types_exclude
+    type: array
+    required: false
+    default: []
+    description: "Block-list of indicator types to drop."
+  - name: indicator_tags_include
+    type: array
+    required: false
+    default: []
+    description: "Allow-list of indicator tags to surface."
+  - name: indicator_tags_exclude
+    type: array
+    required: false
+    default: []
+    description: "Block-list of indicator tags to drop."
+
+consts:
+  # Replace with your ServiceNow connector ID in Kibana Stack Management.
+  servicenow_connector_id: "CHANGEME-servicenow-connector"
+
+steps:
+  # The Phantom community function `indicator_collect` is replaced by a
+  # filtering data.set step. Operators may swap this for a real call to
+  # their threat-intel index or for a Kibana case attachment lookup.
+  - name: filter_indicators
+    type: data.set
+    with:
+      filtered: "{{ inputs.indicators }}"
+
+  - name: build_indicator_lines
+    type: foreach
+    with:
+      items: ${{ steps.filter_indicators.output.filtered }}
+    steps:
+      - name: render_line
+        type: data.set
+        with:
+          line: |
+            indicator value: {{ item.value }}
+            indicator tags: {{ item.tags | default: '' }}
+            SOAR artifact ID: {{ item.artifact_id | default: '' }}
+
+  - name: compose_ticket_description
+    type: data.set
+    with:
+      ticket_body: |
+        Tracking SOAR event: {{ inputs.source_url | default: 'n/a' }}
+
+        {{ inputs.ticket_description | default: '' }}
+
+        Summary table of indicators:
+        {% for item in steps.filter_indicators.output.filtered %}
+        - {{ item.value }} [{{ item.type | default: 'unknown' }}] tags={{ item.tags | default: '' }} artifact={{ item.artifact_id | default: '' }}
+        {% endfor %}
+
+  - name: create_ticket
+    type: servicenow
+    connector-id: "{{ consts.servicenow_connector_id }}"
+    with:
+      subAction: "pushToService"
+      subActionParams:
+        incident:
+          short_description: "{{ inputs.ticket_title }}"
+          description: "{{ steps.compose_ticket_description.output.ticket_body }}"
+          urgency: "2"
+          severity: "2"
+          impact: "2"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+
+  - name: log_ticket_id
+    type: console
+    with:
+      message: "Created ServiceNow ticket: {{ steps.create_ticket.output.number | default: 'unknown' }}"

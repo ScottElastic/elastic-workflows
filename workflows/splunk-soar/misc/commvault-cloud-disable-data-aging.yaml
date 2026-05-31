@@ -1,0 +1,86 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Commvault Cloud — Disable Data Aging"
+description: >
+  Pauses Commvault Cloud data aging for a specified client so backup data
+  remains available for clean recovery. On a successful API response, adds
+  a confirmation comment on the linked case and closes it; on failure,
+  records a comment explaining the issue without changing case state.
+enabled: true
+tags: ["splunk-soar", "misc", "commvault", "backup", "data-aging", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: client_name
+    type: string
+    required: true
+    description: "Commvault client (server hostname) to protect from data aging."
+  - name: kibana_case_id
+    type: string
+    required: false
+    description: "Optional Kibana case to update with the outcome."
+
+consts:
+  # Wire to your Commvault Cloud REST endpoint and an authenticated session
+  # token. The Phantom asset originally hid these behind the connector.
+  commvault_endpoint: "https://CHANGEME-commvault.example.com/commandcenter/api"
+  commvault_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  # TODO: replace with a native Commvault Cloud connector when available.
+  - name: disable_data_aging
+    type: http
+    with:
+      url: "{{ consts.commvault_endpoint }}/Client/DataAging/Disable"
+      method: POST
+      headers:
+        Authorization: "{{ consts.commvault_auth_header }}"
+        Content-Type: "application/json"
+      body:
+        clientName: "{{ inputs.client_name }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: branch_on_outcome
+    type: if
+    condition: "{{ steps.disable_data_aging.output.status }} == 'success'"
+    steps:
+      - name: log_success
+        type: console
+        with:
+          message: "Data aging disabled for {{ inputs.client_name }}."
+      - name: success_case_update
+        type: if
+        condition: "{{ inputs.kibana_case_id | size }} > 0"
+        steps:
+          - name: success_comment
+            type: kibana.addCaseComment
+            with:
+              caseId: "{{ inputs.kibana_case_id }}"
+              comment: "Commvault data aging disabled for {{ inputs.client_name }}."
+          - name: close_case
+            type: kibana.updateCase
+            with:
+              caseId: "{{ inputs.kibana_case_id }}"
+              status: "closed"
+    else:
+      - name: log_failure
+        type: console
+        with:
+          message: "Could not disable data aging for {{ inputs.client_name }}."
+      - name: failure_case_update
+        type: if
+        condition: "{{ inputs.kibana_case_id | size }} > 0"
+        steps:
+          - name: failure_comment
+            type: kibana.addCaseComment
+            with:
+              caseId: "{{ inputs.kibana_case_id }}"
+              comment: "Commvault data aging change for {{ inputs.client_name }} did not complete successfully."

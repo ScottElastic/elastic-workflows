@@ -1,0 +1,153 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Log4j — WinRM Host Respond"
+description: >
+  Windows responder for suspected Log4Shell (CVE-2021-44228) exposure.
+  For each host and candidate file path, runs a Test-Path check via
+  WinRM, removes any files that exist, and optionally applies a
+  containment action (outbound block, forced shutdown, or both).
+enabled: true
+tags: ["splunk-soar", "remediation", "log4j", "cve-2021-44228", "winrm", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: ip_or_hostname
+    type: array
+    required: true
+    description: "List of Windows hosts to remediate."
+  - name: filepath
+    type: array
+    required: false
+    description: "Parallel list of candidate file paths to test for and remove."
+  - name: containment_action
+    type: string
+    required: false
+    default: "Do Nothing"
+    description: >
+      Containment choice — one of: "Restrict Outbound Traffic", "Shutdown",
+      "Restrict Outbound Traffic and Shutdown", or "Do Nothing".
+
+consts:
+  winrm_endpoint: "https://CHANGEME-winrm-proxy.internal/api/run-script"
+  winrm_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  - name: have_filepaths
+    type: if
+    condition: "{{ inputs.filepath | size }} > 0"
+    steps:
+      - name: locate_and_delete_per_host
+        type: foreach
+        with:
+          items: ${{ inputs.ip_or_hostname }}
+        steps:
+          - name: test_path
+            type: http
+            with:
+              url: "{{ consts.winrm_endpoint }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.winrm_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                ip_hostname: "{{ item }}"
+                script_str: "$ProgressPreference = 'SilentlyContinue'; Test-Path {{ inputs.filepath[forloop.index0] }} | ConvertTo-Json"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+          - name: delete_when_found
+            type: if
+            condition: '{{ steps.test_path.output.std_out | strip | downcase }} == "true"'
+            steps:
+              - name: remove_item
+                type: http
+                with:
+                  url: "{{ consts.winrm_endpoint }}"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.winrm_auth_header }}"
+                    Content-Type: "application/json"
+                  body:
+                    ip_hostname: "{{ item }}"
+                    script_str: "$ProgressPreference = 'SilentlyContinue'; Remove-Item {{ inputs.filepath[forloop.index0] }} | Write-Output 'Files Deleted'"
+                on-failure:
+                  retry:
+                    max-attempts: 2
+                    delay: "3s"
+                  continue: true
+
+  - name: dedup_hosts
+    type: data.set
+    with:
+      hosts: ${{ inputs.ip_or_hostname | uniq }}
+
+  - name: apply_containment
+    type: foreach
+    with:
+      items: ${{ steps.dedup_hosts.output.hosts }}
+    steps:
+      - name: restrict_outbound
+        type: if
+        condition: '{{ inputs.containment_action }} == "Restrict Outbound Traffic"'
+        steps:
+          - name: new_firewall_rule
+            type: http
+            with:
+              url: "{{ consts.winrm_endpoint }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.winrm_auth_header }}"
+              body:
+                ip_hostname: "{{ item }}"
+                script_str: "$ProgressPreference = 'SilentlyContinue'; New-NetFirewallRule -DisplayName Splunk_SOAR_Quarantine -Direction Outbound -Enabled True -LocalPort Any -RemoteAddress Any -Action Block"
+            on-failure:
+              continue: true
+
+      - name: shutdown_host
+        type: if
+        condition: '{{ inputs.containment_action }} == "Shutdown"'
+        steps:
+          - name: force_shutdown
+            type: http
+            with:
+              url: "{{ consts.winrm_endpoint }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.winrm_auth_header }}"
+              body:
+                ip_hostname: "{{ item }}"
+                script_str: "$ProgressPreference = 'SilentlyContinue'; shutdown /f"
+            on-failure:
+              continue: true
+
+      - name: block_and_shutdown
+        type: if
+        condition: '{{ inputs.containment_action }} == "Restrict Outbound Traffic and Shutdown"'
+        steps:
+          - name: rule_then_shutdown
+            type: http
+            with:
+              url: "{{ consts.winrm_endpoint }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.winrm_auth_header }}"
+              body:
+                ip_hostname: "{{ item }}"
+                script_str: "$ProgressPreference = 'SilentlyContinue'; New-NetFirewallRule -DisplayName Splunk_SOAR_Quarantine -Direction Outbound -Enabled True -LocalPort Any -RemoteAddress Any -Action Block; shutdown /f"
+            on-failure:
+              continue: true
+
+  - name: summary_note
+    type: console
+    with:
+      message: |
+        WinRM Log4j respond complete.
+        hosts={{ steps.dedup_hosts.output.hosts | size }}
+        containment={{ inputs.containment_action }}

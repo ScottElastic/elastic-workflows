@@ -1,0 +1,96 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "GreyNoise — GNQL Government RDNS Match"
+description: >
+  Runs a GreyNoise GNQL query for malicious sources whose reverse DNS
+  matches government domains. When any of the returned IPs is the same as
+  the source IP from the alerting event, the workflow escalates the case
+  severity to high; otherwise the severity is lowered. Useful as a quick
+  triage filter for government-targeted scanning activity.
+enabled: true
+tags: ["splunk-soar", "threat-intel", "greynoise", "gnql", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: source_ip
+    type: string
+    required: false
+    description: "IP to compare against the GNQL result set. Defaults to the alert source address."
+  - name: gnql_query
+    type: string
+    required: false
+    default: "classification:malicious metadata.rdns:*.gov*"
+    description: "GreyNoise GNQL query string used to pull candidate IPs."
+  - name: case_id
+    type: string
+    required: false
+    description: "Optional Kibana case to record the verdict against."
+
+consts:
+  greynoise_endpoint: "https://api.greynoise.io/v2/experimental/gnql"
+  greynoise_api_key: "CHANGEME-greynoise-api-key"
+
+steps:
+  - name: resolve_target_ip
+    type: data.set
+    with:
+      target_ip: "{{ inputs.source_ip | default: event.alerts[0].source.ip | default: '' }}"
+
+  # TODO: swap to a native GreyNoise GNQL connector when available.
+  - name: gnql_query
+    type: http
+    with:
+      url: "{{ consts.greynoise_endpoint }}"
+      method: GET
+      headers:
+        key: "{{ consts.greynoise_api_key }}"
+        Accept: "application/json"
+      query:
+        query: "{{ inputs.gnql_query }}"
+        size: 100
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+      continue: true
+
+  - name: evaluate_match
+    type: if
+    condition: "{{ steps.gnql_query.output.data | map: 'ip' | contains: steps.resolve_target_ip.output.target_ip }}"
+    steps:
+      - name: set_high_verdict
+        type: data.set
+        with:
+          severity: "high"
+          rationale: "Source IP appears in the GreyNoise government-RDNS malicious set."
+
+      - name: log_high
+        type: console
+        with:
+          message: "High severity assigned to {{ steps.resolve_target_ip.output.target_ip }} — matched GNQL result."
+
+      - name: promote_to_case
+        type: if
+        condition: "{{ inputs.case_id | size }} > 0"
+        steps:
+          - name: comment_high
+            type: kibana.addCaseComment
+            with:
+              caseId: "{{ inputs.case_id }}"
+              comment: "GreyNoise GNQL match: IP listed as malicious with .gov reverse DNS. Severity raised to high."
+    else:
+      - name: set_low_verdict
+        type: data.set
+        with:
+          severity: "low"
+          rationale: "Source IP did not appear in the GreyNoise government-RDNS malicious set."
+
+      - name: log_low
+        type: console
+        with:
+          message: "Low severity assigned to {{ steps.resolve_target_ip.output.target_ip }} — no GNQL match."

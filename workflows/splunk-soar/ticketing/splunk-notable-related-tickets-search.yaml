@@ -1,0 +1,107 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Splunk Notable — Related Tickets Search"
+description: >
+  Searches Splunk Enterprise Security notable events for matches against
+  one or more indicators (typically a user or device) over the last 24
+  hours. Returns a normalized per-notable observable record and a brief
+  summary of the matches that downstream playbooks can roll up.
+enabled: true
+tags: ["splunk-soar", "ticketing", "splunk", "notable", "related-tickets", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: search_terms
+    type: array
+    required: true
+    description: "Indicators to look for in Splunk notable events (user/host/IP)."
+  - name: lookback
+    type: string
+    required: false
+    default: "-24h"
+    description: "Splunk time-range string. Default -24h."
+
+consts:
+  # No native Splunk workflow connector yet — stub against the Splunk REST API.
+  splunk_endpoint: "https://CHANGEME-splunk.internal:8089"
+  splunk_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  - name: guard_inputs
+    type: if
+    condition: "{{ inputs.search_terms | size }} == 0"
+    steps:
+      - name: abort_no_terms
+        type: console
+        with:
+          message: "No search terms provided — aborting."
+
+  - name: build_query
+    type: data.set
+    with:
+      # Wrap each term with wildcards and OR them together, matching the SOAR
+      # `*term*,*term*` pattern.
+      wildcarded: "*{{ inputs.search_terms | join: '*,*' }}*"
+      spl: "search `notable` | search _raw IN (*{{ inputs.search_terms | join: '*,*' }}*)"
+
+  # TODO: replace with a native Splunk connector subAction when available.
+  # Original SOAR action: `run query` on the splunk asset.
+  - name: search_notables
+    type: http
+    with:
+      url: "{{ consts.splunk_endpoint }}/services/search/jobs"
+      method: POST
+      headers:
+        Authorization: "{{ consts.splunk_auth_header }}"
+        Content-Type: "application/x-www-form-urlencoded"
+      body: "search={{ steps.build_query.output.spl }}&earliest_time={{ inputs.lookback | default: '-24h' }}&latest_time=now&exec_mode=oneshot&output_mode=json&adhoc_search_level=smart"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+      continue: true
+
+  - name: have_results
+    type: if
+    condition: "{{ steps.search_notables.output.results | size }} > 0"
+    steps:
+      - name: each_notable
+        type: foreach
+        with:
+          items: ${{ steps.search_notables.output.results }}
+        steps:
+          - name: build_observable
+            type: data.set
+            with:
+              observable:
+                value: "{{ inputs.search_terms | first }}"
+                ticket:
+                  name: "{{ item.rule_title | default: item.search_name | default: '' }}"
+                  id: "{{ item.event_id | default: '' }}"
+                  number: "{{ item.notable_xref_id | default: '' }}"
+                  message: "{{ item.rule_description | default: item.savedsearch_description | default: '' }}"
+                  start_time: "{{ item._time | default: '' }}"
+                  end_time: ""
+                  assigned_to: "{{ item.owner | default: '' }}"
+                  creator_name: ""
+                  state: "{{ item.status_label | default: '' }}"
+                source: "Splunk Enterprise Security"
+
+          - name: log_notable
+            type: console
+            with:
+              message: "Splunk notable {{ item.event_id | default: '?' }} matched: {{ item.rule_title | default: item.search_name | default: '' }}"
+    else:
+      - name: log_no_results
+        type: console
+        with:
+          message: "No related Splunk notable events found in the last {{ inputs.lookback | default: '-24h' }}."
+
+  - name: emit_summary
+    type: console
+    with:
+      message: "Splunk notable related-tickets search complete. Matched events: {{ steps.search_notables.output.results | size | default: 0 }}."

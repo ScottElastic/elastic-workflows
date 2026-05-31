@@ -1,0 +1,91 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "CrowdStrike — Network Isolation"
+description: >
+  Quarantines (network-contains) a CrowdStrike-managed device. Resolves
+  the device id from the supplied hostname or id, calls the host
+  containment endpoint with action_name=contain, and emits a host
+  observable describing the new state.
+enabled: true
+tags: ["splunk-soar", "endpoint-response", "crowdstrike", "network-isolation", "quarantine", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: device
+    type: string
+    required: true
+    description: "Hostname or device id to isolate."
+
+consts:
+  crowdstrike_base_url: "https://api.crowdstrike.com"
+  crowdstrike_bearer: "Bearer CHANGEME_FALCON_OAUTH_TOKEN"
+
+steps:
+  - name: validate_device
+    type: if
+    condition: "{{ inputs.device | size }} == 0"
+    steps:
+      - name: log_missing
+        type: console
+        with:
+          message: "A device must be supplied for isolation."
+
+  - name: query_device
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/devices/queries/devices/v1"
+      method: GET
+      headers:
+        Authorization: "{{ consts.crowdstrike_bearer }}"
+      query:
+        limit: 1
+        filter: "hostname:'{{ inputs.device }}',device_id:'{{ inputs.device }}'"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: capture_device_id
+    type: data.set
+    with:
+      device_id: "{{ steps.query_device.output.resources[0] | default: inputs.device }}"
+
+  - name: contain_device
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices-actions/v2"
+      method: POST
+      headers:
+        Authorization: "{{ consts.crowdstrike_bearer }}"
+        Content-Type: "application/json"
+      query:
+        action_name: "contain"
+      body:
+        ids:
+          - "{{ steps.capture_device_id.output.device_id }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+
+  - name: build_host_observable
+    type: data.set
+    with:
+      observable:
+        type: "host"
+        value: "{{ inputs.device }}"
+        source: "CrowdStrike OAuth API"
+        action: "contained"
+        device_id: "{{ steps.capture_device_id.output.device_id }}"
+        status: "{{ steps.contain_device.output.resources[0].path | default: 'unknown' }}"
+
+  - name: log_result
+    type: console
+    with:
+      message: |
+        Isolation requested for device {{ steps.capture_device_id.output.device_id }}.

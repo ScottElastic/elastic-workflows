@@ -1,0 +1,130 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Active Directory — Enable Account Dispatch"
+description: >
+  Orchestrator that invokes downstream "enable account" workflows tagged
+  with active_directory + enable_account (for example AD LDAP, Azure AD,
+  and AWS IAM unlock workflows). Collects each child workflow's outcome,
+  normalizes the records, and writes a short consolidated summary back
+  to the originating case.
+enabled: true
+tags:
+  - "splunk-soar"
+  - "identity"
+  - "account-unlock"
+  - "dispatch"
+  - "active-directory"
+  - "translated"
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: user
+    type: string
+    required: true
+    description: "User identifier to re-enable. Forwarded to each downstream account-unlocking workflow."
+  - name: kibana_case_id
+    type: string
+    required: false
+    description: "Optional Kibana case to comment on with the consolidated report."
+
+consts:
+  workflows_api_base: "https://CHANGEME-kibana.example.com/api/workflows"
+  workflows_api_auth_header: "ApiKey CHANGEME_API_KEY"
+
+steps:
+  - name: dispatch_ad_ldap_unlock
+    type: http
+    with:
+      url: "{{ consts.workflows_api_base }}/ad-ldap-account-unlocking/_execute"
+      method: POST
+      headers:
+        Authorization: "{{ consts.workflows_api_auth_header }}"
+        kbn-xsrf: "true"
+        Content-Type: "application/json"
+      body:
+        inputs:
+          user: "{{ inputs.user }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: dispatch_azure_ad_unlock
+    type: http
+    with:
+      url: "{{ consts.workflows_api_base }}/azure-ad-account-unlocking/_execute"
+      method: POST
+      headers:
+        Authorization: "{{ consts.workflows_api_auth_header }}"
+        kbn-xsrf: "true"
+        Content-Type: "application/json"
+      body:
+        inputs:
+          user: "{{ inputs.user }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: dispatch_aws_iam_unlock
+    type: http
+    with:
+      url: "{{ consts.workflows_api_base }}/aws-iam-account-unlocking/_execute"
+      method: POST
+      headers:
+        Authorization: "{{ consts.workflows_api_auth_header }}"
+        kbn-xsrf: "true"
+        Content-Type: "application/json"
+      body:
+        inputs:
+          user: "{{ inputs.user }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: normalize_observables
+    type: data.set
+    with:
+      observable_value: "{{ inputs.user | split: '@' | first }}"
+      observable_type: "Enable Account"
+      observables:
+        - source: "ad_ldap"
+          status: "{{ steps.dispatch_ad_ldap_unlock.output.status | default: 'unknown' }}"
+          message: "{{ steps.dispatch_ad_ldap_unlock.output.message | default: '' }}"
+        - source: "azure_ad"
+          status: "{{ steps.dispatch_azure_ad_unlock.output.status | default: 'unknown' }}"
+          message: "{{ steps.dispatch_azure_ad_unlock.output.message | default: '' }}"
+        - source: "aws_iam"
+          status: "{{ steps.dispatch_aws_iam_unlock.output.status | default: 'unknown' }}"
+          message: "{{ steps.dispatch_aws_iam_unlock.output.message | default: '' }}"
+
+  - name: log_merge_report
+    type: console
+    with:
+      message: |
+        AD Enable Account Report for {{ inputs.user }}
+        AD LDAP : status={{ steps.dispatch_ad_ldap_unlock.output.status | default: 'unknown' }}
+        Azure AD: status={{ steps.dispatch_azure_ad_unlock.output.status | default: 'unknown' }}
+        AWS IAM : status={{ steps.dispatch_aws_iam_unlock.output.status | default: 'unknown' }}
+
+  - name: attach_to_case
+    type: if
+    condition: "{{ inputs.kibana_case_id | size }} > 0"
+    steps:
+      - name: comment_on_case
+        type: kibana.addCaseComment
+        with:
+          caseId: "{{ inputs.kibana_case_id }}"
+          comment: |
+            Account enable dispatch completed for {{ inputs.user }}.
+            ad_ldap={{ steps.dispatch_ad_ldap_unlock.output.status | default: 'unknown' }},
+            azure_ad={{ steps.dispatch_azure_ad_unlock.output.status | default: 'unknown' }},
+            aws_iam={{ steps.dispatch_aws_iam_unlock.output.status | default: 'unknown' }}

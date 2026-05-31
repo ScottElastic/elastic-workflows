@@ -1,0 +1,122 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Customer Firewall Request — Handle Artifact"
+description: >
+  Pair workflow to "customer-firewall-request-parse-csv". Takes a list of
+  parsed firewall change requests (each labeled "customer_request") and
+  routes them onto one of four Palo Alto Networks actions: block source IP,
+  block destination IP, unblock source IP, or unblock destination IP — based
+  on the row's `action` value plus which address field is populated.
+enabled: true
+tags: ["splunk-soar", "misc", "firewall", "pan", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: requests
+    type: array
+    required: true
+    description: >
+      Array of parsed firewall request rows. Each entry should be an object
+      with: label, action (block_ip|unblock_ip), sourceAddress, destinationAddress.
+
+consts:
+  # Original Phantom asset: "pan" (Palo Alto Networks firewall).
+  pan_endpoint: "https://CHANGEME-pan-fw.example.com/api"
+  pan_api_key: "CHANGEME"
+  pan_vsys: "vsys1"
+
+steps:
+  - name: process_each_request
+    type: foreach
+    with:
+      items: ${{ inputs.requests }}
+    steps:
+      # Only operate on rows tagged "customer_request" as in the source playbook.
+      - name: gate_label
+        type: if
+        condition: "{{ item.label }} == 'customer_request'"
+        steps:
+          # Case 1: block by source IP
+          - name: block_src_branch
+            type: if
+            condition: "{{ item.action }} == 'block_ip' and {{ item.sourceAddress | size }} > 0 and {{ item.destinationAddress | size }} == 0"
+            steps:
+              # TODO: replace with a native PAN connector when available.
+              - name: pan_block_src
+                type: http
+                with:
+                  url: "{{ consts.pan_endpoint }}/?type=op&cmd=<request><address-block><ip>{{ item.sourceAddress }}</ip></address-block></request>&key={{ consts.pan_api_key }}"
+                  method: POST
+                on-failure:
+                  retry:
+                    max-attempts: 2
+                    delay: "3s"
+                  continue: true
+              - name: log_block_src
+                type: console
+                with:
+                  message: "Blocked source IP {{ item.sourceAddress }} on {{ consts.pan_vsys }}."
+
+          # Case 2: block by destination IP
+          - name: block_dst_branch
+            type: if
+            condition: "{{ item.action }} == 'block_ip' and {{ item.destinationAddress | size }} > 0 and {{ item.sourceAddress | size }} == 0"
+            steps:
+              - name: pan_block_dst
+                type: http
+                with:
+                  url: "{{ consts.pan_endpoint }}/?type=op&cmd=<request><address-block><ip>{{ item.destinationAddress }}</ip></address-block></request>&key={{ consts.pan_api_key }}"
+                  method: POST
+                on-failure:
+                  retry:
+                    max-attempts: 2
+                    delay: "3s"
+                  continue: true
+              - name: log_block_dst
+                type: console
+                with:
+                  message: "Blocked destination IP {{ item.destinationAddress }} on {{ consts.pan_vsys }}."
+
+          # Case 3: unblock by source IP
+          - name: unblock_src_branch
+            type: if
+            condition: "{{ item.action }} == 'unblock_ip' and {{ item.sourceAddress | size }} > 0 and {{ item.destinationAddress | size }} == 0"
+            steps:
+              - name: pan_unblock_src
+                type: http
+                with:
+                  url: "{{ consts.pan_endpoint }}/?type=op&cmd=<request><address-unblock><ip>{{ item.sourceAddress }}</ip></address-unblock></request>&key={{ consts.pan_api_key }}"
+                  method: POST
+                on-failure:
+                  retry:
+                    max-attempts: 2
+                    delay: "3s"
+                  continue: true
+              - name: log_unblock_src
+                type: console
+                with:
+                  message: "Unblocked source IP {{ item.sourceAddress }} on {{ consts.pan_vsys }}."
+
+          # Case 4: unblock by destination IP
+          - name: unblock_dst_branch
+            type: if
+            condition: "{{ item.action }} == 'unblock_ip' and {{ item.destinationAddress | size }} > 0 and {{ item.sourceAddress | size }} == 0"
+            steps:
+              - name: pan_unblock_dst
+                type: http
+                with:
+                  url: "{{ consts.pan_endpoint }}/?type=op&cmd=<request><address-unblock><ip>{{ item.destinationAddress }}</ip></address-unblock></request>&key={{ consts.pan_api_key }}"
+                  method: POST
+                on-failure:
+                  retry:
+                    max-attempts: 2
+                    delay: "3s"
+                  continue: true
+              - name: log_unblock_dst
+                type: console
+                with:
+                  message: "Unblocked destination IP {{ item.destinationAddress }} on {{ consts.pan_vsys }}."

@@ -1,0 +1,89 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Cisco Umbrella — DNS Denylisting"
+description: >
+  Accepts one or more domains and adds them to a Cisco Umbrella block list
+  via the Enforcement API. Each domain is iterated, posted to Umbrella, and
+  the successful blocks are captured as normalized observable records.
+  Implements MITRE D3FEND DNS denylisting (d3f:DNSDenylisting).
+enabled: true
+tags: ["splunk-soar", "network-control", "dns-denylist", "cisco-umbrella", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: domains
+    type: array
+    required: true
+    description: "Domains to block in Cisco Umbrella."
+
+consts:
+  # Cisco Umbrella Enforcement API endpoint. The customer key is appended as
+  # a URL query parameter — substitute your own integration key.
+  umbrella_enforcement_endpoint: "https://s-platform.api.opendns.com/1.0/events"
+  umbrella_customer_key: "CHANGEME-umbrella-customer-key"
+  umbrella_source_name: "Elastic Workflows"
+
+steps:
+  - name: guard_domain_input
+    type: if
+    condition: "{{ inputs.domains | size }} == 0"
+    steps:
+      - name: log_no_domains
+        type: console
+        with:
+          message: "No domains supplied — nothing to deny in Umbrella."
+
+  - name: block_each_domain
+    type: foreach
+    with:
+      items: ${{ inputs.domains }}
+    steps:
+      # TODO: replace with a first-class Cisco Umbrella connector when available.
+      # The original Phantom playbook called the cisco_umbrella "block domain" action.
+      - name: block_domain
+        type: http
+        with:
+          url: "{{ consts.umbrella_enforcement_endpoint }}?customerKey={{ consts.umbrella_customer_key }}"
+          method: POST
+          headers:
+            Content-Type: "application/json"
+          body:
+            alertTime: "{{ execution.id }}"
+            deviceId: "elastic-workflow"
+            deviceVersion: "1.0"
+            dstDomain: "{{ item }}"
+            eventTime: "{{ execution.id }}"
+            providerName: "{{ consts.umbrella_source_name }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: classify_block_outcome
+        type: if
+        condition: "{{ steps.block_domain.output.status }} == 'success'"
+        steps:
+          - name: capture_blocked
+            type: data.set
+            with:
+              observable:
+                type: "domain"
+                value: "{{ item }}"
+                source: "Cisco Umbrella"
+                status: "blocked"
+          - name: log_blocked
+            type: console
+            with:
+              message: "Blocked domain {{ item }} in Cisco Umbrella."
+        else:
+          - name: log_block_failed
+            type: console
+            with:
+              message: |
+                Block attempt for {{ item }} did not return success.
+                response={{ steps.block_domain.output | json }}

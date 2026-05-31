@@ -1,0 +1,81 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Cisco Umbrella — Block Domain (Tag on Success)"
+description: >
+  A lightweight Umbrella domain-blocking flow. For each input domain, calls
+  the Umbrella Enforcement API to deny the domain, then on a successful
+  response tags the indicator as "blocked" so downstream rules and dashboards
+  can pick it up. Original SOAR playbook also wrote indicator tags via the
+  community/indicator_tag function — here we surface them as a structured
+  step output you can plumb into your threat-intel index.
+enabled: true
+tags: ["splunk-soar", "network-control", "dns-denylist", "cisco-umbrella", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: domains
+    type: array
+    required: true
+    description: "Domains to block via Cisco Umbrella."
+
+consts:
+  umbrella_enforcement_endpoint: "https://s-platform.api.opendns.com/1.0/events"
+  umbrella_customer_key: "CHANGEME-umbrella-customer-key"
+  umbrella_source_name: "Elastic Workflows"
+  # If you want the "blocked" tag persisted somewhere, point this at your
+  # indicator/observables index. Leave as CHANGEME otherwise.
+  indicator_index: "CHANGEME-threat-indicators"
+
+steps:
+  - name: block_each_domain
+    type: foreach
+    with:
+      items: ${{ inputs.domains }}
+    steps:
+      # TODO: swap to a native Cisco Umbrella connector when one ships.
+      - name: cisco_umbrella_block_domain
+        type: http
+        with:
+          url: "{{ consts.umbrella_enforcement_endpoint }}?customerKey={{ consts.umbrella_customer_key }}"
+          method: POST
+          headers:
+            Content-Type: "application/json"
+          body:
+            alertTime: "{{ execution.id }}"
+            deviceId: "elastic-workflow"
+            deviceVersion: "1.0"
+            dstDomain: "{{ item }}"
+            eventTime: "{{ execution.id }}"
+            providerName: "{{ consts.umbrella_source_name }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: tag_blocked_domain
+        type: if
+        condition: "{{ steps.cisco_umbrella_block_domain.output.status }} == 'success'"
+        steps:
+          # Records a "blocked" tag against the indicator. Adjust the index
+          # mapping/destination to fit your IOC store.
+          - name: write_indicator_tag
+            type: elasticsearch.index
+            with:
+              index: "{{ consts.indicator_index }}"
+              document:
+                indicator: "{{ item }}"
+                type: "domain"
+                tags: ["blocked"]
+                source: "Cisco Umbrella"
+                workflow_run: "{{ execution.id }}"
+            on-failure:
+              continue: true
+          - name: log_tagged
+            type: console
+            with:
+              message: "Domain {{ item }} blocked in Umbrella and tagged 'blocked'."

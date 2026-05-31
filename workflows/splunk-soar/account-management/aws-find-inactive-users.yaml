@@ -1,0 +1,131 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "AWS IAM — Find Inactive Users"
+description: >
+  Discovers AWS IAM users whose passwords have not been used for the
+  configured idle window (90 days by default). Pulls each candidate's
+  group and policy details, records them as observables, and hands the
+  list off to the AWS bulk-disable workflow for further triage.
+enabled: true
+tags: ["splunk-soar", "identity", "hygiene", "aws", "iam", "translated"]
+
+triggers:
+  - type: scheduled
+    with:
+      every: "1d"
+  - type: manual
+
+inputs:
+  - name: idle_days
+    type: number
+    required: false
+    default: 90
+    description: "Number of days of password inactivity before a user is flagged."
+
+consts:
+  # Stub AWS endpoints. Replace with the real AWS-bridge or a native
+  # connector when one is available.
+  aws_iam_list_users_endpoint: "https://CHANGEME-aws-proxy.internal/iam/list-users"
+  aws_iam_get_user_endpoint: "https://CHANGEME-aws-proxy.internal/iam/get-user"
+  aws_iam_auth_header: "Bearer CHANGEME_TOKEN"
+  # Index where this workflow records the unused-account observables.
+  inactive_users_index: "soar-aws-inactive-users"
+  # Workflows API used to chain the bulk-disable workflow.
+  workflows_api_base: "https://CHANGEME-kibana.example.com/api/workflows"
+  workflows_api_auth_header: "ApiKey CHANGEME_API_KEY"
+
+steps:
+  # TODO: swap for native AWS IAM connector once available.
+  # Equivalent Phantom action: "list users" on the `aws_iam` asset.
+  - name: list_all_accounts
+    type: http
+    with:
+      url: "{{ consts.aws_iam_list_users_endpoint }}"
+      method: GET
+      headers:
+        Authorization: "{{ consts.aws_iam_auth_header }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  # Equivalent Phantom custom function: `community/datetime_modify` with
+  # a -idle_days offset. We let the LLM mint an ISO-8601 cutoff string.
+  - name: calculate_cutoff
+    type: ai.prompt
+    connector-id: "CHANGEME-genai-connector"
+    with:
+      prompt: |
+        Return only an ISO-8601 timestamp in UTC ("%Y-%m-%dT%H:%M:%SZ") representing
+        exactly {{ inputs.idle_days }} days before the current moment. No prose, no
+        quoting, just the timestamp.
+
+  - name: process_inactive_candidates
+    type: foreach
+    with:
+      items: "${{ steps.list_all_accounts.output.users | default: [] }}"
+    steps:
+      - name: is_inactive
+        type: if
+        condition: "{{ item.PasswordLastUsed | size }} > 0 and {{ item.PasswordLastUsed }} < {{ steps.calculate_cutoff.output | strip }}"
+        steps:
+          # Equivalent Phantom action: "get user" on the `aws_iam` asset.
+          - name: get_unused_account_info
+            type: http
+            with:
+              url: "{{ consts.aws_iam_get_user_endpoint }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.aws_iam_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                username: "{{ item.UserName }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+          # Equivalent Phantom custom function: `community/artifact_create`.
+          # We persist the inactive-user record to an Elasticsearch index.
+          - name: save_unused_account_observable
+            type: elasticsearch.index
+            with:
+              index: "{{ consts.inactive_users_index }}"
+              document:
+                name: "Unused AWS Account"
+                label: "user"
+                cef_field: "awsUserName"
+                cef_value: "{{ item.UserName }}"
+                cef_data_type: "aws iam user name"
+                password_last_used: "{{ item.PasswordLastUsed }}"
+                user_detail: ${{ steps.get_unused_account_info.output }}
+
+  - name: dispatch_bulk_disable
+    type: http
+    with:
+      url: "{{ consts.workflows_api_base }}/aws-disable-user-accounts/_execute"
+      method: POST
+      headers:
+        Authorization: "{{ consts.workflows_api_auth_header }}"
+        kbn-xsrf: "true"
+        Content-Type: "application/json"
+      body:
+        inputs:
+          aws_usernames: "${{ steps.list_all_accounts.output.users | map: 'UserName' | default: [] }}"
+          approve: false
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: log_summary
+    type: console
+    with:
+      message: |
+        Inactive AWS user scan complete. Candidates flagged based on PasswordLastUsed
+        older than the {{ inputs.idle_days }}-day cutoff ({{ steps.calculate_cutoff.output | strip }}).

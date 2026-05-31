@@ -1,0 +1,101 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Zscaler Patient 0 — Parse Email"
+description: >
+  Utility that parses a Zscaler Patient 0 alert email (either plain
+  text or base64-encoded body) and lifts the fields Zscaler exposes
+  — cloud/org, file MD5, threat category, threat name, event link
+  and first-downloaded counters — into a normalized event document
+  that downstream workflows can consume. Replaces the original
+  custom-Python parser with an LLM-driven extraction that produces
+  the same field set.
+enabled: true
+tags: ["splunk-soar", "email-triage", "parsing", "zscaler", "patient-zero", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: raw_email_body
+    type: string
+    required: true
+    description: "Raw email body, optionally base64-encoded, exactly as received from Zscaler Patient 0 alerting."
+  - name: container_name
+    type: string
+    required: false
+    description: "Name to give the resulting event record. Defaults to the input email subject."
+
+consts:
+  # Field translation matches the Phantom playbook's FIELD_TRANSLATOR mapping.
+  expected_fields:
+    - "environment"      # Cloud and Organization
+    - "fileHashMd5"      # File MD5 hash
+    - "threatCategory"   # Threat Category
+    - "threatName"       # Threat Name
+    - "eventLink"        # Transactions involving this content
+    - "startTime"        # First downloaded -> timestamp
+    - "timesAllowed"
+    - "timesQuarantined"
+    - "timesBlocked"
+
+steps:
+  - name: validate_input
+    type: if
+    condition: "{{ inputs.raw_email_body | size }} == 0"
+    steps:
+      - name: log_missing_body
+        type: console
+        with:
+          message: "Empty email body — nothing to parse."
+
+  # Original playbook hand-rolled regex + optional base64 decode in Python.
+  # Re-expressed as an LLM extraction prompt that produces the identical
+  # field set, plus a counter parse for First-downloaded.
+  - name: extract_zscaler_fields
+    type: ai.prompt
+    with:
+      prompt: |
+        You are parsing a Zscaler Patient 0 alert email. The body may be
+        plain text or base64-encoded. Decode if needed, then extract these
+        fields and return them as a single JSON object with the exact keys:
+
+          environment        (from "Cloud and Organization")
+          fileHashMd5        (from "File MD5 hash")
+          threatCategory     (from "Threat Category")
+          threatName         (from "Threat Name")
+          eventLink          (from "Transactions involving this content")
+          startTime          (timestamp portion of "First downloaded:")
+          timesAllowed       (integer after the word "allowed")
+          timesQuarantined   (integer after the word "quarantined")
+          timesBlocked       (integer after the word "blocked")
+
+        If a field is absent, use an empty string. Return JSON only.
+
+        Email body:
+        {{ inputs.raw_email_body }}
+      output_schema: object
+
+  # Phantom playbook called phantom.create_container + add_artifact. In
+  # Elastic the equivalent is to emit a structured event the caller can
+  # index — set up the artifact shape here.
+  - name: build_zscaler_artifact
+    type: data.set
+    with:
+      artifact:
+        name: "zScaler Alert Artifact"
+        label: "event"
+        severity: "medium"
+        artifact_type: "network"
+        cef: "{{ steps.extract_zscaler_fields.output }}"
+
+  - name: log_parsed
+    type: console
+    with:
+      message: |
+        Parsed Zscaler Patient 0 event:
+        threat={{ steps.extract_zscaler_fields.output.threatName | default: 'unknown' }}
+        md5={{ steps.extract_zscaler_fields.output.fileHashMd5 | default: 'unknown' }}
+        category={{ steps.extract_zscaler_fields.output.threatCategory | default: 'unknown' }}

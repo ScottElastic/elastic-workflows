@@ -1,0 +1,146 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "URL Outbound Traffic Filtering — Dispatch"
+description: >
+  Coordinates outbound URL filtering across configured proxies/firewalls.
+  Pulls URL indicators from the input or the triggering alert, fans them out
+  to vendor-specific block workflows (Panorama, Zscaler, etc.), tags
+  successfully blocked URLs as "blocked" in the indicator store, and posts
+  a short summary back to the originating case. Implements MITRE D3FEND
+  outbound traffic filtering (d3f:OutboundTrafficFiltering).
+enabled: true
+tags: ["splunk-soar", "network-control", "outbound-filter", "dispatch", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: urls
+    type: array
+    required: false
+    description: >
+      Optional list of URLs to block. If empty, the workflow tries to extract
+      URL indicators from the triggering alert.
+  - name: kibana_case_id
+    type: string
+    required: false
+    description: "Case to update with the dispatch summary, if any."
+
+consts:
+  # Replace these with your Kibana base URL and an API key able to run other
+  # workflows. The dispatch step calls each vendor's translated playbook.
+  vendor_workflows_endpoint: "https://CHANGEME-kibana.example.com/api/workflows"
+  vendor_workflows_auth: "ApiKey CHANGEME-kibana-api-key"
+  indicator_index: "CHANGEME-threat-indicators"
+
+steps:
+  - name: gather_urls
+    type: data.set
+    with:
+      urls: "${{ inputs.urls | default: event.alerts[0].threat.indicator.url.full | default: [] }}"
+
+  - name: any_urls
+    type: if
+    condition: "{{ steps.gather_urls.output.urls | size }} > 0"
+    steps:
+      # In SOAR this called community/dispatch_input_playbooks with a list of
+      # artifact IDs; here we invoke each vendor workflow directly per URL.
+      - name: dispatch_per_url
+        type: foreach
+        with:
+          items: ${{ steps.gather_urls.output.urls }}
+        steps:
+          - name: invoke_panorama_block
+            type: http
+            with:
+              url: "{{ consts.vendor_workflows_endpoint }}/panorama-outbound-traffic-filtering/run"
+              method: POST
+              headers:
+                kbn-xsrf: "true"
+                x-elastic-internal-origin: "Kibana"
+                Content-Type: "application/json"
+                Authorization: "{{ consts.vendor_workflows_auth }}"
+              body:
+                inputs:
+                  urls:
+                    - "{{ item }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+          - name: invoke_zscaler_block
+            type: http
+            with:
+              url: "{{ consts.vendor_workflows_endpoint }}/zscaler-outbound-traffic-filtering/run"
+              method: POST
+              headers:
+                kbn-xsrf: "true"
+                x-elastic-internal-origin: "Kibana"
+                Content-Type: "application/json"
+                Authorization: "{{ consts.vendor_workflows_auth }}"
+              body:
+                inputs:
+                  urls:
+                    - "{{ item }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+          # Mirrors the "tag_indicators" step from the SOAR playbook.
+          - name: tag_indicator_blocked
+            type: if
+            condition: "{{ steps.invoke_panorama_block.output.status }} == 'success' or {{ steps.invoke_zscaler_block.output.status }} == 'success'"
+            steps:
+              - name: write_blocked_tag
+                type: elasticsearch.index
+                with:
+                  index: "{{ consts.indicator_index }}"
+                  document:
+                    indicator: "{{ item }}"
+                    type: "url"
+                    tags: ["blocked"]
+                    source: "Elastic Workflows / URL Outbound Filtering Dispatch"
+                    workflow_run: "{{ execution.id }}"
+                on-failure:
+                  continue: true
+
+      - name: build_summary
+        type: data.set
+        with:
+          summary:
+            url_count: "{{ steps.gather_urls.output.urls | size }}"
+            urls: ${{ steps.gather_urls.output.urls }}
+            workflow_run: "{{ execution.id }}"
+
+      - name: log_summary
+        type: console
+        with:
+          message: |
+            URL Outbound Filtering Dispatch:
+            urls={{ steps.gather_urls.output.urls | size }}
+            run={{ execution.id }}
+
+      - name: post_to_case
+        type: if
+        condition: "{{ inputs.kibana_case_id | size }} > 0"
+        steps:
+          - name: comment_on_case
+            type: kibana.addCaseComment
+            with:
+              caseId: "{{ inputs.kibana_case_id }}"
+              comment: |
+                URL Outbound Filtering Dispatch completed.
+                URLs processed: {{ steps.gather_urls.output.urls | size }}
+                Run ID: {{ execution.id }}
+    else:
+      - name: log_no_urls
+        type: console
+        with:
+          message: "No URL indicators available for outbound filtering dispatch."

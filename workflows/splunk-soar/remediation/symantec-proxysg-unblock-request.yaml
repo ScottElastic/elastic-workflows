@@ -1,0 +1,249 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Symantec ProxySG — Website Unblock Request"
+description: >
+  Handles a user-submitted website unblock ticket. Looks up URL reputation
+  in VirusTotal and Symantec WebPulse, captures a screenshot, optionally
+  detonates the URL on urlscan.io, then asks an approver. On approval the
+  URL is unblocked on the proxy and the requester is notified; on denial,
+  the user is told the request was rejected. The originating ticket is
+  updated with the outcome.
+  Caution: urlscan.io makes the submitted URL publicly visible.
+enabled: true
+tags: ["splunk-soar", "remediation", "url-unblock", "symantec-proxysg", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: from_email
+    type: string
+    required: true
+    description: "Requester email — used for approve/deny notifications."
+  - name: request_url
+    type: string
+    required: true
+    description: "The URL the user wants unblocked."
+  - name: ticket_id
+    type: string
+    required: false
+    description: "Originating ticketing platform id (Jira / ServiceNow)."
+  - name: jira_connector_id
+    type: string
+    required: false
+    default: "CHANGEME-jira-connector"
+
+consts:
+  notify_from: "phantom-notifications@company.com"
+  virustotal_endpoint: "https://www.virustotal.com/api/v3/urls"
+  virustotal_api_key: "CHANGEME"
+  webpulse_endpoint: "https://sitereview.bluecoat.com/resource/lookup"
+  screenshot_endpoint: "https://CHANGEME-screenshot.internal/api/snap"
+  screenshot_auth_header: "Bearer CHANGEME_TOKEN"
+  urlscan_endpoint: "https://urlscan.io/api/v1/scan/"
+  urlscan_api_key: "CHANGEME"
+  bluecoat_allow_endpoint: "https://CHANGEME-proxysg.internal/api/allow-url"
+  bluecoat_auth_header: "Bearer CHANGEME_TOKEN"
+  smtp_endpoint: "CHANGEME-smtp-connector"
+
+steps:
+  - name: validate_inputs
+    type: if
+    condition: "{{ inputs.from_email | size }} == 0 or {{ inputs.request_url | size }} == 0"
+    steps:
+      - name: missing_inputs
+        type: console
+        with:
+          message: "from_email or request_url missing; aborting."
+
+  - name: virustotal_url_reputation
+    type: http
+    with:
+      url: "{{ consts.virustotal_endpoint }}"
+      method: POST
+      headers:
+        x-apikey: "{{ consts.virustotal_api_key }}"
+        Content-Type: "application/x-www-form-urlencoded"
+      body: "url={{ inputs.request_url }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: clean_in_vt
+    type: if
+    condition: "{{ steps.virustotal_url_reputation.output.data.attributes.last_analysis_stats.malicious | default: 0 }} == 0"
+    steps:
+      - name: webpulse_url_reputation
+        type: http
+        with:
+          url: "{{ consts.webpulse_endpoint }}"
+          method: POST
+          headers:
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "url={{ inputs.request_url }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: webpulse_clean
+        type: if
+        condition: >-
+          not ("{{ steps.webpulse_url_reputation.output.categories | join: ',' | default: '' }}" contains "Malicious")
+          and not ("{{ steps.webpulse_url_reputation.output.categories | join: ',' | default: '' }}" contains "Malware")
+        steps:
+          - name: capture_screenshot
+            type: http
+            with:
+              url: "{{ consts.screenshot_endpoint }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.screenshot_auth_header }}"
+              body:
+                url: "{{ inputs.request_url }}"
+            on-failure:
+              continue: true
+
+          - name: detonate_url
+            type: http
+            with:
+              url: "{{ consts.urlscan_endpoint }}"
+              method: POST
+              headers:
+                API-Key: "{{ consts.urlscan_api_key }}"
+                Content-Type: "application/json"
+              body:
+                url: "{{ inputs.request_url }}"
+            on-failure:
+              continue: true
+
+          - name: ask_approver
+            type: ai.prompt
+            connector-id: "CHANGEME-llm-connector"
+            with:
+              prompt: |
+                You are deciding whether to unblock a website on the proxy.
+                Reputation services returned clean.
+                URL: {{ inputs.request_url }}
+                urlscan verdict: {{ steps.detonate_url.output | default: {} | json }}
+                Reply YES to approve unblocking, NO to deny.
+
+          - name: approval_decision
+            type: if
+            condition: '{{ steps.ask_approver.output | strip | upcase }} == "YES"'
+            steps:
+              - name: allow_on_proxy
+                type: http
+                with:
+                  url: "{{ consts.bluecoat_allow_endpoint }}"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.bluecoat_auth_header }}"
+                    Content-Type: "application/json"
+                  body:
+                    url: "{{ inputs.request_url }}"
+                on-failure:
+                  retry:
+                    max-attempts: 2
+                    delay: "5s"
+                  continue: true
+
+              - name: notify_approved
+                type: email
+                connector-id: "{{ consts.smtp_endpoint }}"
+                with:
+                  to: ["{{ inputs.from_email }}"]
+                  from: "{{ consts.notify_from }}"
+                  subject: "Request Approved"
+                  message: "Your request to unblock a website has been approved."
+
+              - name: update_ticket_approved
+                type: if
+                condition: "{{ inputs.ticket_id | size }} > 0"
+                steps:
+                  - name: jira_comment_approved
+                    type: jira
+                    connector-id: "{{ inputs.jira_connector_id }}"
+                    with:
+                      subAction: "addComment"
+                      subActionParams:
+                        issueId: "{{ inputs.ticket_id }}"
+                        comment: "Request Approved"
+            else:
+              - name: notify_denied_by_approver
+                type: email
+                connector-id: "{{ consts.smtp_endpoint }}"
+                with:
+                  to: ["{{ inputs.from_email }}"]
+                  from: "{{ consts.notify_from }}"
+                  subject: "Request Denied"
+                  message: "Your request has been denied by an approver."
+
+              - name: update_ticket_denied_approver
+                type: if
+                condition: "{{ inputs.ticket_id | size }} > 0"
+                steps:
+                  - name: jira_comment_denied_approver
+                    type: jira
+                    connector-id: "{{ inputs.jira_connector_id }}"
+                    with:
+                      subAction: "addComment"
+                      subActionParams:
+                        issueId: "{{ inputs.ticket_id }}"
+                        comment: "Request Denied"
+        else:
+          # WebPulse flagged Malicious / Malware — auto-deny
+          - name: notify_denied_webpulse
+            type: email
+            connector-id: "{{ consts.smtp_endpoint }}"
+            with:
+              to: ["{{ inputs.from_email }}"]
+              from: "{{ consts.notify_from }}"
+              subject: "Request Denied"
+              message: >-
+                Your request to unblock {{ inputs.request_url }} has been denied
+                because the site was categorized as Malicious or Malware.
+
+          - name: update_ticket_denied_webpulse
+            type: if
+            condition: "{{ inputs.ticket_id | size }} > 0"
+            steps:
+              - name: jira_comment_denied_webpulse
+                type: jira
+                connector-id: "{{ inputs.jira_connector_id }}"
+                with:
+                  subAction: "addComment"
+                  subActionParams:
+                    issueId: "{{ inputs.ticket_id }}"
+                    comment: "Request Denied"
+    else:
+      # VirusTotal showed positives — auto-deny
+      - name: notify_denied_vt
+        type: email
+        connector-id: "{{ consts.smtp_endpoint }}"
+        with:
+          to: ["{{ inputs.from_email }}"]
+          from: "{{ consts.notify_from }}"
+          subject: "Request Denied"
+          message: >-
+            Your request to unblock {{ inputs.request_url }} has been denied:
+            {{ steps.virustotal_url_reputation.output.data.attributes.last_analysis_stats.malicious | default: 0 }}
+            reputation services flagged this site as malicious.
+
+      - name: update_ticket_denied_vt
+        type: if
+        condition: "{{ inputs.ticket_id | size }} > 0"
+        steps:
+          - name: jira_comment_denied_vt
+            type: jira
+            connector-id: "{{ inputs.jira_connector_id }}"
+            with:
+              subAction: "addComment"
+              subActionParams:
+                issueId: "{{ inputs.ticket_id }}"
+                comment: "Request Denied"

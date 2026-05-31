@@ -1,0 +1,163 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Risk Notable — Analyst Verdict and Response Launcher"
+description: >
+  Lists the response workflows tagged for risk notable use, presents them
+  to the analyst that ran this workflow, and launches the chosen response.
+  Skipped entirely for automation accounts. If the Risk Investigation
+  workbook is available, the Render Verdict task is opened, updated, and
+  closed alongside the response launch.
+enabled: true
+tags: ["splunk-soar", "threat-intel", "risk-notable", "verdict", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: case_id
+    type: string
+    required: true
+    description: "Case the verdict applies to."
+  - name: caller_user_type
+    type: string
+    required: false
+    default: "human"
+    description: "Pass 'automation' to skip the analyst prompt."
+  - name: caller_username
+    type: string
+    required: false
+    description: "Username of the analyst running this workflow."
+  - name: response_choice
+    type: string
+    required: false
+    description: "Selected response workflow name. Set 'Do Nothing' to record the decision without launching anything."
+
+consts:
+  workbook_api: "https://CHANGEME-soar-rest-proxy.internal/api/workbook"
+  workbook_auth_header: "Bearer CHANGEME_TOKEN"
+  workflow_registry_endpoint: "/api/workflows"
+  response_tag: "response_option"
+
+steps:
+  - name: user_check
+    type: if
+    condition: "{{ inputs.caller_user_type }} == 'automation'"
+    steps:
+      - name: stop_for_automation
+        type: console
+        with:
+          message: "Caller is automation — verdict workflow exits without prompting."
+
+  - name: human_branch
+    type: if
+    condition: "{{ inputs.caller_user_type }} != 'automation'"
+    steps:
+      # List candidate response workflows by tag. TODO: switch to a richer
+      # workflow registry call once Kibana exposes one for tag filtering.
+      - name: list_response_workflows
+        type: http
+        with:
+          url: "{{ consts.workflow_registry_endpoint }}"
+          method: GET
+          headers:
+            kbn-xsrf: "true"
+          query:
+            tag: "{{ consts.response_tag }}"
+        on-failure:
+          continue: true
+
+      - name: ensure_results
+        type: data.set
+        with:
+          response_options: "{{ steps.list_response_workflows.output.workflows | default: [] }}"
+
+      - name: any_responses
+        type: if
+        condition: "{{ steps.ensure_results.output.response_options | size }} > 0"
+        steps:
+          - name: log_choices
+            type: console
+            with:
+              message: |
+                Available response workflows tagged {{ consts.response_tag }}:
+                {{ steps.ensure_results.output.response_options | map: 'name' | join: ', ' }}, Do Nothing
+
+          - name: workbook_setup
+            type: http
+            with:
+              url: "{{ consts.workbook_api }}/add"
+              method: POST
+              headers:
+                Authorization: "{{ consts.workbook_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                container: "{{ inputs.case_id }}"
+                workbook: "Risk Investigation"
+                start_workbook: true
+                check_for_existing_workbook: true
+            on-failure:
+              continue: true
+
+          - name: workbook_task_start
+            type: http
+            with:
+              url: "{{ consts.workbook_api }}/task"
+              method: POST
+              headers:
+                Authorization: "{{ consts.workbook_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                container: "{{ inputs.case_id }}"
+                task_name: "Render Verdict"
+                status: "in_progress"
+            on-failure:
+              continue: true
+
+          - name: had_selection
+            type: if
+            condition: "{{ inputs.response_choice | size }} > 0 and {{ inputs.response_choice }} != 'Do Nothing'"
+            steps:
+              # TODO: replace with a native workflow-launch step when available.
+              - name: launch_chosen_workflow
+                type: http
+                with:
+                  url: "/api/workflows/{{ inputs.response_choice }}/run"
+                  method: POST
+                  headers:
+                    kbn-xsrf: "true"
+                    Content-Type: "application/json"
+                  body:
+                    inputs:
+                      case_id: "{{ inputs.case_id }}"
+                on-failure:
+                  continue: true
+
+              - name: close_verdict_task
+                type: http
+                with:
+                  url: "{{ consts.workbook_api }}/task"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.workbook_auth_header }}"
+                    Content-Type: "application/json"
+                  body:
+                    container: "{{ inputs.case_id }}"
+                    task_name: "Render Verdict"
+                    status: "complete"
+                    note_title: "[Auto-Generated] Response Verdict Summary"
+                    note_content: "Launched '{{ inputs.response_choice }}' based on analyst selection."
+                on-failure:
+                  continue: true
+            else:
+              - name: skip_response
+                type: console
+                with:
+                  message: "Analyst chose 'Do Nothing' or supplied no selection — verdict recorded with no further action."
+        else:
+          - name: no_response_options
+            type: kibana.addCaseComment
+            with:
+              caseId: "{{ inputs.case_id }}"
+              comment: "[Auto-Generated] Verdict Error — no response workflows tagged '{{ consts.response_tag }}' were found."

@@ -1,0 +1,74 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "AD LDAP — Account Locking"
+description: >
+  Disables a Microsoft AD user account via the LDAP connector. Takes a
+  username as input, validates it is non-empty, calls the AD LDAP "disable
+  account" action, and emits a normalized observable describing the result.
+enabled: true
+tags: ["splunk-soar", "identity", "account-lock", "ad-ldap", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: user
+    type: string
+    required: true
+    description: "AD sAMAccountName of the user whose account will be disabled."
+
+consts:
+  # Wire this to your AD LDAP integration. Original playbook used a SOAR asset;
+  # in Elastic, point this at whatever you use to reach AD (LDAP proxy, a
+  # webhook-backed automation, or a direct LDAPS endpoint).
+  ad_ldap_endpoint: "https://CHANGEME-ldap-proxy.internal/api/disable-account"
+  ad_ldap_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  - name: validate_input
+    type: if
+    condition: "{{ inputs.user | size }} == 0"
+    steps:
+      - name: log_missing_user
+        type: console
+        with:
+          message: "No user provided — aborting."
+
+  # TODO: replace this http stub with a real AD LDAP connector once available
+  # in Elastic Workflows. The original Phantom playbook used the
+  # `microsoft ad ldap` asset's "disable account" action.
+  - name: disable_account
+    type: http
+    with:
+      url: "{{ consts.ad_ldap_endpoint }}"
+      method: POST
+      headers:
+        Authorization: "{{ consts.ad_ldap_auth_header }}"
+        Content-Type: "application/json"
+      body:
+        user: "{{ inputs.user }}"
+        use_samaccountname: true
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: build_observable
+    type: data.set
+    with:
+      observable:
+        type: "Microsoft AD LDAP user name"
+        value: "{{ inputs.user }}"
+        status: "{{ steps.disable_account.output.status | default: 'unknown' }}"
+        message: "{{ steps.disable_account.output.message | default: '' }}"
+
+  - name: log_result
+    type: console
+    with:
+      message: |
+        Disable result for {{ inputs.user }}:
+        status={{ steps.build_observable.output.observable.status }}
+        message={{ steps.build_observable.output.observable.message }}

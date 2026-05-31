@@ -1,0 +1,93 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "ServiceNow — Query Incidents by Affected Entity"
+description: >
+  Looks up recent ServiceNow incidents whose configuration item (cmdb_ci)
+  matches an entity from an Elastic Security detection, then emits a
+  compact summary of the related incidents (ticket number, severity,
+  priority, open/close timestamps) for the analyst to triage.
+enabled: true
+tags: ["splunk-soar", "ticketing", "servicenow", "query", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: entity
+    type: string
+    required: true
+    description: "Affected entity name (host or device) to look up in the SNOW cmdb_ci.name field."
+  - name: lookback_days
+    type: number
+    required: false
+    default: 7
+    description: "Number of days back to query. Default 7."
+  - name: max_results
+    type: number
+    required: false
+    default: 100
+    description: "Maximum number of incidents to return."
+
+consts:
+  # Replace with your ServiceNow connector ID configured in Kibana.
+  servicenow_connector_id: "CHANGEME-servicenow-connector"
+  # Direct REST URL used as a fallback for the `list tickets` action.
+  servicenow_instance_url: "https://CHANGEME.service-now.com"
+  servicenow_auth_header: "Basic CHANGEME_BASE64_USER_PASS"
+
+steps:
+  - name: build_filter_query
+    type: data.set
+    with:
+      # SNOW sysparm_query string filtered by CMDB CI and creation time.
+      filter: "cmdb_ci.name={{ inputs.entity }}^sys_created_onONLast%20{{ inputs.lookback_days | default: 7 }}%20days"
+
+  # TODO: when ServiceNow's "list tickets" subAction is exposed on the
+  # workflow connector, swap this http call for the native action.
+  - name: list_snow_tickets
+    type: http
+    with:
+      url: "{{ consts.servicenow_instance_url }}/api/now/table/incident"
+      method: GET
+      headers:
+        Authorization: "{{ consts.servicenow_auth_header }}"
+        Accept: "application/json"
+      query:
+        sysparm_query: "{{ steps.build_filter_query.output.filter }}"
+        sysparm_limit: "{{ inputs.max_results | default: 100 }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+      continue: true
+
+  - name: have_tickets
+    type: if
+    condition: "{{ steps.list_snow_tickets.output.result | size }} > 0"
+    steps:
+      - name: emit_tickets
+        type: foreach
+        with:
+          items: ${{ steps.list_snow_tickets.output.result }}
+        steps:
+          - name: log_ticket
+            type: console
+            with:
+              message: |
+                SNOW {{ item.number | default: '' }} — {{ item.short_description | default: '' }}
+                sys_id={{ item.sys_id | default: '' }} severity={{ item.severity | default: '' }} priority={{ item.priority | default: '' }}
+                opened={{ item.opened_at | default: '' }} closed={{ item.closed_at | default: '' }}
+
+      - name: store_summary
+        type: data.set
+        with:
+          snow_tickets: ${{ steps.list_snow_tickets.output.result }}
+          count: "{{ steps.list_snow_tickets.output.result | size }}"
+    else:
+      - name: log_no_results
+        type: console
+        with:
+          message: "No related SNOW incidents found for entity '{{ inputs.entity }}'."

@@ -1,0 +1,217 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "CrowdStrike — Endpoint IOC Enrichment"
+description: >
+  Multi-IOC enrichment workflow. Given an alert with any combination of
+  a file hash, URL, domain or destination IP, it hunts each across the
+  CrowdStrike fleet and pulls reputation data so an analyst gets a
+  consolidated picture before deciding on response actions. Intended
+  to feed into the quarantine-response playbook.
+enabled: true
+tags: ["splunk-soar", "endpoint-response", "crowdstrike", "ioc", "enrichment", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: file_hash
+    type: string
+    required: false
+    description: "File hash (sha256/md5) to hunt and look up."
+  - name: url
+    type: string
+    required: false
+    description: "URL to look up via CrowdStrike Falcon Intelligence."
+  - name: domain
+    type: string
+    required: false
+    description: "Domain to hunt for sightings."
+  - name: dst_ip
+    type: string
+    required: false
+    description: "Destination IP to hunt for sightings."
+  - name: source_hostname
+    type: string
+    required: false
+    description: "Originating endpoint to also pull a system-info snapshot for."
+
+consts:
+  crowdstrike_base_url: "https://api.crowdstrike.com"
+  crowdstrike_bearer: "Bearer CHANGEME_FALCON_OAUTH_TOKEN"
+
+steps:
+  - name: enrich_file_hash
+    type: if
+    condition: "{{ inputs.file_hash | size }} > 0"
+    steps:
+      - name: hunt_file
+        type: http
+        with:
+          url: "{{ consts.crowdstrike_base_url }}/indicators/queries/devices/v1"
+          method: GET
+          headers:
+            Authorization: "{{ consts.crowdstrike_bearer }}"
+          query:
+            type: "sha256"
+            value: "{{ inputs.file_hash }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: file_reputation
+        type: http
+        with:
+          url: "{{ consts.crowdstrike_base_url }}/intel/entities/reports/v1"
+          method: GET
+          headers:
+            Authorization: "{{ consts.crowdstrike_bearer }}"
+          query:
+            ids: "{{ inputs.file_hash }}"
+        on-failure:
+          continue: true
+
+      - name: get_file_device_info
+        type: if
+        condition: "{{ steps.hunt_file.output.resources | size }} > 0"
+        steps:
+          - name: lookup_file_devices
+            type: http
+            with:
+              url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices/v2"
+              method: GET
+              headers:
+                Authorization: "{{ consts.crowdstrike_bearer }}"
+              query:
+                ids: "${{ steps.hunt_file.output.resources }}"
+            on-failure:
+              continue: true
+
+  - name: enrich_url
+    type: if
+    condition: "{{ inputs.url | size }} > 0"
+    steps:
+      - name: url_reputation
+        type: http
+        with:
+          url: "{{ consts.crowdstrike_base_url }}/intel/queries/indicators/v1"
+          method: GET
+          headers:
+            Authorization: "{{ consts.crowdstrike_bearer }}"
+          query:
+            filter: "type:'url'+indicator:'{{ inputs.url }}'"
+        on-failure:
+          continue: true
+
+  - name: enrich_domain
+    type: if
+    condition: "{{ inputs.domain | size }} > 0"
+    steps:
+      - name: hunt_domain
+        type: http
+        with:
+          url: "{{ consts.crowdstrike_base_url }}/indicators/queries/devices/v1"
+          method: GET
+          headers:
+            Authorization: "{{ consts.crowdstrike_bearer }}"
+          query:
+            type: "domain"
+            value: "{{ inputs.domain }}"
+        on-failure:
+          continue: true
+
+      - name: get_domain_device_info
+        type: if
+        condition: "{{ steps.hunt_domain.output.resources | size }} > 0"
+        steps:
+          - name: lookup_domain_devices
+            type: http
+            with:
+              url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices/v2"
+              method: GET
+              headers:
+                Authorization: "{{ consts.crowdstrike_bearer }}"
+              query:
+                ids: "${{ steps.hunt_domain.output.resources }}"
+            on-failure:
+              continue: true
+
+  - name: enrich_dst_ip
+    type: if
+    condition: "{{ inputs.dst_ip | size }} > 0"
+    steps:
+      - name: hunt_ip
+        type: http
+        with:
+          url: "{{ consts.crowdstrike_base_url }}/indicators/queries/devices/v1"
+          method: GET
+          headers:
+            Authorization: "{{ consts.crowdstrike_bearer }}"
+          query:
+            type: "ipv4"
+            value: "{{ inputs.dst_ip }}"
+        on-failure:
+          continue: true
+
+      - name: get_ip_device_info
+        type: if
+        condition: "{{ steps.hunt_ip.output.resources | size }} > 0"
+        steps:
+          - name: lookup_ip_devices
+            type: http
+            with:
+              url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices/v2"
+              method: GET
+              headers:
+                Authorization: "{{ consts.crowdstrike_bearer }}"
+              query:
+                ids: "${{ steps.hunt_ip.output.resources }}"
+            on-failure:
+              continue: true
+
+  - name: enrich_source_host
+    type: if
+    condition: "{{ inputs.source_hostname | size }} > 0"
+    steps:
+      # The original playbook chained into a sub-playbook for full
+      # endpoint analysis (processes / netstat / system info / services).
+      # See crowdstrike-oauth-api-endpoint-analysis.yaml for the
+      # detailed implementation; we just resolve the host id here.
+      - name: lookup_source_host
+        type: http
+        with:
+          url: "{{ consts.crowdstrike_base_url }}/devices/queries/devices/v1"
+          method: GET
+          headers:
+            Authorization: "{{ consts.crowdstrike_bearer }}"
+          query:
+            limit: 1
+            filter: "hostname:'{{ inputs.source_hostname }}'"
+        on-failure:
+          continue: true
+
+  - name: build_enrichment_summary
+    type: data.set
+    with:
+      enrichment:
+        file_hash: "{{ inputs.file_hash | default: '' }}"
+        file_hits: "{{ steps.hunt_file.output.resources | size | default: 0 }}"
+        url: "{{ inputs.url | default: '' }}"
+        domain: "{{ inputs.domain | default: '' }}"
+        domain_hits: "{{ steps.hunt_domain.output.resources | size | default: 0 }}"
+        ip: "{{ inputs.dst_ip | default: '' }}"
+        ip_hits: "{{ steps.hunt_ip.output.resources | size | default: 0 }}"
+        source_host: "{{ inputs.source_hostname | default: '' }}"
+
+  - name: log_summary
+    type: console
+    with:
+      message: |
+        IOC enrichment complete.
+        file_hash={{ steps.build_enrichment_summary.output.enrichment.file_hash }} hits={{ steps.build_enrichment_summary.output.enrichment.file_hits }}
+        domain={{ steps.build_enrichment_summary.output.enrichment.domain }} hits={{ steps.build_enrichment_summary.output.enrichment.domain_hits }}
+        ip={{ steps.build_enrichment_summary.output.enrichment.ip }} hits={{ steps.build_enrichment_summary.output.enrichment.ip_hits }}

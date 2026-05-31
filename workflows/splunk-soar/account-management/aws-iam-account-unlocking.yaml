@@ -1,0 +1,82 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "AWS IAM — Account Unlocking"
+description: >
+  Re-enables an AWS IAM user. Reattaches a login profile with a freshly
+  set password and optionally restores their access keys. The new
+  password should be changed by the user upon next login.
+enabled: true
+tags: ["splunk-soar", "identity", "account-unlock", "aws", "iam", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: user
+    type: string
+    required: true
+    description: "IAM username to re-enable."
+  - name: temporary_password
+    type: string
+    required: false
+    default: "Ch@ng3M3!123"
+    description: "Initial password assigned at re-enable time. Should be rotated by the user immediately."
+  - name: enable_access_keys
+    type: boolean
+    required: false
+    default: true
+    description: "Whether to re-enable any existing access keys."
+
+consts:
+  aws_iam_endpoint: "https://CHANGEME-aws-proxy.internal/iam/enable-user"
+  aws_iam_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  - name: validate_input
+    type: if
+    condition: "{{ inputs.user | size }} == 0"
+    steps:
+      - name: log_missing_user
+        type: console
+        with:
+          message: "No user supplied — aborting."
+
+  # TODO: replace stub with an AWS IAM-native connector when available.
+  # Equivalent Phantom action: "enable user" on the `aws_iam` asset.
+  - name: enable_user
+    type: http
+    with:
+      url: "{{ consts.aws_iam_endpoint }}"
+      method: POST
+      headers:
+        Authorization: "{{ consts.aws_iam_auth_header }}"
+        Content-Type: "application/json"
+      body:
+        username: "{{ inputs.user }}"
+        password: "{{ inputs.temporary_password }}"
+        enable_access_keys: ${{ inputs.enable_access_keys }}
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: build_observable
+    type: data.set
+    with:
+      observable:
+        type: "aws iam user name"
+        value: "{{ inputs.user }}"
+        status: "{{ steps.enable_user.output.status | default: 'unknown' }}"
+        message: "{{ steps.enable_user.output.message | default: '' }}"
+        request_id: "{{ steps.enable_user.output.RequestId | default: '' }}"
+
+  - name: log_result
+    type: console
+    with:
+      message: |
+        Enable result for {{ inputs.user }}:
+        status={{ steps.build_observable.output.observable.status }}
+        message={{ steps.build_observable.output.observable.message }}

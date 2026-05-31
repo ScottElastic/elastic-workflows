@@ -1,0 +1,91 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "MS Graph O365 — Message Identifier Activity Analysis"
+description: >
+  Given an internet message id, pulls the list of mailboxes from an
+  Office 365 tenant and searches each for matches. Returns a normalized
+  per-mailbox observable record with sender, recipient, subject, and the
+  O365 message id. Note that this pattern hits one mailbox per call and
+  may run into rate limits at scale. Refer to D3FEND D3-IAA.
+enabled: true
+tags: ["splunk-soar", "enrichment", "identifier-activity", "office-365", "ms-graph", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: message_id
+    type: string
+    required: true
+    description: "Internet message id to locate across O365 mailboxes."
+
+consts:
+  graph_base: "https://graph.microsoft.com/v1.0"
+  graph_auth_header: "Bearer CHANGEME_GRAPH_TOKEN"
+
+steps:
+  - name: message_provided
+    type: if
+    condition: "{{ inputs.message_id | size }} > 0"
+    steps:
+      # TODO: replace with native MS Graph connector once available.
+      - name: list_mailboxes
+        type: http
+        with:
+          url: "{{ consts.graph_base }}/users"
+          method: GET
+          headers:
+            Authorization: "{{ consts.graph_auth_header }}"
+            Accept: "application/json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: per_mailbox_search
+        type: foreach
+        with:
+          items: "${{ steps.list_mailboxes.output.value }}"
+        steps:
+          - name: search_mailbox
+            type: http
+            with:
+              url: "{{ consts.graph_base }}/users/{{ item.mail }}/messages"
+              method: GET
+              headers:
+                Authorization: "{{ consts.graph_auth_header }}"
+                Accept: "application/json"
+              query:
+                $filter: "internetMessageId eq '{{ inputs.message_id }}'"
+            on-failure:
+              continue: true
+
+          - name: hits_in_mailbox
+            type: if
+            condition: "{{ steps.search_mailbox.output.value | size }} > 0"
+            steps:
+              - name: build_message_observable
+                type: data.set
+                with:
+                  observable:
+                    type: "internet message id"
+                    value: "{{ inputs.message_id }}"
+                    source: "MS Graph for Office365"
+                    recipient: "{{ item.mail }}"
+                    subject: "{{ steps.search_mailbox.output.value[0].subject | default: '' }}"
+                    sender: "{{ steps.search_mailbox.output.value[0].sender.emailAddress.address | default: '' }}"
+                    o365_id: "{{ steps.search_mailbox.output.value[0].id | default: '' }}"
+
+              - name: log_message_observable
+                type: console
+                with:
+                  message: |
+                    Match in {{ item.mail }}: subject="{{ steps.search_mailbox.output.value[0].subject | default: '' }}", sender={{ steps.search_mailbox.output.value[0].sender.emailAddress.address | default: '' }}
+
+      - name: log_summary
+        type: console
+        with:
+          message: "Searched {{ steps.list_mailboxes.output.value | size | default: 0 }} O365 mailboxes for internet message id {{ inputs.message_id }}."

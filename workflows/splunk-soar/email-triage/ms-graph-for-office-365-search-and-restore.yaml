@@ -1,0 +1,106 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "MS Graph O365 — Search and Restore"
+description: >
+  Reverses a prior search-and-purge by sweeping each mailbox's
+  Recoverable Items folder for a target Internet Message ID and
+  moving the matching item back to Inbox. Designed to consume the
+  audit observables produced by the Search-and-Purge workflow.
+enabled: true
+tags: ["splunk-soar", "email-triage", "search-and-restore", "o365", "ms-graph", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: targets
+    type: array
+    required: true
+    description: >-
+      Array of objects each with `email` and `internet_message_id` fields,
+      typically sourced from a prior Search-and-Purge audit observable.
+
+consts:
+  graph_endpoint: "https://graph.microsoft.com/v1.0"
+  graph_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  - name: validate_input
+    type: if
+    condition: "{{ inputs.targets | size }} == 0"
+    steps:
+      - name: log_missing
+        type: console
+        with:
+          message: "No mailbox + message_id pairs supplied — nothing to restore."
+
+  - name: restore_each_target
+    type: foreach
+    with:
+      items: ${{ inputs.targets }}
+    steps:
+      # TODO: swap for a Graph mail connector when available.
+      - name: find_deleted_message
+        type: http
+        with:
+          url: "{{ consts.graph_endpoint }}/users/{{ item.email }}/mailFolders/RecoverableItemsDeletions/messages"
+          method: GET
+          headers:
+            Authorization: "{{ consts.graph_auth_header }}"
+          query:
+            $filter: "internetMessageId eq '{{ item.internet_message_id }}'"
+            $select: "id"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: restore_if_found
+        type: if
+        condition: "{{ steps.find_deleted_message.output.value | size }} >= 1"
+        steps:
+          - name: move_back_to_inbox
+            type: http
+            with:
+              url: "{{ consts.graph_endpoint }}/users/{{ item.email }}/messages/{{ steps.find_deleted_message.output.value[0].id }}/move"
+              method: POST
+              headers:
+                Authorization: "{{ consts.graph_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                destinationId: "inbox"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+          - name: record_restore_observable
+            type: data.set
+            with:
+              observable:
+                type: "Internet Message ID"
+                source: "MS Graph for Office365"
+                value: "{{ item.internet_message_id }}"
+                mailbox: "{{ item.email }}"
+                status: "restored"
+
+          - name: log_restored
+            type: console
+            with:
+              message: "Restored {{ item.internet_message_id }} to {{ item.email }}/Inbox"
+        else:
+          - name: log_not_found
+            type: console
+            with:
+              message: "Message {{ item.internet_message_id }} not in {{ item.email }} deletions."
+
+  - name: post_summary_note
+    type: console
+    with:
+      message: |
+        Search and Restore finished against {{ inputs.targets | size }} target(s).

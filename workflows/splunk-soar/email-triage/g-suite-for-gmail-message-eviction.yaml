@@ -1,0 +1,80 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "GSuite Gmail — Message Eviction"
+description: >
+  Permanently removes a Gmail message from a specified mailbox using a
+  Google Workspace admin credential. Takes a message ID and recipient
+  mailbox, performs a hard delete (non-recoverable), and emits a
+  normalized observable for each deleted message. Maps to D3FEND
+  EmailRemoval.
+enabled: true
+tags: ["splunk-soar", "email-triage", "email-removal", "gmail", "gsuite", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: message_id
+    type: array
+    required: true
+    description: "Gmail message IDs to delete."
+  - name: email
+    type: array
+    required: true
+    description: "Mailbox addresses to delete from. Pairs by index with message_id."
+
+consts:
+  # Replace with your G Suite admin OAuth credential / proxy endpoint.
+  gsuite_endpoint: "https://gmail.googleapis.com/gmail/v1/users"
+  gsuite_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  - name: validate_input
+    type: if
+    condition: "{{ inputs.message_id | size }} == 0 or {{ inputs.email | size }} == 0"
+    steps:
+      - name: log_missing_input
+        type: console
+        with:
+          message: "Message ID or recipient mailbox missing — nothing to evict."
+
+  - name: evict_messages
+    type: foreach
+    with:
+      items: ${{ inputs.message_id }}
+    steps:
+      # TODO: replace with a native Gmail connector when available.
+      # Maps to Phantom's g_suite_for_gmail "delete email" action.
+      - name: delete_message
+        type: http
+        with:
+          url: "{{ consts.gsuite_endpoint }}/{{ inputs.email[loop.index0] }}/messages/{{ item }}"
+          method: DELETE
+          headers:
+            Authorization: "{{ consts.gsuite_auth_header }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: record_result
+        type: data.set
+        with:
+          observable:
+            type: "Gmail message ID"
+            source: "GSuite for Gmail"
+            mailbox: "{{ inputs.email[loop.index0] }}"
+            message_id: "{{ item }}"
+            status: "{{ steps.delete_message.output.status | default: 'unknown' }}"
+            message: "{{ steps.delete_message.output.message | default: '' }}"
+
+      - name: log_observable
+        type: console
+        with:
+          message: |
+            Evicted from {{ inputs.email[loop.index0] }}:
+            message_id={{ item }}
+            status={{ steps.record_result.output.observable.status }}

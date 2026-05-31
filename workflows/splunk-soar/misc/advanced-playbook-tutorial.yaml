@@ -1,0 +1,198 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Advanced Playbook Tutorial"
+description: >
+  An end-to-end sample workflow: look up the reputation of a file hash, and
+  when more than ten detection sources flag it as malicious, raise case
+  severity (unless the host is in a known test-machine list), terminate the
+  offending process on the endpoint, and — pending analyst approval — add
+  the attacker source IP to a custom block list and apply a temporary
+  firewall block that auto-reverts after one hour.
+enabled: true
+tags: ["splunk-soar", "misc", "tutorial", "containment", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: file_hash
+    type: string
+    required: true
+    description: "File hash (MD5/SHA1/SHA256) to look up."
+  - name: file_name
+    type: string
+    required: false
+    description: "Name of the offending process/file."
+  - name: destination_address
+    type: string
+    required: false
+    description: "Endpoint host where the file was observed."
+  - name: source_address
+    type: string
+    required: false
+    description: "Attacker source IP that may be blocked."
+  - name: test_machine_list
+    type: array
+    required: false
+    default: []
+    description: "Hostnames to treat as test machines (severity remains low)."
+  - name: blocked_ip_list
+    type: array
+    required: false
+    default: []
+    description: "IPs already on the block list (to avoid duplicates)."
+  - name: kibana_case_id
+    type: string
+    required: false
+    description: "Case to attach severity changes and notes to."
+
+consts:
+  # Original used ReversingLabs reputation; using vendor API stub here.
+  reversinglabs_endpoint: "https://api.reversinglabs.com/api/databrowser/malware_presence/query/sha1/CHANGEME"
+  reversinglabs_token: "Token CHANGEME_TOKEN"
+  # Tanium asset originally; stubbed via http.
+  tanium_endpoint: "https://CHANGEME-tanium.example.com/api/v2"
+  tanium_token: "session-CHANGEME"
+  # Palo Alto Networks firewall.
+  pan_endpoint: "https://CHANGEME-pan-fw.example.com/api"
+  pan_api_key: "CHANGEME"
+  # Slack channel where the analyst prompt lands.
+  slack_connector_id: "CHANGEME-slack-connector"
+  positives_threshold: 10
+  block_duration_minutes: 60
+
+steps:
+  # 1) File reputation lookup
+  - name: file_reputation
+    type: http
+    with:
+      url: "{{ consts.reversinglabs_endpoint }}/{{ inputs.file_hash }}"
+      method: GET
+      headers:
+        Authorization: "{{ consts.reversinglabs_token }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: extract_positives
+    type: data.set
+    with:
+      positives: "{{ steps.file_reputation.output.rl.malware_presence.scanner_match | default: 0 }}"
+
+  # 2) Continue only if positives > threshold
+  - name: confirmed_malicious
+    type: if
+    condition: "{{ steps.extract_positives.output.positives }} > {{ consts.positives_threshold }}"
+    steps:
+      # 3) Severity bump (skipped for test machines)
+      - name: severity_bump
+        type: if
+        condition: "{{ inputs.test_machine_list | join: ',' | downcase | strings.contains: (inputs.destination_address | downcase) }} == false"
+        steps:
+          - name: set_severity_high
+            type: if
+            condition: "{{ inputs.kibana_case_id | size }} > 0"
+            steps:
+              - name: update_case_severity
+                type: kibana.updateCase
+                with:
+                  caseId: "{{ inputs.kibana_case_id }}"
+                  severity: "high"
+          - name: log_severity
+            type: console
+            with:
+              message: "Host {{ inputs.destination_address }} is not a test machine; severity raised."
+
+      # 4) Terminate process on endpoint
+      # TODO: replace with native Tanium connector when available.
+      - name: terminate_process
+        type: if
+        condition: "{{ inputs.file_name | size }} > 0 and {{ inputs.destination_address | size }} > 0"
+        steps:
+          - name: tanium_terminate
+            type: http
+            with:
+              url: "{{ consts.tanium_endpoint }}/actions"
+              method: POST
+              headers:
+                session: "{{ consts.tanium_token }}"
+                Content-Type: "application/json"
+              body:
+                name: "{{ inputs.file_name }}"
+                host: "{{ inputs.destination_address }}"
+                timeout_seconds: 60
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "5s"
+              continue: true
+
+      # 5) If source IP isn't already blocked, ask an analyst to block it
+      - name: maybe_block_ip
+        type: if
+        condition: "{{ inputs.source_address | size }} > 0 and ({{ inputs.blocked_ip_list | join: ',' | strings.contains: inputs.source_address }} == false)"
+        steps:
+          - name: ask_analyst
+            type: slack
+            connector-id: "{{ consts.slack_connector_id }}"
+            with:
+              message: |
+                Malware incident review:
+                Source IP: {{ inputs.source_address }}
+                File hash: {{ inputs.file_hash }}
+                Positive detections: {{ steps.extract_positives.output.positives }}
+
+                Should we block this IP on PAN for {{ consts.block_duration_minutes }} minutes? Reply "Yes" or "No".
+
+          # Phantom uses phantom.prompt2 for a blocking analyst response. In
+          # Elastic Workflows we use an ai.prompt step for asynchronous
+          # human-in-the-loop decisions. Operators wire this to their analyst
+          # workflow / inbox.
+          - name: collect_decision
+            type: ai.prompt
+            with:
+              prompt: "Analyst, should we temporarily block source IP {{ inputs.source_address }}? Reply Yes or No."
+              timeout: "30m"
+
+          - name: act_on_decision
+            type: if
+            condition: "{{ steps.collect_decision.output.response | downcase }} == 'yes'"
+            steps:
+              # TODO: replace with a native PAN connector when one is available.
+              - name: pan_block_ip
+                type: http
+                with:
+                  url: "{{ consts.pan_endpoint }}/?type=op&cmd=<request><address-block><ip>{{ inputs.source_address }}</ip></address-block></request>&key={{ consts.pan_api_key }}"
+                  method: POST
+                on-failure:
+                  retry:
+                    max-attempts: 2
+                    delay: "5s"
+                  continue: true
+
+              - name: schedule_unblock
+                type: console
+                with:
+                  message: |
+                    Block applied for {{ inputs.source_address }}.
+                    Auto-unblock should occur after {{ consts.block_duration_minutes }} minutes.
+                    NOTE: original SOAR playbook scheduled a delayed unblock action.
+                    In Elastic, wire a scheduled trigger or a sibling unblock workflow.
+
+              - name: record_blocked
+                type: data.set
+                with:
+                  blocked:
+                    ip: "{{ inputs.source_address }}"
+                    duration_minutes: "{{ consts.block_duration_minutes }}"
+                    source: "advanced-playbook-tutorial"
+    else:
+      - name: log_below_threshold
+        type: console
+        with:
+          message: "Hash {{ inputs.file_hash }} positives below threshold; no containment."

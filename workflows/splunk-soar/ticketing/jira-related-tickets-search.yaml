@@ -1,0 +1,123 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Jira — Related Tickets Search"
+description: >
+  Takes one or more search terms (typically a user or host) and looks for
+  Jira issues created within the last 30 days that mention them. For each
+  matching ticket the workflow builds a normalized observable record and
+  emits a compact summary that downstream playbooks or analysts can use.
+enabled: true
+tags: ["splunk-soar", "ticketing", "jira", "related-tickets", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: search_terms
+    type: array
+    required: true
+    description: "List of strings to search Jira for (usernames, hostnames, IPs, etc.)."
+  - name: lookback_days
+    type: number
+    required: false
+    default: 30
+    description: "How many days back to look. Default 30."
+
+consts:
+  # Wire to your Jira connector once available. The community playbook used the
+  # SOAR `jira` asset; in Elastic, point this at a Jira connector or the REST API.
+  jira_connector_id: "CHANGEME-jira-connector"
+  jira_base_url: "https://CHANGEME.atlassian.net"
+  jira_auth_header: "Basic CHANGEME_BASE64_EMAIL_TOKEN"
+
+steps:
+  - name: guard_inputs
+    type: if
+    condition: "{{ inputs.search_terms | size }} == 0"
+    steps:
+      - name: abort_no_terms
+        type: console
+        with:
+          message: "No search terms provided — nothing to look up."
+
+  # Build a JQL clause that ORs the escaped terms together, restricted to the
+  # configured lookback window. We pass the array to a small data.set step
+  # rather than copying SOAR's character-by-character escape helper verbatim.
+  - name: build_jql
+    type: data.set
+    with:
+      # NOTE: any quotes or backslashes inside terms should be escaped upstream
+      # if they could break JQL. Most user/host indicators are safe as-is.
+      jql: >-
+        text ~ "{{ inputs.search_terms | join: '" OR text ~ "' }}" AND created > -{{ inputs.lookback_days | default: 30 }}d
+
+  # TODO: replace this http stub once a first-class Jira workflow connector
+  # is wired up. Original SOAR action: "list tickets" against the jira asset.
+  - name: run_ticket_query
+    type: http
+    with:
+      url: "{{ consts.jira_base_url }}/rest/api/2/search"
+      method: POST
+      headers:
+        Authorization: "{{ consts.jira_auth_header }}"
+        Content-Type: "application/json"
+        Accept: "application/json"
+      body:
+        jql: "{{ steps.build_jql.output.jql }}"
+        maxResults: 1000
+        startAt: 0
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+      continue: true
+
+  - name: handle_query_outcome
+    type: if
+    condition: "{{ steps.run_ticket_query.output.issues | size }} > 0"
+    steps:
+      # Group matching issues per input term. We approximate the SOAR custom
+      # code's substring-match behaviour: take every issue returned and pair
+      # it with the term(s) it could relate to.
+      - name: build_observables
+        type: foreach
+        with:
+          items: ${{ steps.run_ticket_query.output.issues }}
+        steps:
+          - name: build_ticket_observable
+            type: data.set
+            with:
+              observable:
+                value: "{{ item.key }}"
+                ticket:
+                  name: "{{ item.fields.summary | default: '' }}"
+                  number: "{{ item.key | default: '' }}"
+                  message: "{{ item.fields.description | default: '' }}"
+                  start_time: "{{ item.fields.created | default: '' }}"
+                  updated_time: "{{ item.fields.updated | default: '' }}"
+                  end_time: ""
+                  assignee: "{{ item.fields.assignee.displayName | default: '' }}"
+                  creator_name: "{{ item.fields.reporter.displayName | default: '' }}"
+                  state: "{{ item.fields.status.name | default: '' }}"
+                  ticket_type: "{{ item.fields.issuetype.name | default: '' }}"
+                  priority: "{{ item.fields.priority.name | default: '' }}"
+                  resolution: "{{ item.fields.resolution.name | default: '' }}"
+                source: "Jira"
+                source_link: "{{ consts.jira_base_url }}/browse/{{ item.key }}"
+
+          - name: log_match
+            type: console
+            with:
+              message: "Jira match {{ item.key }}: {{ item.fields.summary | default: 'no summary' }}"
+    else:
+      - name: log_no_matches
+        type: console
+        with:
+          message: "Jira query returned 0 matching tickets."
+
+  - name: summarize_run
+    type: console
+    with:
+      message: "Jira related-tickets search complete. Total issues considered: {{ steps.run_ticket_query.output.issues | size | default: 0 }}."

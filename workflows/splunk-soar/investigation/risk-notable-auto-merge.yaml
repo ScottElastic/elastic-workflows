@@ -1,0 +1,121 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Splunk Risk Notable — Auto-Merge"
+description: >
+  Looks for other open notables that share a risk_object with this one
+  in the last 24 hours. If any of them are already a case, the new
+  container is merged into that case. If multiple new notables share
+  a risk_object but none is a case yet, this container is promoted to
+  a case and the others are merged into it. Emits a merge_result that
+  the parent workflow can branch on.
+enabled: true
+tags: ["splunk-soar", "investigation", "splunk", "risk-notable", "merge", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: container_id
+    type: string
+    required: true
+    description: "Current SOAR/Kibana case identifier."
+  - name: risk_object
+    type: string
+    required: false
+    description: "Risk object value (user, host, etc.) used to find related notables."
+
+consts:
+  kibana_case_id: "CHANGEME-case-id"
+  related_lookback: "-24h"
+  related_label: "risk_notable"
+  alerts_index: ".internal.alerts-security.alerts-default*"
+
+steps:
+  # Phantom uses the custom function `community/find_related_containers`.
+  # Translate that to an ES search against the alerts index, filtering on
+  # the risk_object field within the lookback window.
+  - name: find_related_events
+    type: elasticsearch.search
+    with:
+      index: "{{ consts.alerts_index }}"
+      size: 25
+      query:
+        bool:
+          must:
+            - term:
+                kibana.alert.workflow_tags: "{{ consts.related_label }}"
+            - term:
+                risk_object.keyword: "{{ inputs.risk_object }}"
+            - range:
+                "@timestamp":
+                  gte: "now{{ consts.related_lookback }}"
+          must_not:
+            - term:
+                kibana.alert.workflow_status: "closed"
+    on-failure:
+      continue: true
+
+  - name: classify_relations
+    type: if
+    # Any of the related events already a "case"? In Elastic the case
+    # association is on a separate object; here we use a stand-in field.
+    condition: "{{ steps.find_related_events.output.hits.hits | map: '_source.container_type' | includes: 'case' }}"
+    steps:
+      - name: merge_into_existing_case
+        type: kibana.addCaseComment
+        with:
+          caseId: "{{ consts.kibana_case_id }}"
+          comment: |
+            Auto-merge: container {{ inputs.container_id }} merged into an
+            existing case discovered via shared risk_object
+            '{{ inputs.risk_object }}'.
+        on-failure:
+          continue: true
+
+      - name: set_merge_result_merged
+        type: data.set
+        with:
+          merge_result: "merged into case"
+
+    else:
+      - name: any_open_relatives
+        type: if
+        condition: "${{ steps.find_related_events.output.hits.total.value | default: 0 }} > 0"
+        steps:
+          # Promote this container to a case and roll others into it.
+          - name: create_case
+            type: kibana.createCaseDefaultSpace
+            with:
+              title: "Risk Notable — auto-merged for {{ inputs.risk_object }}"
+              description: |
+                Auto-created case for risk object {{ inputs.risk_object }}.
+                {{ steps.find_related_events.output.hits.total.value }} related
+                notable(s) merged.
+              tags: ["risk-notable", "auto-merge"]
+              severity: "medium"
+              connector:
+                id: "none"
+                name: "none"
+                type: ".none"
+            on-failure:
+              continue: true
+
+          - name: set_merge_result_created
+            type: data.set
+            with:
+              merge_result: "created case"
+        else:
+          - name: set_merge_result_none
+            type: data.set
+            with:
+              merge_result: "no related events"
+
+  - name: log_result
+    type: console
+    with:
+      message: |
+        Auto-merge complete. risk_object={{ inputs.risk_object }}
+        related_count={{ steps.find_related_events.output.hits.total.value | default: 0 }}

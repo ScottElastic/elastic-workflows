@@ -1,0 +1,144 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "urlscan.io — Dynamic URL Analysis"
+description: >
+  Detonates each provided URL in urlscan.io and builds a per-URL
+  observable. When urlscan.io returns an error code (blacklisted,
+  invalid hostname, etc.) the observable records the error context;
+  otherwise a normalized OCSF reputation score is computed from the
+  overall, urlscan, engine, and community verdicts.
+enabled: true
+tags: ["splunk-soar", "reputation", "url", "urlscan", "dynamic-analysis", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: urls
+    type: array
+    required: true
+    description: "List of URLs to submit for detonation."
+
+consts:
+  urlscan_endpoint: "https://urlscan.io/api/v1/scan/"
+  urlscan_result_endpoint: "https://urlscan.io/api/v1/result/"
+  urlscan_api_key: "CHANGEME_URLSCAN_API_KEY"
+  # OCSF reputation score reference: https://schema.ocsf.io/objects/reputation
+  # Known urlscan error keys that translate to friendly descriptions:
+  # blacklist, spam, invalid_hostname, missing_url, auth, not_be_resolved.
+
+steps:
+  - name: each_url
+    type: foreach
+    with:
+      items: ${{ inputs.urls }}
+    steps:
+      # TODO: replace with a native urlscan connector when available.
+      - name: submit_scan
+        type: http
+        with:
+          url: "{{ consts.urlscan_endpoint }}"
+          method: POST
+          headers:
+            API-Key: "{{ consts.urlscan_api_key }}"
+            Content-Type: "application/json"
+          body:
+            url: "{{ item }}"
+            visibility: "private"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: error_branch
+        type: if
+        condition: "{{ steps.submit_scan.output.status | default: 0 }} == 400"
+        steps:
+          # urlscan returned an error code (e.g. blacklisted, spam, etc.)
+          # — capture the message and mark the URL as unscored.
+          - name: build_error_observable
+            type: data.set
+            with:
+              observable:
+                value: "{{ item }}"
+                type: "url"
+                source: "urlscan.io"
+                score: "error_code_query"
+                score_id: ""
+                confidence: ""
+                description: "{{ steps.submit_scan.output.description | default: '' }}"
+                message: "{{ steps.submit_scan.output.message | default: '' }}"
+
+          - name: log_error_url
+            type: console
+            with:
+              message: |
+                urlscan.io rejected {{ item }} with message={{ steps.submit_scan.output.message | default: '' }}
+        else:
+          # Successful submission — fetch verdicts and compute a score.
+          - name: fetch_result
+            type: http
+            with:
+              url: "{{ consts.urlscan_result_endpoint }}{{ steps.submit_scan.output.uuid }}/"
+              method: GET
+              headers:
+                API-Key: "{{ consts.urlscan_api_key }}"
+            on-failure:
+              retry:
+                max-attempts: 3
+                delay: "10s"
+              continue: true
+
+          - name: normalize_score
+            type: data.set
+            with:
+              # The Phantom playbook averages the verdict scores from
+              # overall, urlscan, engine, and community (each -100..100),
+              # then bucketises into an OCSF 0-10 scale. We capture the
+              # raw inputs here and let downstream consumers bucketise.
+              verdicts:
+                overall_score: "{{ steps.fetch_result.output.verdicts.overall.score | default: 0 }}"
+                urlscan_score: "{{ steps.fetch_result.output.verdicts.urlscan.score | default: 0 }}"
+                engine_score: "{{ steps.fetch_result.output.verdicts.engines.score | default: 0 }}"
+                community_score: "{{ steps.fetch_result.output.verdicts.community.score | default: 0 }}"
+                malicious: "{{ steps.fetch_result.output.verdicts.overall.malicious | default: false }}"
+                categories: "{{ steps.fetch_result.output.verdicts.overall.categories | default: [] }}"
+                report_url: "{{ steps.fetch_result.output.task.reportURL | default: '' }}"
+
+          # AI fallback: convert the four verdict numbers into a single
+          # OCSF reputation score. Wire an LLM connector to make this concrete;
+          # otherwise downstream consumers can bucketise the raw verdicts.
+          - name: score_with_ai
+            type: ai.prompt
+            connector-id: "CHANGEME-llm-connector"
+            with:
+              prompt: |
+                Convert these four urlscan.io verdict scores (each in -100..100)
+                into a single OCSF reputation score_id (0-10) and label.
+                overall={{ steps.normalize_score.output.verdicts.overall_score }}
+                urlscan={{ steps.normalize_score.output.verdicts.urlscan_score }}
+                engines={{ steps.normalize_score.output.verdicts.engine_score }}
+                community={{ steps.normalize_score.output.verdicts.community_score }}
+                Return JSON: {"score_id": <int>, "score": "<label>", "confidence": <0-100>}
+            on-failure:
+              continue: true
+
+          - name: build_observable
+            type: data.set
+            with:
+              observable:
+                value: "{{ item }}"
+                type: "url"
+                source: "urlscan.io"
+                source_link: "{{ steps.normalize_score.output.verdicts.report_url }}"
+                ai_score: "{{ steps.score_with_ai.output | default: '' }}"
+                verdicts: ${{ steps.normalize_score.output.verdicts }}
+
+          - name: log_success
+            type: console
+            with:
+              message: |
+                urlscan.io detonation complete for {{ item }} — reportURL={{ steps.normalize_score.output.verdicts.report_url }}

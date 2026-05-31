@@ -1,0 +1,169 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Ransomware — Investigate and Contain"
+description: >
+  Investigates an endpoint detection by pulling the suspected file from
+  Cylance, detonating it in WildFire, and — when the verdict is
+  ransomware — blocks the file hashes via Carbon Black, blocks any
+  callout IPs via the Palo Alto firewall, hunts the file across the
+  fleet, quarantines affected hosts, terminates the live process, and
+  disables the impacted user account on AD.
+enabled: true
+tags: ["splunk-soar", "investigation", "ransomware", "carbonblack", "wildfire", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: file_hash
+    type: string
+    required: true
+    description: "Suspect file hash from the endpoint alert."
+
+consts:
+  cylance_endpoint: "https://CHANGEME-cylance.api/integrations/v2"
+  wildfire_endpoint: "https://wildfire.paloaltonetworks.com/publicapi"
+  carbonblack_endpoint: "https://CHANGEME-carbonblack.internal"
+  panorama_endpoint: "https://CHANGEME-panorama.internal"
+  ad_ldap_endpoint: "https://CHANGEME-ldap-proxy.internal/api"
+
+steps:
+  # Step 1: Retrieve the file from Cylance Protect via SOAR vault equivalent.
+  # TODO: replace with native Cylance/EDR connector when available.
+  - name: get_file
+    type: http
+    with:
+      url: "{{ consts.cylance_endpoint }}/threats/{{ inputs.file_hash }}/file"
+      method: GET
+    on-failure:
+      continue: true
+
+  # Step 2: Detonate in WildFire.
+  # TODO: replace with native WildFire connector when available.
+  - name: detonate_file
+    type: http
+    with:
+      url: "{{ consts.wildfire_endpoint }}/submit/file"
+      method: POST
+      body:
+        vault_id: "{{ steps.get_file.output.vault_id | default: '' }}"
+    on-failure:
+      continue: true
+
+  - name: is_ransomware
+    type: if
+    condition: "{{ steps.detonate_file.output.summary.malware | default: '' }} == 'ransomware'"
+    steps:
+      # Block any IPs the sample tried to contact during sandboxing.
+      - name: block_callout_ips
+        type: http
+        with:
+          url: "{{ consts.panorama_endpoint }}/api/?type=op"
+          method: POST
+          headers:
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "cmd=block&ips_from=detonate&vault_id={{ steps.get_file.output.vault_id }}"
+        on-failure:
+          continue: true
+
+      # Block all child file hashes observed in the sandbox report.
+      - name: block_child_hashes
+        type: http
+        with:
+          url: "{{ consts.carbonblack_endpoint }}/api/v1/banning/blacklist"
+          method: POST
+          body:
+            source: "detonate_file_1"
+            include: "process.file.create.sha1"
+        on-failure:
+          continue: true
+
+      # Block the parent hash too.
+      - name: block_parent_hash
+        type: http
+        with:
+          url: "{{ consts.carbonblack_endpoint }}/api/v1/banning/blacklist"
+          method: POST
+          body:
+            md5hash: "{{ steps.detonate_file.output.file_info.md5 | default: inputs.file_hash }}"
+            text: "Auto-block from ransomware playbook"
+            enabled: true
+        on-failure:
+          continue: true
+
+      # Hunt the file in Carbon Black to find the affected host/process/user.
+      - name: hunt_file
+        type: http
+        with:
+          url: "{{ consts.carbonblack_endpoint }}/api/v1/process"
+          method: GET
+          query:
+            hash: "{{ steps.detonate_file.output.file_info.md5 | default: inputs.file_hash }}"
+        on-failure:
+          continue: true
+
+      - name: parallel_response
+        type: parallel
+        steps:
+          - name: terminate_process
+            type: http
+            with:
+              url: "{{ consts.carbonblack_endpoint }}/api/v1/process/terminate"
+              method: POST
+              body:
+                pid: "{{ steps.hunt_file.output.process.results[0].process_pid | default: '' }}"
+                sensor_id: "{{ steps.hunt_file.output.process.results[0].sensor_id | default: '' }}"
+                ip_hostname: "{{ steps.hunt_file.output.process.results[0].hostname | default: '' }}"
+            on-failure:
+              continue: true
+
+          - name: quarantine_device
+            type: http
+            with:
+              url: "{{ consts.carbonblack_endpoint }}/api/v1/sensor/quarantine"
+              method: POST
+              body:
+                ip_hostname: "{{ steps.hunt_file.output.process.results[0].hostname | default: '' }}"
+            on-failure:
+              continue: true
+
+          - name: disable_user
+            type: http
+            with:
+              url: "{{ consts.ad_ldap_endpoint }}/disable-user"
+              method: POST
+              body:
+                username: "{{ steps.hunt_file.output.process.results[0].username | default: '' }}"
+            on-failure:
+              continue: true
+
+          - name: list_connections
+            type: http
+            with:
+              url: "{{ consts.carbonblack_endpoint }}/api/v1/process/connections"
+              method: GET
+              query:
+                pid: "{{ steps.hunt_file.output.process.results[0].process_pid | default: '' }}"
+                ip_hostname: "{{ steps.hunt_file.output.process.results[0].hostname | default: '' }}"
+            on-failure:
+              continue: true
+
+      # Block any IPs the live process is talking to.
+      - name: block_active_callbacks
+        type: http
+        with:
+          url: "{{ consts.panorama_endpoint }}/api/?type=op"
+          method: POST
+          body:
+            cmd: "block_ips"
+            source_step: "list_connections"
+        on-failure:
+          continue: true
+
+  - name: log_complete
+    type: console
+    with:
+      message: "Ransomware response complete for hash {{ inputs.file_hash }} — verdict: {{ steps.detonate_file.output.summary.malware | default: 'inconclusive' }}"

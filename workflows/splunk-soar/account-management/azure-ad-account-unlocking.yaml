@@ -1,0 +1,69 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Azure AD — Account Unlocking"
+description: >
+  Re-enables an Entra ID (Azure AD) user account through Microsoft Graph.
+  Validates the input, sets accountEnabled back to true via the Graph API,
+  and emits a normalized observable describing the outcome.
+enabled: true
+tags: ["splunk-soar", "identity", "account-unlock", "azure-ad", "entra-id", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: user
+    type: string
+    required: true
+    description: "Azure AD user id, UPN, or object id of the account to re-enable."
+
+consts:
+  azure_graph_base: "https://graph.microsoft.com/v1.0"
+  azure_graph_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  - name: validate_input
+    type: if
+    condition: "{{ inputs.user | size }} == 0"
+    steps:
+      - name: log_missing_user
+        type: console
+        with:
+          message: "No user provided — aborting."
+
+  # TODO: switch to a native Microsoft Graph connector when one ships.
+  # Equivalent Phantom action: "enable user" on the `azure_ad_graph` asset.
+  - name: enable_user
+    type: http
+    with:
+      url: "{{ consts.azure_graph_base }}/users/{{ inputs.user }}"
+      method: PATCH
+      headers:
+        Authorization: "{{ consts.azure_graph_auth_header }}"
+        Content-Type: "application/json"
+      body:
+        accountEnabled: true
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: build_observable
+    type: data.set
+    with:
+      observable:
+        type: "Azure AD Account"
+        value: "{{ inputs.user }}"
+        status: "{{ steps.enable_user.output.status | default: 'unknown' }}"
+        message: "{{ steps.enable_user.output.message | default: '' }}"
+
+  - name: log_result
+    type: console
+    with:
+      message: |
+        Enable result for {{ inputs.user }}:
+        status={{ steps.build_observable.output.observable.status }}
+        message={{ steps.build_observable.output.observable.message }}

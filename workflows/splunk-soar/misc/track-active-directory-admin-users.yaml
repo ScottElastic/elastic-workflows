@@ -1,0 +1,133 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Track Active Directory Administrator Users"
+description: >
+  Hourly sweep that compares the current AD Administrators group membership
+  against a tracked baseline. New members trigger a notification email and
+  are appended to the baseline. The original Phantom playbook bootstrapped
+  its own Generator asset on first run; the Elastic equivalent relies on a
+  scheduled trigger instead and persists the baseline in an Elasticsearch
+  index that operators wire up via the index input below.
+enabled: true
+tags: ["splunk-soar", "misc", "active-directory", "identity", "translated"]
+
+triggers:
+  - type: manual
+  - type: scheduled
+    with:
+      every: "1h"
+
+inputs:
+  - name: ad_group_name
+    type: string
+    required: false
+    default: "Administrators"
+    description: "AD group whose membership is monitored."
+  - name: notify_to
+    type: string
+    required: false
+    default: "notifications@example.com"
+    description: "Recipient address for new-admin alerts."
+  - name: notify_from
+    type: string
+    required: false
+    default: "notifications@example.com"
+    description: "Sender address for new-admin alerts."
+
+consts:
+  # Substitute with your LDAP/AD proxy and credentials.
+  ad_endpoint: "https://CHANGEME-ldap-proxy.internal/api/get-group-members"
+  ad_auth_header: "Bearer CHANGEME_TOKEN"
+  # Persistent baseline of known administrator sAMAccountNames.
+  baseline_index: "track-ad-administrators-baseline"
+  # Email connector configured in Kibana Stack Management.
+  email_connector_id: "CHANGEME-email-connector"
+
+steps:
+  # Look up the current Administrators membership.
+  # TODO: replace with a native LDAP/AD connector when one is available.
+  - name: get_admins
+    type: http
+    with:
+      url: "{{ consts.ad_endpoint }}"
+      method: POST
+      headers:
+        Authorization: "{{ consts.ad_auth_header }}"
+        Content-Type: "application/json"
+      body:
+        object_class: "group"
+        object_name: "{{ inputs.ad_group_name }}"
+        all_users: false
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: read_baseline
+    type: elasticsearch.search
+    with:
+      index: "{{ consts.baseline_index }}"
+      size: 10000
+      body:
+        query:
+          match_all: {}
+    on-failure:
+      continue: true
+
+  - name: derive_known_users
+    type: data.set
+    with:
+      known_admins: "${{ steps.read_baseline.output.hits.hits | map: '_source' | map: 'samaccountname' | default: [] }}"
+
+  - name: derive_new_admins
+    type: data.set
+    with:
+      # The Phantom playbook checked for users "not in" the custom list.
+      new_admins: "${{ steps.get_admins.output.users | map: 'samaccountname' | reject: { 'in': steps.derive_known_users.output.known_admins } }}"
+
+  - name: respond_to_new_admins
+    type: if
+    condition: "{{ steps.derive_new_admins.output.new_admins | size }} > 0"
+    steps:
+      - name: notify_email
+        type: email
+        connector-id: "{{ consts.email_connector_id }}"
+        with:
+          to: ["{{ inputs.notify_to }}"]
+          from: "{{ inputs.notify_from }}"
+          subject: "New {{ inputs.ad_group_name }} group members detected"
+          message: |
+            The track-active-directory-admin-users workflow detected new
+            members of the {{ inputs.ad_group_name }} group:
+            {% for user in steps.derive_new_admins.output.new_admins %}
+            - {{ user }}
+            {% endfor %}
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+
+      - name: append_baseline
+        type: foreach
+        with:
+          items: ${{ steps.derive_new_admins.output.new_admins }}
+        steps:
+          - name: index_new_admin
+            type: elasticsearch.index
+            with:
+              index: "{{ consts.baseline_index }}"
+              document:
+                samaccountname: "{{ item }}"
+                added_at: "{{ now }}"
+                source_group: "{{ inputs.ad_group_name }}"
+            on-failure:
+              continue: true
+    else:
+      - name: log_no_changes
+        type: console
+        with:
+          message: "No new administrators detected in {{ inputs.ad_group_name }}."

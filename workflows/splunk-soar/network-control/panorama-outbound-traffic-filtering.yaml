@@ -1,0 +1,105 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Palo Alto Panorama — Outbound URL Block"
+description: >
+  Pushes one or more URLs into a Panorama URL-filter rule on the "shared"
+  device group, commits the configuration, and emits a normalized observable
+  for each URL submitted. Implements MITRE D3FEND outbound traffic filtering
+  (d3f:OutboundTrafficFiltering).
+enabled: true
+tags: ["splunk-soar", "network-control", "outbound-filter", "panorama", "palo-alto", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: urls
+    type: array
+    required: true
+    description: "URLs to block via Palo Alto Panorama."
+  - name: device_group
+    type: string
+    required: false
+    default: "shared"
+    description: "Panorama device group that owns the URL filter object."
+
+consts:
+  # Replace with the base URL of your Panorama appliance and an API key with
+  # configuration-edit privileges. Panorama API auth is keyed by `key=`.
+  panorama_base_url: "https://CHANGEME-panorama.example.com"
+  panorama_api_key: "CHANGEME-panorama-api-key"
+  # Name of the URL block list / category to mutate on each call.
+  panorama_block_category: "elastic-workflow-block"
+
+steps:
+  - name: guard_url_input
+    type: if
+    condition: "{{ inputs.urls | size }} == 0"
+    steps:
+      - name: log_no_urls
+        type: console
+        with:
+          message: "No URLs supplied — skipping Panorama block."
+
+  - name: block_each_url
+    type: foreach
+    with:
+      items: ${{ inputs.urls }}
+    steps:
+      # TODO: replace with a native Panorama connector once available. This
+      # stub mirrors the Phantom "block url" action against the panorama asset
+      # by editing a custom URL category and then issuing a commit.
+      - name: block_url
+        type: http
+        with:
+          url: "{{ consts.panorama_base_url }}/api/"
+          method: POST
+          headers:
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "type=config&action=set&xpath=/config/shared/profiles/custom-url-category/entry[@name='{{ consts.panorama_block_category }}']/list&element=<member>{{ item }}</member>&key={{ consts.panorama_api_key }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: commit_changes
+        type: http
+        with:
+          url: "{{ consts.panorama_base_url }}/api/"
+          method: POST
+          headers:
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "type=commit&cmd=<commit></commit>&key={{ consts.panorama_api_key }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+
+      - name: emit_observable
+        type: if
+        condition: "{{ steps.block_url.output.status }} == 'success'"
+        steps:
+          - name: capture_blocked_url
+            type: data.set
+            with:
+              observable:
+                type: "url"
+                value: "{{ item }}"
+                source: "Panorama"
+                status: "blocked"
+                device_group: "{{ inputs.device_group }}"
+          - name: log_blocked_url
+            type: console
+            with:
+              message: "URL {{ item }} added to Panorama block list ({{ inputs.device_group }})."
+        else:
+          - name: log_block_failed
+            type: console
+            with:
+              message: |
+                Panorama did not confirm a successful update for {{ item }}.
+                response={{ steps.block_url.output | json }}

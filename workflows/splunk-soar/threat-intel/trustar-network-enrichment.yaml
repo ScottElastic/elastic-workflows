@@ -1,0 +1,188 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "TruSTAR — Network Indicator Enrichment"
+description: >
+  Enriches network indicators (IPs, URLs, domains) on the originating
+  event with TruSTAR threat intelligence. Domains are first resolved to
+  IPs via Google DNS so their related TruSTAR reports can also be pulled.
+  TruSTAR "hunt" calls return a report_id; the workflow then fetches each
+  report for the indicators that produced one.
+enabled: true
+tags: ["splunk-soar", "threat-intel", "trustar", "network", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: ips
+    type: array
+    required: false
+    default: []
+    description: "List of IPs to enrich."
+  - name: urls
+    type: array
+    required: false
+    default: []
+    description: "List of URLs to enrich."
+  - name: domains
+    type: array
+    required: false
+    default: []
+    description: "List of domains to enrich and resolve."
+
+consts:
+  trustar_base: "https://api.trustar.co/api/1.3"
+  trustar_auth_header: "Bearer CHANGEME_TRUSTAR_TOKEN"
+  google_dns_endpoint: "https://dns.google/resolve"
+
+steps:
+  # ─── IP enrichment ────────────────────────────────────────────────
+  - name: hunt_ips
+    type: foreach
+    with:
+      items: ${{ inputs.ips }}
+    steps:
+      # TODO: swap to a native TruSTAR connector when supported.
+      - name: trustar_hunt_ip
+        type: http
+        with:
+          url: "{{ consts.trustar_base }}/indicators/search"
+          method: GET
+          headers:
+            Authorization: "{{ consts.trustar_auth_header }}"
+            Accept: "application/json"
+          query:
+            value: "{{ item }}"
+            type: "IP"
+        on-failure:
+          continue: true
+
+      - name: ip_has_report
+        type: if
+        condition: "{{ steps.trustar_hunt_ip.output.report_id | size }} > 0"
+        steps:
+          - name: trustar_get_ip_report
+            type: http
+            with:
+              url: "{{ consts.trustar_base }}/reports/{{ steps.trustar_hunt_ip.output.report_id }}"
+              method: GET
+              headers:
+                Authorization: "{{ consts.trustar_auth_header }}"
+                Accept: "application/json"
+            on-failure:
+              continue: true
+
+          - name: log_ip_report
+            type: console
+            with:
+              message: "TruSTAR IP {{ item }} report_id={{ steps.trustar_hunt_ip.output.report_id }}."
+
+  # ─── URL enrichment ───────────────────────────────────────────────
+  - name: hunt_urls
+    type: foreach
+    with:
+      items: ${{ inputs.urls }}
+    steps:
+      - name: trustar_hunt_url
+        type: http
+        with:
+          url: "{{ consts.trustar_base }}/indicators/search"
+          method: GET
+          headers:
+            Authorization: "{{ consts.trustar_auth_header }}"
+            Accept: "application/json"
+          query:
+            value: "{{ item }}"
+            type: "URL"
+        on-failure:
+          continue: true
+
+      - name: url_has_report
+        type: if
+        condition: "{{ steps.trustar_hunt_url.output.report_id | size }} > 0"
+        steps:
+          - name: trustar_get_url_report
+            type: http
+            with:
+              url: "{{ consts.trustar_base }}/reports/{{ steps.trustar_hunt_url.output.report_id }}"
+              method: GET
+              headers:
+                Authorization: "{{ consts.trustar_auth_header }}"
+                Accept: "application/json"
+            on-failure:
+              continue: true
+
+          - name: log_url_report
+            type: console
+            with:
+              message: "TruSTAR URL {{ item }} report_id={{ steps.trustar_hunt_url.output.report_id }}."
+
+  # ─── Domain enrichment via DNS pivot ──────────────────────────────
+  - name: hunt_domains
+    type: foreach
+    with:
+      items: ${{ inputs.domains }}
+    steps:
+      - name: resolve_via_dns
+        type: http
+        with:
+          url: "{{ consts.google_dns_endpoint }}"
+          method: GET
+          headers:
+            Accept: "application/dns-json"
+          query:
+            name: "{{ item }}"
+            type: "A"
+        on-failure:
+          continue: true
+
+      - name: per_resolved_ip
+        type: foreach
+        with:
+          items: "${{ steps.resolve_via_dns.output.Answer | default: [] }}"
+        steps:
+          - name: trustar_hunt_resolved_ip
+            type: http
+            with:
+              url: "{{ consts.trustar_base }}/indicators/search"
+              method: GET
+              headers:
+                Authorization: "{{ consts.trustar_auth_header }}"
+                Accept: "application/json"
+              query:
+                value: "{{ item.data }}"
+                type: "IP"
+            on-failure:
+              continue: true
+
+          - name: resolved_has_report
+            type: if
+            condition: "{{ steps.trustar_hunt_resolved_ip.output.report_id | size }} > 0"
+            steps:
+              - name: trustar_get_resolved_ip_report
+                type: http
+                with:
+                  url: "{{ consts.trustar_base }}/reports/{{ steps.trustar_hunt_resolved_ip.output.report_id }}"
+                  method: GET
+                  headers:
+                    Authorization: "{{ consts.trustar_auth_header }}"
+                    Accept: "application/json"
+                on-failure:
+                  continue: true
+
+              - name: log_resolved_report
+                type: console
+                with:
+                  message: "TruSTAR resolved-IP {{ item.data }} for domain (from DNS) report_id={{ steps.trustar_hunt_resolved_ip.output.report_id }}."
+
+  - name: completion_summary
+    type: console
+    with:
+      message: |
+        TruSTAR network enrichment finished:
+        ips={{ inputs.ips | size }}
+        urls={{ inputs.urls | size }}
+        domains={{ inputs.domains | size }}

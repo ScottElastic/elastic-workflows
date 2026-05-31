@@ -1,0 +1,129 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "ServiceNow — Related Tickets Search"
+description: >
+  Accepts one or more search terms (typically a user or device) and
+  searches a configurable list of ServiceNow tables (incident, problem,
+  change, sc_request, sc_task, etc.) for tickets opened in the last 30
+  days that mention them. Produces a per-ticket observable record and a
+  human-readable summary of the matches.
+enabled: true
+tags: ["splunk-soar", "ticketing", "servicenow", "related-tickets", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: search_terms
+    type: array
+    required: true
+    description: "Indicators (user/host/etc) to look up across ServiceNow tables."
+  - name: tables
+    type: array
+    required: false
+    description: "Optional override for the SNOW tables to search."
+  - name: lookback_days
+    type: number
+    required: false
+    default: 30
+    description: "How many days back to query. Default 30."
+
+consts:
+  servicenow_instance_url: "https://CHANGEME.service-now.com"
+  servicenow_auth_header: "Basic CHANGEME_BASE64_USER_PASS"
+  # SOAR's playbook hard-codes this list; replicate it as a default.
+  default_tables:
+    - "incident"
+    - "change_request"
+    - "change_task"
+    - "problem"
+    - "sc_request"
+    - "sc_task"
+    - "sc_req_item"
+
+steps:
+  - name: guard_inputs
+    type: if
+    condition: "{{ inputs.search_terms | size }} == 0"
+    steps:
+      - name: abort_no_terms
+        type: console
+        with:
+          message: "No search terms provided — aborting."
+
+  - name: resolve_tables
+    type: data.set
+    with:
+      tables: >-
+        ${{ inputs.tables | default: consts.default_tables }}
+
+  - name: build_space_query
+    type: data.set
+    with:
+      # SOAR builds a space-separated single string from the array of terms.
+      query_string: "{{ inputs.search_terms | join: ' ' }}"
+
+  - name: iterate_tables
+    type: foreach
+    with:
+      items: ${{ steps.resolve_tables.output.tables }}
+    steps:
+      # TODO: replace with a native ServiceNow connector subAction once
+      # `run query` is exposed. For now we hit the Table API directly.
+      - name: run_table_query
+        type: http
+        with:
+          url: "{{ consts.servicenow_instance_url }}/api/now/table/{{ item }}"
+          method: GET
+          headers:
+            Authorization: "{{ consts.servicenow_auth_header }}"
+            Accept: "application/json"
+          query:
+            sysparm_query: "active=true^IR_OR_QUERY={{ steps.build_space_query.output.query_string }}^opened_atRELATIVEGE@dayofweek@ago@{{ inputs.lookback_days | default: 30 }}"
+            sysparm_display_value: "true"
+            sysparm_limit: "100"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: have_table_results
+        type: if
+        condition: "{{ steps.run_table_query.output.result | size }} > 0"
+        steps:
+          - name: each_ticket
+            type: foreach
+            with:
+              items: ${{ steps.run_table_query.output.result }}
+            steps:
+              - name: build_observable
+                type: data.set
+                with:
+                  observable:
+                    value: "{{ inputs.search_terms | first }}"
+                    ticket:
+                      name: "{{ item.short_description | default: '' }}"
+                      id: "{{ item.sys_id | default: '' }}"
+                      number: "{{ item.number | default: '' }}"
+                      message: "{{ item.description | default: '' }}"
+                      start_time: "{{ item.sys_created_on | default: '' }}"
+                      end_time: "{{ item.closed_at | default: '' }}"
+                      assigned_to: "{{ item.assigned_to.display_value | default: '' }}"
+                      creator_name: "{{ item.caller_id.display_value | default: '' }}"
+                      state: "{{ item.state | default: '' }}"
+                      ticket_type: "{{ item }}"
+                    source: "ServiceNow"
+                    source_link: "{{ consts.servicenow_instance_url }}/nav_to.do?uri={{ item }}.do?sys_id={{ item.sys_id }}"
+
+              - name: log_ticket
+                type: console
+                with:
+                  message: "Found SNOW {{ item.number | default: '?' }} in table {{ item }}: {{ item.short_description | default: '' }}"
+
+  - name: emit_summary
+    type: console
+    with:
+      message: "ServiceNow related-tickets search complete across {{ steps.resolve_tables.output.tables | size }} tables for {{ inputs.search_terms | size }} term(s)."

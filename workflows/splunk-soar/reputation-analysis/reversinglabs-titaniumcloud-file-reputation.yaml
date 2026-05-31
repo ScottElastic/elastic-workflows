@@ -1,0 +1,62 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "ReversingLabs TitaniumCloud — File Reputation"
+description: >
+  Sends each file hash to the ReversingLabs TitaniumCloud file
+  reputation endpoint and captures the malware presence classification
+  for downstream consumers.
+enabled: true
+tags: ["splunk-soar", "reputation", "file-hash", "reversinglabs", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: file_hashes
+    type: array
+    required: true
+    description: "File hashes (MD5/SHA1/SHA256) to query."
+
+consts:
+  # ReversingLabs TitaniumCloud uses HTTP Basic auth. Place credentials
+  # in your secret store and reference via the auth header.
+  rl_endpoint: "https://data.reversinglabs.com/api/databrowser/malware_presence/query"
+  rl_auth_header: "Basic CHANGEME_BASE64_CREDENTIAL"
+
+steps:
+  - name: each_hash
+    type: foreach
+    with:
+      items: ${{ inputs.file_hashes }}
+    steps:
+      # TODO: replace with a native ReversingLabs connector when available.
+      - name: rl_file_reputation
+        type: http
+        with:
+          url: "{{ consts.rl_endpoint }}/{{ item }}?format=json"
+          method: GET
+          headers:
+            Authorization: "{{ consts.rl_auth_header }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: store_classification
+        type: data.set
+        with:
+          observable:
+            value: "{{ item }}"
+            type: "hash"
+            source: "ReversingLabs TitaniumCloud"
+            classification: "{{ steps.rl_file_reputation.output.rl.malware_presence.status | default: 'UNKNOWN' }}"
+
+      - name: log_hash_classification
+        type: console
+        with:
+          message: |
+            File hash {{ item }} classification={{ steps.rl_file_reputation.output.rl.malware_presence.status | default: 'UNKNOWN' }}

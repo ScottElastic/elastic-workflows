@@ -1,0 +1,73 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Microsoft Defender for Endpoint — Network Restore"
+description: >
+  Lifts network isolation from a Microsoft Defender for Endpoint device.
+  Takes a uid (device id or hostname), validates the input, calls the
+  Defender ATP unisolate-machine endpoint, and emits a host observable
+  describing the result. Maps to MITRE D3FEND d3f:RestoreNetworkAccess.
+enabled: true
+tags: ["splunk-soar", "endpoint-response", "microsoft-defender", "network-restore", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: uid
+    type: string
+    required: true
+    description: "Defender ATP machine id or hostname."
+  - name: comment
+    type: string
+    required: false
+    description: "Free-text justification recorded with the action."
+    default: "Restored by Elastic Workflow network-restore translation"
+
+consts:
+  defender_base_url: "https://api.securitycenter.microsoft.com"
+  defender_bearer: "Bearer CHANGEME_DEFENDER_GRAPH_TOKEN"
+
+steps:
+  - name: validate_uid
+    type: if
+    condition: "{{ inputs.uid | size }} == 0"
+    steps:
+      - name: log_missing
+        type: console
+        with:
+          message: "A device uid must be supplied to lift isolation."
+
+  - name: unisolate_machine
+    type: http
+    with:
+      url: "{{ consts.defender_base_url }}/api/machines/{{ inputs.uid }}/unisolate"
+      method: POST
+      headers:
+        Authorization: "{{ consts.defender_bearer }}"
+        Content-Type: "application/json"
+      body:
+        Comment: "{{ inputs.comment }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+
+  - name: build_host_observable
+    type: data.set
+    with:
+      observable:
+        type: "host"
+        value: "{{ inputs.uid }}"
+        source: "Microsoft Defender for Endpoint"
+        action: "isolation-lifted"
+        defender_action_id: "{{ steps.unisolate_machine.output.id | default: '' }}"
+        status: "{{ steps.unisolate_machine.output.status | default: 'pending' }}"
+
+  - name: log_result
+    type: console
+    with:
+      message: |
+        Defender isolation lift requested for {{ inputs.uid }}.
+        action_id={{ steps.build_host_observable.output.observable.defender_action_id }}

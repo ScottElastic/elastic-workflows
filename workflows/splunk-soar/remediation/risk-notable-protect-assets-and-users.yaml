@@ -1,0 +1,144 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Risk Notable — Protect Assets and Users"
+description: >
+  Looks up user and host indicators against Splunk ES Asset & Identity
+  tables, asks an analyst (or AI step) which matching entities to act on,
+  and routes the chosen names to the appropriate containment workflows
+  for assets and identities.
+enabled: true
+tags: ["splunk-soar", "remediation", "splunk-es", "risk-notable", "protect", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: users
+    type: array
+    required: false
+    description: "User/identifier strings observed in the event."
+  - name: hosts
+    type: array
+    required: false
+    description: "Host/IP strings observed in the event."
+  - name: asset_workflows
+    type: array
+    required: false
+    description: "Available asset-containment workflows with { full_name, input_spec }."
+  - name: identity_workflows
+    type: array
+    required: false
+    description: "Available identity-containment workflows with { full_name, input_spec }."
+
+consts:
+  splunk_endpoint: "https://CHANGEME-splunk.internal/services/search/jobs"
+  splunk_auth_header: "Bearer CHANGEME_TOKEN"
+  workflow_runner_base: "/api/workflows"
+
+steps:
+  - name: have_workflows
+    type: if
+    condition: "{{ inputs.asset_workflows | size }} == 0 and {{ inputs.identity_workflows | size }} == 0"
+    steps:
+      - name: no_workflows
+        type: console
+        with:
+          message: "No protect workflows registered; nothing to dispatch."
+
+  # Query Splunk's identity_lookup_expanded table for any matching user names.
+  - name: have_users
+    type: if
+    condition: "{{ inputs.users | size }} > 0"
+    steps:
+      - name: identity_search
+        type: http
+        with:
+          url: "{{ consts.splunk_endpoint }}"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+          body:
+            search: '| inputlookup identity_lookup_expanded | search identity IN ({{ inputs.users | map: "raw" | json }}) | eval category=mvjoin(category, "; ")'
+            output_mode: "json"
+        on-failure:
+          continue: true
+
+  - name: have_hosts
+    type: if
+    condition: "{{ inputs.hosts | size }} > 0"
+    steps:
+      - name: asset_search
+        type: http
+        with:
+          url: "{{ consts.splunk_endpoint }}"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+          body:
+            search: '| inputlookup asset_lookup_by_str | search asset IN ({{ inputs.hosts | map: "raw" | json }}) | eval category=mvjoin(category, "; ")'
+            output_mode: "json"
+        on-failure:
+          continue: true
+
+  # In the source playbook an analyst was prompted per entity. Here, an AI
+  # step decides which to act on; swap for a manual approval if your SOC
+  # requires human-in-the-loop.
+  - name: ai_select_entities
+    type: ai.prompt
+    connector-id: "CHANGEME-llm-connector"
+    with:
+      prompt: |
+        Decide which entities to contain. Reply with a JSON object:
+        { "users_to_contain": [...], "hosts_to_contain": [...] }
+        Asset matches: {{ steps.asset_search.output.results | default: [] | json }}
+        Identity matches: {{ steps.identity_search.output.results | default: [] | json }}
+
+  - name: parse_selection
+    type: data.set
+    with:
+      selection: ${{ steps.ai_select_entities.output | parse_json }}
+
+  # Dispatch every registered identity workflow with the chosen users.
+  - name: launch_identity_workflows
+    type: foreach
+    with:
+      items: ${{ inputs.identity_workflows }}
+    steps:
+      - name: identity_launch
+        type: kibana.request
+        with:
+          method: POST
+          path: "{{ consts.workflow_runner_base }}/{{ item.full_name }}/run"
+          body:
+            inputs:
+              users: '${{ steps.parse_selection.output.selection.users_to_contain | default: [] }}'
+              input_spec: ${{ item.input_spec }}
+        on-failure:
+          continue: true
+
+  - name: launch_asset_workflows
+    type: foreach
+    with:
+      items: ${{ inputs.asset_workflows }}
+    steps:
+      - name: asset_launch
+        type: kibana.request
+        with:
+          method: POST
+          path: "{{ consts.workflow_runner_base }}/{{ item.full_name }}/run"
+          body:
+            inputs:
+              hosts: '${{ steps.parse_selection.output.selection.hosts_to_contain | default: [] }}'
+              input_spec: ${{ item.input_spec }}
+        on-failure:
+          continue: true
+
+  - name: final_summary
+    type: console
+    with:
+      message: |
+        Protect dispatched.
+        users_selected={{ steps.parse_selection.output.selection.users_to_contain | size | default: 0 }}
+        hosts_selected={{ steps.parse_selection.output.selection.hosts_to_contain | size | default: 0 }}

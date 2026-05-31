@@ -1,0 +1,79 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "AWS IAM — Account Locking"
+description: >
+  Disables an AWS IAM user, optionally also disabling any access keys
+  associated with that user. Takes a username, validates it, calls the
+  AWS IAM disable-user API, and reports a normalized observable.
+enabled: true
+tags: ["splunk-soar", "identity", "account-lock", "aws", "iam", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: user
+    type: string
+    required: true
+    description: "IAM username to disable."
+  - name: disable_access_keys
+    type: boolean
+    required: false
+    default: true
+    description: "Whether the user's access keys should also be disabled."
+
+consts:
+  # SigV4-signed AWS API call goes through whatever AWS bridge you have
+  # wired into Elastic Workflows. For now, the http stub points at a
+  # reverse-proxy endpoint you can swap for a native AWS connector later.
+  aws_iam_endpoint: "https://CHANGEME-aws-proxy.internal/iam/disable-user"
+  aws_iam_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  - name: validate_input
+    type: if
+    condition: "{{ inputs.user | size }} == 0"
+    steps:
+      - name: log_missing_user
+        type: console
+        with:
+          message: "No user supplied — aborting."
+
+  # TODO: replace stub with an AWS IAM-native connector when available.
+  # Equivalent Phantom action: "disable user" on the `aws_iam` asset.
+  - name: disable_user
+    type: http
+    with:
+      url: "{{ consts.aws_iam_endpoint }}"
+      method: POST
+      headers:
+        Authorization: "{{ consts.aws_iam_auth_header }}"
+        Content-Type: "application/json"
+      body:
+        username: "{{ inputs.user }}"
+        disable_access_keys: ${{ inputs.disable_access_keys }}
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: build_observable
+    type: data.set
+    with:
+      observable:
+        type: "aws iam user name"
+        value: "{{ inputs.user }}"
+        status: "{{ steps.disable_user.output.status | default: 'unknown' }}"
+        message: "{{ steps.disable_user.output.message | default: '' }}"
+        request_id: "{{ steps.disable_user.output.RequestId | default: '' }}"
+
+  - name: log_result
+    type: console
+    with:
+      message: |
+        Disable result for {{ inputs.user }}:
+        status={{ steps.build_observable.output.observable.status }}
+        message={{ steps.build_observable.output.observable.message }}

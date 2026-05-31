@@ -1,0 +1,118 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Risk Notable — Analyst Indicator Review"
+description: >
+  Pulls indicators tagged "suspicious" or "malicious" (and not already
+  marked safe or queued for block) from the case, presents them to the
+  analyst for triage, and applies the chosen tag to each indicator.
+  Choices map to "marked_for_block" or "safe" tags; "Do Nothing" leaves
+  the indicator untouched.
+enabled: true
+tags: ["splunk-soar", "threat-intel", "risk-notable", "review", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: case_id
+    type: string
+    required: true
+    description: "Case or container ID whose indicators will be reviewed."
+  - name: indicators
+    type: array
+    required: true
+    description: "Indicator records ({ indicator_id, indicator_value, indicator_tags }) to review."
+  - name: responses
+    type: array
+    required: true
+    description: "Analyst response per indicator. One of: Block, Tag as Safe, Do Nothing."
+
+consts:
+  indicator_tag_endpoint: "https://CHANGEME-soar-rest-proxy.internal/api/indicator/tag"
+  indicator_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  - name: summarise_input
+    type: console
+    with:
+      message: |
+        Reviewing {{ inputs.indicators | size }} indicator(s) from case {{ inputs.case_id }}.
+        Tags expected: suspicious | malicious; excludes blocked, safe, marked_for_block.
+
+  - name: gate_responses
+    type: if
+    condition: "{{ inputs.responses | size }} != {{ inputs.indicators | size }}"
+    steps:
+      - name: mismatch_warning
+        type: console
+        with:
+          message: "Analyst response count does not match indicator count — review will still attempt per-index pairing."
+
+  # Build a list of {indicator_id, response} pairs by zipping the two lists.
+  - name: pair_responses
+    type: foreach
+    with:
+      items: ${{ inputs.indicators }}
+    steps:
+      - name: pull_response
+        type: data.set
+        with:
+          indicator_id: "{{ item.indicator_id }}"
+          indicator_value: "{{ item.indicator_value }}"
+          response: "{{ inputs.responses[forloop.index0] | default: 'Do Nothing' }}"
+
+      - name: apply_tag
+        type: if
+        condition: "{{ steps.pull_response.output.response }} == 'Block'"
+        steps:
+          # TODO: replace with a native indicator tagging step when available.
+          - name: tag_for_block
+            type: http
+            with:
+              url: "{{ consts.indicator_tag_endpoint }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.indicator_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                indicator: "{{ steps.pull_response.output.indicator_id }}"
+                tag: "marked_for_block"
+                overwrite: true
+            on-failure:
+              continue: true
+
+          - name: log_block
+            type: console
+            with:
+              message: "Indicator {{ steps.pull_response.output.indicator_value }} marked for block."
+        else:
+          - name: maybe_safe
+            type: if
+            condition: "{{ steps.pull_response.output.response }} == 'Tag as Safe'"
+            steps:
+              - name: tag_for_safe
+                type: http
+                with:
+                  url: "{{ consts.indicator_tag_endpoint }}"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.indicator_auth_header }}"
+                    Content-Type: "application/json"
+                  body:
+                    indicator: "{{ steps.pull_response.output.indicator_id }}"
+                    tag: "safe"
+                    overwrite: true
+                on-failure:
+                  continue: true
+
+              - name: log_safe
+                type: console
+                with:
+                  message: "Indicator {{ steps.pull_response.output.indicator_value }} tagged safe."
+            else:
+              - name: log_skip
+                type: console
+                with:
+                  message: "Indicator {{ steps.pull_response.output.indicator_value }} left as-is."

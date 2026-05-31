@@ -1,0 +1,96 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Reinfected Endpoint — Triage"
+description: >
+  Decides whether an infected source address is a first-time hit or a
+  repeat offender by checking it against the infected_endpoints list,
+  files a ServiceNow ticket sized to the situation, and closes the
+  container. New addresses are appended to the list for future
+  comparisons.
+enabled: true
+tags: ["splunk-soar", "investigation", "endpoint", "servicenow", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: source_address
+    type: string
+    required: true
+    description: "Source address of the infected endpoint."
+  - name: infected_endpoints
+    type: array
+    required: false
+    default: []
+    description: "Current list of known-infected endpoints (custom list equivalent)."
+
+consts:
+  servicenow_connector_id: "CHANGEME-servicenow-connector"
+  # Elastic Workflows do not have a native 'custom list' primitive. Storing
+  # the list as a JSON document in an internal index is one option; the
+  # placeholder below sketches that approach.
+  list_index: "soar-state-infected-endpoints"
+
+steps:
+  - name: ensure_source_present
+    type: if
+    condition: "{{ inputs.source_address | size }} > 0"
+    steps:
+      - name: classify
+        type: if
+        condition: "{{ inputs.infected_endpoints | includes: inputs.source_address }}"
+        steps:
+          - name: build_repeat_summary
+            type: data.set
+            with:
+              summary: "Repeat offender endpoint detected: {{ inputs.source_address }}. Matched against infected_endpoints list."
+
+          - name: ticket_repeat
+            type: servicenow
+            connector-id: "{{ consts.servicenow_connector_id }}"
+            with:
+              subAction: "pushToService"
+              subActionParams:
+                incident:
+                  short_description: "Reinfected Endpoint Instance"
+                  description: "{{ steps.build_repeat_summary.output.summary }}"
+                  urgency: "2"
+            on-failure:
+              continue: true
+        else:
+          # First-time infection: add to list, then file ticket.
+          - name: append_to_list
+            type: elasticsearch.index
+            with:
+              index: "{{ consts.list_index }}"
+              document:
+                source_address: "{{ inputs.source_address }}"
+                added_at: "{{ now }}"
+            on-failure:
+              continue: true
+
+          - name: build_new_summary
+            type: data.set
+            with:
+              summary: "New infected endpoint added to tracking list: {{ inputs.source_address }}."
+
+          - name: ticket_new
+            type: servicenow
+            connector-id: "{{ consts.servicenow_connector_id }}"
+            with:
+              subAction: "pushToService"
+              subActionParams:
+                incident:
+                  short_description: "New Infected Endpoints"
+                  description: "{{ steps.build_new_summary.output.summary }}"
+                  urgency: "2"
+            on-failure:
+              continue: true
+
+  - name: log_complete
+    type: console
+    with:
+      message: "Reinfected endpoint check complete for {{ inputs.source_address }}."

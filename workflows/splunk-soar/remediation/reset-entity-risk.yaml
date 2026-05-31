@@ -1,0 +1,115 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Splunk ES — Reset Entity Risk"
+description: >
+  Counteracts accumulated entity risk in Splunk Enterprise Security by
+  posting negating risk events. Collects contributing risk rules that have
+  not yet been reset, captures a reason from the operator (input), and
+  writes inverse risk_score entries to the risk index so the entity's
+  total drops back to zero.
+enabled: true
+tags: ["splunk-soar", "remediation", "splunk-es", "risk-score", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: risk_rules
+    type: array
+    required: true
+    description: >
+      Array of contributing risk-rule artifacts:
+      { name, description, total_risk_score, event_count, risk_object,
+      risk_object_type, risk_events: [{id, timestamp}] }.
+  - name: reset_reason
+    type: string
+    required: true
+    description: "Reason supplied by the analyst for resetting risk."
+  - name: owner
+    type: string
+    required: true
+    description: "User performing the reset (close_action_owner)."
+  - name: soar_event_id
+    type: string
+    required: false
+    default: ""
+    description: "Originating case/event id for cross-reference."
+  - name: soar_event_name
+    type: string
+    required: false
+    default: ""
+    description: "Originating case/event name for cross-reference."
+
+consts:
+  splunk_collector_endpoint: "https://CHANGEME-splunk.internal/services/collector/raw"
+  splunk_auth_header: "Splunk CHANGEME_HEC_TOKEN"
+  splunk_index: "risk"
+  splunk_source: "Splunk SOAR"
+  splunk_sourcetype: "stash"
+
+steps:
+  - name: validate
+    type: if
+    condition: "{{ inputs.risk_rules | size }} == 0"
+    steps:
+      - name: nothing_to_reset
+        type: console
+        with:
+          message: "No contributing risk rules to reset — exiting."
+
+  - name: snapshot_time
+    type: data.set
+    with:
+      now: "{{ 'now' | date: '%Y-%m-%d %H:%M:%S' }}"
+
+  - name: build_inverse_events
+    type: foreach
+    with:
+      items: ${{ inputs.risk_rules }}
+    steps:
+      - name: per_rule
+        type: foreach
+        with:
+          items: ${{ item.risk_events }}
+        steps:
+          - name: build_log_line
+            type: data.set
+            with:
+              line: >-
+                {{ item.timestamp }}, risk_score="{{ (item.total_risk_score | divided_by: item.event_count) | times: -1 }}",
+                risk_event_id="{{ item.id }}",
+                risk_object="{{ item.risk_object }}",
+                risk_object_type="{{ item.risk_object_type }}",
+                close_reason="{{ inputs.reset_reason }}",
+                close_action_owner="{{ inputs.owner }}",
+                close_time="{{ steps.snapshot_time.output.now }}",
+                search_name="{{ item.name }}",
+                risk_message="{{ item.description }}",
+                soar_event_id="{{ inputs.soar_event_id }}",
+                soar_event_name="{{ inputs.soar_event_name }}"
+
+          - name: post_negative_event
+            type: http
+            with:
+              url: "{{ consts.splunk_collector_endpoint }}?index={{ consts.splunk_index }}&source={{ consts.splunk_source }}&sourcetype={{ consts.splunk_sourcetype }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.splunk_auth_header }}"
+                Content-Type: "text/plain"
+              body: "{{ steps.build_log_line.output.line }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+  - name: log_complete
+    type: console
+    with:
+      message: |
+        Risk reset complete.
+        rules_processed={{ inputs.risk_rules | size }}
+        owner={{ inputs.owner }}
+        reason={{ inputs.reset_reason }}

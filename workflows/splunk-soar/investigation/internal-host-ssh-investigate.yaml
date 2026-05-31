@@ -1,0 +1,120 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Linux Host — SSH-based Investigation"
+description: >
+  Pulls a snapshot of a Unix host over SSH: process list, current network
+  connections, host firewall rules, plus a deeper sweep via a small bash
+  collector script (OS info, services, login history, open sockets, cron
+  jobs). The collected CSVs are zipped and copied back for analyst review.
+enabled: true
+tags: ["splunk-soar", "investigation", "endpoint", "ssh", "linux", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: ip_or_hostname
+    type: string
+    required: true
+    description: "Target host to collect from."
+
+consts:
+  ssh_proxy_endpoint: "https://CHANGEME-ssh-proxy.internal"
+  ssh_proxy_auth: "Bearer CHANGEME"
+  # Output zip path on the target. The original script took the hostname as
+  # an argument so the resulting zip would not collide between runs.
+  remote_output_dir: "/tmp"
+
+steps:
+  # TODO: replace these http stubs with a native SSH connector once available.
+  - name: list_processes
+    type: http
+    with:
+      url: "{{ consts.ssh_proxy_endpoint }}/ps"
+      method: POST
+      headers:
+        Authorization: "{{ consts.ssh_proxy_auth }}"
+      body:
+        host: "{{ inputs.ip_or_hostname }}"
+    on-failure:
+      continue: true
+
+  - name: list_connections
+    type: http
+    with:
+      url: "{{ consts.ssh_proxy_endpoint }}/netstat"
+      method: POST
+      headers:
+        Authorization: "{{ consts.ssh_proxy_auth }}"
+      body:
+        host: "{{ inputs.ip_or_hostname }}"
+    on-failure:
+      continue: true
+
+  - name: list_firewall_rules
+    type: http
+    with:
+      url: "{{ consts.ssh_proxy_endpoint }}/iptables-list"
+      method: POST
+      headers:
+        Authorization: "{{ consts.ssh_proxy_auth }}"
+      body:
+        host: "{{ inputs.ip_or_hostname }}"
+    on-failure:
+      continue: true
+
+  # The original playbook embedded a multi-stage bash script that emitted
+  # /tmp/basic_system_configuration.csv, /tmp/process_list.csv,
+  # /tmp/service_list.csv, /tmp/login_history.csv, /tmp/open_sockets.csv,
+  # /tmp/cron_jobs.csv and zipped them as ${host}_ssh_output.zip.
+  # We push the script via the proxy, run it, then pull the zip back.
+  - name: upload_collector_script
+    type: http
+    with:
+      url: "{{ consts.ssh_proxy_endpoint }}/put-file"
+      method: POST
+      headers:
+        Authorization: "{{ consts.ssh_proxy_auth }}"
+      body:
+        host: "{{ inputs.ip_or_hostname }}"
+        destination: "{{ consts.remote_output_dir }}/splunk_soar_internal_host_ssh_investigate.sh"
+        script_name: "splunk_soar_internal_host_ssh_investigate.sh"
+    on-failure:
+      continue: true
+
+  - name: run_collector_script
+    type: http
+    with:
+      url: "{{ consts.ssh_proxy_endpoint }}/execute"
+      method: POST
+      headers:
+        Authorization: "{{ consts.ssh_proxy_auth }}"
+      body:
+        host: "{{ inputs.ip_or_hostname }}"
+        command: "bash {{ consts.remote_output_dir }}/splunk_soar_internal_host_ssh_investigate.sh {{ inputs.ip_or_hostname }}"
+    on-failure:
+      continue: true
+
+  - name: fetch_output_zip
+    type: http
+    with:
+      url: "{{ consts.ssh_proxy_endpoint }}/get-file"
+      method: POST
+      headers:
+        Authorization: "{{ consts.ssh_proxy_auth }}"
+      body:
+        host: "{{ inputs.ip_or_hostname }}"
+        path: "{{ consts.remote_output_dir }}/{{ inputs.ip_or_hostname }}_ssh_output.zip"
+    on-failure:
+      continue: true
+
+  - name: investigation_summary
+    type: console
+    with:
+      message: |
+        SSH investigation complete for {{ inputs.ip_or_hostname }}.
+        Collector zip retrieved: {{ steps.fetch_output_zip.output.path | default: 'not retrieved' }}
+        Processes seen: {{ steps.list_processes.output.processes | size | default: 0 }}
+        Connections seen: {{ steps.list_connections.output.connections | size | default: 0 }}

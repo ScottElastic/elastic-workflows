@@ -1,0 +1,67 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "GreyNoise — Set Severity From Classification"
+description: >
+  Reads the classification field captured during GreyNoise on-poll ingest
+  and assigns high severity when the IP is classified as malicious. All
+  other classifications fall through to low severity.
+enabled: true
+tags: ["splunk-soar", "threat-intel", "greynoise", "severity", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: classification
+    type: string
+    required: false
+    description: "GreyNoise classification value. Defaults to the threat.indicator.classification field on the alert."
+  - name: alert_id
+    type: string
+    required: false
+    description: "Optional alert ID to update with the new severity."
+
+consts:
+  alerts_index: ".internal.alerts-security.alerts-default"
+
+steps:
+  - name: resolve_classification
+    type: data.set
+    with:
+      classification: "{{ inputs.classification | default: event.alerts[0].threat.indicator.classification | default: '' | downcase }}"
+
+  - name: pick_severity
+    type: if
+    condition: "{{ steps.resolve_classification.output.classification }} == 'malicious'"
+    steps:
+      - name: set_high
+        type: data.set
+        with:
+          severity: "high"
+          reason: "GreyNoise classified this source as malicious."
+    else:
+      - name: set_low
+        type: data.set
+        with:
+          severity: "low"
+          reason: "GreyNoise did not flag this source as malicious."
+
+  - name: log_outcome
+    type: console
+    with:
+      message: |
+        Classification={{ steps.resolve_classification.output.classification | default: 'unknown' }}
+        Assigned severity={{ steps.set_high.output.severity | default: steps.set_low.output.severity }}
+
+  - name: persist_severity
+    type: if
+    condition: "{{ inputs.alert_id | size }} > 0"
+    steps:
+      - name: update_alert_severity
+        type: kibana.SetAlertsStatus
+        with:
+          alertIds: ["{{ inputs.alert_id }}"]
+          status: "open"

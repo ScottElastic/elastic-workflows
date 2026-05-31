@@ -1,0 +1,111 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Splunk — Message Identifier Activity Analysis"
+description: >
+  Searches the Splunk Email data model for evidence of a message id,
+  subject, or sender. Returns one observable per matching message with
+  recipient, addressee, subject, sender, and message id captured.
+  Implements D3FEND D3-IAA over Splunk Email telemetry.
+enabled: true
+tags: ["splunk-soar", "enrichment", "identifier-activity", "splunk", "email", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: message_id
+    type: string
+    required: false
+    description: "Internet message id to search for."
+  - name: subject
+    type: string
+    required: false
+    description: "Optional email subject string to search for."
+  - name: sender
+    type: string
+    required: false
+    description: "Optional sender address to search for."
+
+consts:
+  splunk_endpoint: "https://CHANGEME-splunk.internal:8089"
+  splunk_auth_header: "Bearer CHANGEME_SPLUNK_TOKEN"
+  search_mode: "smart"
+
+steps:
+  - name: any_input_supplied
+    type: if
+    condition: "{{ inputs.message_id | size }} > 0 or {{ inputs.subject | size }} > 0 or {{ inputs.sender | size }} > 0"
+    steps:
+      - name: build_message_query
+        type: data.set
+        with:
+          query: |
+            summariesonly=false fillnull_value="Unknown" count from datamodel=Email.All_Email
+            where (All_Email.message_id IN ("{{ inputs.message_id | default: '' }}")
+                   OR All_Email.subject IN ("{{ inputs.subject | default: '' }}")
+                   OR All_Email.src_user IN ("{{ inputs.sender | default: '' }}"))
+            by All_Email.orig_recipient, All_Email.recipient, All_Email.src_user, All_Email.subject, All_Email.message_id
+            | `drop_dm_object_name("All_Email")`
+            | rename orig_recipient as Addressee, recipient as Recipient, src_user as Sender, subject as Subject, message_id as Message_Id
+            | fields Addressee, Recipient, Sender, Subject, Message_Id
+            | fillnull value="Unknown"
+
+      - name: run_message_query
+        type: http
+        with:
+          url: "{{ consts.splunk_endpoint }}/services/search/jobs"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search=| tstats {{ steps.build_message_query.output.query }}&output_mode=json&adhoc_search_level={{ consts.search_mode }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: results_present
+        type: if
+        condition: "{{ steps.run_message_query.output.results | size | default: 0 }} > 0"
+        steps:
+          - name: build_message_observables
+            type: foreach
+            with:
+              items: "${{ steps.run_message_query.output.results }}"
+            steps:
+              - name: emit_observable
+                type: data.set
+                with:
+                  observable:
+                    value: "{{ item.Message_Id | default: inputs.message_id }}"
+                    type: "internet message ID"
+                    source: "Splunk"
+                    message_identifier_activity:
+                      recipient: "{{ item.Recipient | default: '' }}"
+                      addressee: "{{ item.Addressee | default: '' }}"
+                      subject: "{{ item.Subject | default: '' }}"
+                      sender: "{{ item.Sender | default: '' }}"
+
+              - name: log_observable
+                type: console
+                with:
+                  message: |
+                    Splunk Email match: recipient={{ item.Recipient | default: '' }}, sender={{ item.Sender | default: '' }}, subject={{ item.Subject | default: '' }}
+
+          - name: log_summary
+            type: console
+            with:
+              message: "Splunk Email data model returned {{ steps.run_message_query.output.results | size }} matches."
+        else:
+          - name: no_results
+            type: console
+            with:
+              message: "No Splunk Email matches for the supplied inputs."
+    else:
+      - name: no_inputs
+        type: console
+        with:
+          message: "No message_id, subject, or sender supplied."

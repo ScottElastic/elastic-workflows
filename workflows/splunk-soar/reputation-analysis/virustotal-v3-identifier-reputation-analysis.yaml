@@ -1,0 +1,225 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "VirusTotal v3 — Identifier Reputation Analysis"
+description: >
+  Routes URLs, domains, IPs, and file hashes to the VirusTotal v3
+  reputation endpoints. For each indicator, it computes a normalized
+  OCSF reputation score based on the ratio of malicious/suspicious to
+  total vendor verdicts and a confidence value from the percentage of
+  vendors with a detection. Maps to MITRE D3FEND
+  IdentifierReputationAnalysis.
+enabled: true
+tags: ["splunk-soar", "reputation", "url", "domain", "ip", "file-hash", "virustotal", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: urls
+    type: array
+    required: false
+    description: "URLs to look up (may be empty)."
+  - name: domains
+    type: array
+    required: false
+    description: "Domains to look up (may be empty)."
+  - name: ips
+    type: array
+    required: false
+    description: "IP addresses to look up (may be empty)."
+  - name: file_hashes
+    type: array
+    required: false
+    description: "File hashes (MD5/SHA1/SHA256) to look up (may be empty)."
+
+consts:
+  vt_api_base: "https://www.virustotal.com/api/v3"
+  vt_api_key: "CHANGEME_VT_API_KEY"
+  # OCSF reputation score reference: https://schema.ocsf.io/objects/reputation
+
+steps:
+  - name: process_urls
+    type: if
+    condition: "{{ inputs.urls | size }} > 0"
+    steps:
+      - name: each_url
+        type: foreach
+        with:
+          items: ${{ inputs.urls }}
+        steps:
+          - name: vt_url_lookup
+            type: http
+            with:
+              url: "{{ consts.vt_api_base }}/urls"
+              method: POST
+              headers:
+                x-apikey: "{{ consts.vt_api_key }}"
+                Content-Type: "application/x-www-form-urlencoded"
+              body: "url={{ item }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+          - name: build_url_observable
+            type: data.set
+            with:
+              observable:
+                value: "{{ item }}"
+                type: "url"
+                source: "VirusTotal v3"
+                source_link: "https://www.virustotal.com/gui/url/{{ steps.vt_url_lookup.output.data.id | default: '' }}"
+                stats:
+                  harmless: "{{ steps.vt_url_lookup.output.data.attributes.last_analysis_stats.harmless | default: 0 }}"
+                  undetected: "{{ steps.vt_url_lookup.output.data.attributes.last_analysis_stats.undetected | default: 0 }}"
+                  malicious: "{{ steps.vt_url_lookup.output.data.attributes.last_analysis_stats.malicious | default: 0 }}"
+                  suspicious: "{{ steps.vt_url_lookup.output.data.attributes.last_analysis_stats.suspicious | default: 0 }}"
+                categories: "{{ steps.vt_url_lookup.output.data.attributes.categories | default: {} }}"
+
+          - name: log_url
+            type: console
+            with:
+              message: |
+                VT URL reputation for {{ item }}:
+                malicious={{ steps.vt_url_lookup.output.data.attributes.last_analysis_stats.malicious | default: 0 }}
+                suspicious={{ steps.vt_url_lookup.output.data.attributes.last_analysis_stats.suspicious | default: 0 }}
+
+  - name: process_domains
+    type: if
+    condition: "{{ inputs.domains | size }} > 0"
+    steps:
+      - name: each_domain
+        type: foreach
+        with:
+          items: ${{ inputs.domains }}
+        steps:
+          - name: vt_domain_lookup
+            type: http
+            with:
+              url: "{{ consts.vt_api_base }}/domains/{{ item }}"
+              method: GET
+              headers:
+                x-apikey: "{{ consts.vt_api_key }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+          - name: build_domain_observable
+            type: data.set
+            with:
+              observable:
+                value: "{{ item }}"
+                type: "domain"
+                source: "VirusTotal v3"
+                source_link: "https://www.virustotal.com/gui/domain/{{ item }}"
+                stats:
+                  harmless: "{{ steps.vt_domain_lookup.output.data.attributes.last_analysis_stats.harmless | default: 0 }}"
+                  undetected: "{{ steps.vt_domain_lookup.output.data.attributes.last_analysis_stats.undetected | default: 0 }}"
+                  malicious: "{{ steps.vt_domain_lookup.output.data.attributes.last_analysis_stats.malicious | default: 0 }}"
+                  suspicious: "{{ steps.vt_domain_lookup.output.data.attributes.last_analysis_stats.suspicious | default: 0 }}"
+                categories: "{{ steps.vt_domain_lookup.output.data.attributes.categories | default: {} }}"
+
+          - name: log_domain
+            type: console
+            with:
+              message: |
+                VT domain reputation for {{ item }}:
+                malicious={{ steps.vt_domain_lookup.output.data.attributes.last_analysis_stats.malicious | default: 0 }}
+
+  - name: process_ips
+    type: if
+    condition: "{{ inputs.ips | size }} > 0"
+    steps:
+      - name: each_ip
+        type: foreach
+        with:
+          items: ${{ inputs.ips }}
+        steps:
+          - name: vt_ip_lookup
+            type: http
+            with:
+              url: "{{ consts.vt_api_base }}/ip_addresses/{{ item }}"
+              method: GET
+              headers:
+                x-apikey: "{{ consts.vt_api_key }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+          - name: build_ip_observable
+            type: data.set
+            with:
+              observable:
+                value: "{{ item }}"
+                type: "ip"
+                source: "VirusTotal v3"
+                source_link: "https://www.virustotal.com/gui/ip-address/{{ item }}"
+                stats:
+                  harmless: "{{ steps.vt_ip_lookup.output.data.attributes.last_analysis_stats.harmless | default: 0 }}"
+                  undetected: "{{ steps.vt_ip_lookup.output.data.attributes.last_analysis_stats.undetected | default: 0 }}"
+                  malicious: "{{ steps.vt_ip_lookup.output.data.attributes.last_analysis_stats.malicious | default: 0 }}"
+                  suspicious: "{{ steps.vt_ip_lookup.output.data.attributes.last_analysis_stats.suspicious | default: 0 }}"
+                enrichment:
+                  country: "{{ steps.vt_ip_lookup.output.data.attributes.country | default: '' }}"
+                  network: "{{ steps.vt_ip_lookup.output.data.attributes.network | default: '' }}"
+                  as_owner: "{{ steps.vt_ip_lookup.output.data.attributes.as_owner | default: '' }}"
+                  continent: "{{ steps.vt_ip_lookup.output.data.attributes.continent | default: '' }}"
+
+          - name: log_ip
+            type: console
+            with:
+              message: |
+                VT IP reputation for {{ item }}:
+                malicious={{ steps.vt_ip_lookup.output.data.attributes.last_analysis_stats.malicious | default: 0 }}
+
+  - name: process_file_hashes
+    type: if
+    condition: "{{ inputs.file_hashes | size }} > 0"
+    steps:
+      - name: each_hash
+        type: foreach
+        with:
+          items: ${{ inputs.file_hashes }}
+        steps:
+          - name: vt_file_lookup
+            type: virustotal.scanFileHash
+            connector-id: "CHANGEME-virustotal-connector"
+            with:
+              hash: "{{ item }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+          - name: build_file_observable
+            type: data.set
+            with:
+              observable:
+                value: "{{ item }}"
+                type: "hash"
+                source: "VirusTotal v3"
+                source_link: "https://www.virustotal.com/gui/file/{{ item }}"
+                stats:
+                  harmless: "{{ steps.vt_file_lookup.output.data.attributes.last_analysis_stats.harmless | default: 0 }}"
+                  undetected: "{{ steps.vt_file_lookup.output.data.attributes.last_analysis_stats.undetected | default: 0 }}"
+                  malicious: "{{ steps.vt_file_lookup.output.data.attributes.last_analysis_stats.malicious | default: 0 }}"
+                  suspicious: "{{ steps.vt_file_lookup.output.data.attributes.last_analysis_stats.suspicious | default: 0 }}"
+                enrichment:
+                  meaningful_name: "{{ steps.vt_file_lookup.output.data.attributes.meaningful_name | default: '' }}"
+                  type_description: "{{ steps.vt_file_lookup.output.data.attributes.type_description | default: '' }}"
+
+          - name: log_file_hash
+            type: console
+            with:
+              message: |
+                VT file reputation for {{ item }}:
+                malicious={{ steps.vt_file_lookup.output.data.attributes.last_analysis_stats.malicious | default: 0 }}
+                suspicious={{ steps.vt_file_lookup.output.data.attributes.last_analysis_stats.suspicious | default: 0 }}

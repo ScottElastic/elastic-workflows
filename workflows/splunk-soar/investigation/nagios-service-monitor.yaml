@@ -1,0 +1,109 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Nagios — Service Monitor Auto-Restart"
+description: >
+  Reacts to a Nagios PROBLEM Service Alert email by parsing the target host
+  and failing service out of the email subject, checking each value against
+  allowlists, and running an SSH "service <name> restart" command on the
+  target when both checks pass.
+enabled: true
+tags: ["splunk-soar", "investigation", "nagios", "ssh", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: email_subject
+    type: string
+    required: true
+    description: "Raw email subject line from Nagios (e.g. '** PROBLEM Service Alert: host01/httpd process is CRITICAL ...')."
+  - name: host_allowlist
+    type: array
+    required: false
+    default: []
+    description: "Approved hostnames or IPs the workflow is allowed to SSH into."
+  - name: service_allowlist
+    type: array
+    required: false
+    default: []
+    description: "Approved Linux service names the workflow is allowed to restart."
+
+consts:
+  # SSH execution stub — point at your remote execution proxy or internal
+  # automation host. Original playbook used a SOAR SSH asset to run commands.
+  ssh_exec_endpoint: "https://CHANGEME-ssh-runner.internal/api/execute"
+  ssh_exec_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  - name: filter_service_alert
+    type: if
+    condition: "{{ inputs.email_subject | contains: 'PROBLEM Service Alert:' }}"
+    steps:
+      - name: parse_host_and_service
+        type: data.set
+        with:
+          # Split "** PROBLEM Service Alert: host/service process is CRITICAL ..."
+          # by the leading marker then by '/' to recover host and service.
+          tail: "{{ inputs.email_subject | split: '** PROBLEM Service Alert: ' | last }}"
+          host: "{{ inputs.email_subject | split: '** PROBLEM Service Alert: ' | last | split: '/' | first }}"
+          service: "{{ inputs.email_subject | split: '** PROBLEM Service Alert: ' | last | split: '/' | last | split: ' process is CRITICAL' | first }}"
+
+      - name: host_allowlist_check
+        type: if
+        condition: "{{ inputs.host_allowlist | includes: steps.parse_host_and_service.output.host }}"
+        steps:
+          - name: log_host_ok
+            type: console
+            with:
+              message: "Host {{ steps.parse_host_and_service.output.host }} passed allowlist check."
+        else:
+          - name: log_host_blocked
+            type: console
+            with:
+              message: "Host {{ steps.parse_host_and_service.output.host }} failed allowlist check — aborting."
+
+      - name: service_allowlist_check
+        type: if
+        condition: "{{ inputs.service_allowlist | includes: steps.parse_host_and_service.output.service }}"
+        steps:
+          - name: log_service_ok
+            type: console
+            with:
+              message: "Service {{ steps.parse_host_and_service.output.service }} passed allowlist check."
+        else:
+          - name: log_service_blocked
+            type: console
+            with:
+              message: "Service {{ steps.parse_host_and_service.output.service }} failed allowlist check — aborting."
+
+      - name: both_checks_passed
+        type: if
+        condition: "{{ inputs.host_allowlist | includes: steps.parse_host_and_service.output.host }} and {{ inputs.service_allowlist | includes: steps.parse_host_and_service.output.service }}"
+        steps:
+          # TODO: replace with a real SSH/remote-exec connector when available.
+          - name: ssh_restart_service
+            type: http
+            with:
+              url: "{{ consts.ssh_exec_endpoint }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.ssh_exec_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                ip_hostname: "{{ steps.parse_host_and_service.output.host }}"
+                command: "service {{ steps.parse_host_and_service.output.service }} restart"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "5s"
+              continue: true
+
+          - name: log_restart_result
+            type: console
+            with:
+              message: |
+                Restart of {{ steps.parse_host_and_service.output.service }} on
+                {{ steps.parse_host_and_service.output.host }} requested:
+                status={{ steps.ssh_restart_service.output.status | default: 'unknown' }}

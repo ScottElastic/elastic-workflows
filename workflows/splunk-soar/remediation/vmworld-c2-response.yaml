@@ -1,0 +1,258 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "VMWorld — C2 Response"
+description: >
+  Demo-style response to a command-and-control alert in a VMware-managed
+  estate. Threat-hunts the file hashes and destination IPs via VirusTotal
+  / PhishMe / Protectwise, blocks malicious file hashes on Carbon Black,
+  classifies severity, blocks malicious IPs via VMware NSX, snapshots
+  affected vSphere VMs for forensics, and closes out the container.
+enabled: true
+tags: ["splunk-soar", "remediation", "vmware", "c2", "nsx", "carbonblack", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: dest_ips
+    type: array
+    required: false
+    description: "Destination IPs to evaluate."
+  - name: md5_hashes
+    type: array
+    required: false
+    description: "MD5 file hashes to evaluate."
+  - name: sha256_hashes
+    type: array
+    required: false
+    description: "SHA-256 file hashes to evaluate."
+  - name: source_addresses
+    type: array
+    required: false
+    description: "Source IPs of suspect endpoints (for VM snapshot)."
+  - name: case_id
+    type: string
+    required: false
+
+consts:
+  virustotal_endpoint: "https://www.virustotal.com/api/v3"
+  virustotal_api_key: "CHANGEME"
+  phishme_endpoint: "https://www.threathq.com/apiv1"
+  phishme_api_key: "CHANGEME"
+  protectwise_endpoint: "https://api.protectwise.com/api"
+  protectwise_token: "CHANGEME"
+  carbonblack_endpoint: "https://CHANGEME-carbonblack.internal/api/v1"
+  carbonblack_token: "CHANGEME"
+  vsphere_endpoint: "https://CHANGEME-vsphere.internal/api"
+  vsphere_auth_header: "Bearer CHANGEME_TOKEN"
+  nsx_endpoint: "https://CHANGEME-nsx.internal/api"
+  nsx_auth_header: "Bearer CHANGEME_TOKEN"
+  vt_block_threshold: 20
+  ip_positives_threshold: 15
+  ip_threatscore_threshold: 60
+
+steps:
+  # IP intel + reputation in parallel
+  - name: ip_branch
+    type: if
+    condition: "{{ inputs.dest_ips | size }} > 0"
+    steps:
+      - name: hunt_each_ip
+        type: foreach
+        with:
+          items: ${{ inputs.dest_ips }}
+        steps:
+          - name: hunt_ip_phishme
+            type: http
+            with:
+              url: "{{ consts.phishme_endpoint }}/threat/search"
+              method: GET
+              headers:
+                X-PhishMe-Token: "{{ consts.phishme_api_key }}"
+              body:
+                ip: "{{ item }}"
+            on-failure:
+              continue: true
+
+          - name: ip_reputation
+            type: virustotal.scanIp
+            connector-id: "CHANGEME-virustotal-connector"
+            with:
+              ip: "{{ item }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+          - name: maybe_block_ip
+            type: if
+            condition: "{{ steps.ip_reputation.output.data.attributes.last_analysis_stats.malicious | default: 0 }} >= {{ consts.ip_positives_threshold }}"
+            steps:
+              - name: nsx_block
+                type: http
+                with:
+                  url: "{{ consts.nsx_endpoint }}/firewall/block-ip"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.nsx_auth_header }}"
+                    Content-Type: "application/json"
+                  body:
+                    ip: "{{ item }}"
+                on-failure:
+                  continue: true
+
+  # MD5 hashes
+  - name: md5_branch
+    type: if
+    condition: "{{ inputs.md5_hashes | size }} > 0"
+    steps:
+      - name: hunt_each_md5
+        type: foreach
+        with:
+          items: ${{ inputs.md5_hashes }}
+        steps:
+          - name: hunt_file_phishme
+            type: http
+            with:
+              url: "{{ consts.phishme_endpoint }}/threat/search"
+              method: GET
+              headers:
+                X-PhishMe-Token: "{{ consts.phishme_api_key }}"
+              body:
+                hash: "{{ item }}"
+            on-failure:
+              continue: true
+
+          - name: file_reputation_md5
+            type: virustotal.scanFileHash
+            connector-id: "CHANGEME-virustotal-connector"
+            with:
+              hash: "{{ item }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+          - name: maybe_block_hash
+            type: if
+            condition: "{{ steps.file_reputation_md5.output.data.attributes.last_analysis_stats.malicious | default: 0 }} >= {{ consts.vt_block_threshold }}"
+            steps:
+              - name: carbonblack_block_hash
+                type: http
+                with:
+                  url: "{{ consts.carbonblack_endpoint }}/banning/blacklist"
+                  method: POST
+                  headers:
+                    X-Auth-Token: "{{ consts.carbonblack_token }}"
+                    Content-Type: "application/json"
+                  body:
+                    md5hash: "{{ item }}"
+                on-failure:
+                  continue: true
+
+  # SHA-256 hashes — query Protectwise observations only
+  - name: sha256_branch
+    type: if
+    condition: "{{ inputs.sha256_hashes | size }} > 0"
+    steps:
+      - name: hunt_each_sha256
+        type: foreach
+        with:
+          items: ${{ inputs.sha256_hashes }}
+        steps:
+          - name: hunt_file_protectwise
+            type: http
+            with:
+              url: "{{ consts.protectwise_endpoint }}/observations/by-hash"
+              method: GET
+              headers:
+                X-Access-Token: "{{ consts.protectwise_token }}"
+              body:
+                hash: "{{ item }}"
+            on-failure:
+              continue: true
+
+  # VM snapshots — list VMs, pick those whose IP matches a source address.
+  - name: vsphere_branch
+    type: if
+    condition: "{{ inputs.source_addresses | size }} > 0"
+    steps:
+      - name: list_vms
+        type: http
+        with:
+          url: "{{ consts.vsphere_endpoint }}/vms"
+          method: GET
+          headers:
+            Authorization: "{{ consts.vsphere_auth_header }}"
+        on-failure:
+          continue: true
+
+      - name: matching_vms
+        type: data.set
+        with:
+          matches: >-
+            ${{ steps.list_vms.output.vms | default: []
+                | where_in: "ip", inputs.source_addresses }}
+
+      - name: snapshot_each_match
+        type: foreach
+        with:
+          items: ${{ steps.matching_vms.output.matches }}
+        steps:
+          - name: snapshot_vm
+            type: http
+            with:
+              url: "{{ consts.vsphere_endpoint }}/snapshot"
+              method: POST
+              headers:
+                Authorization: "{{ consts.vsphere_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                vmx_path: "{{ item.vmx_path }}"
+            on-failure:
+              continue: true
+
+  # Severity classification — if either VT positives high OR Threatstream
+  # threatscore high, mark high; otherwise low. Use AI to weigh signals.
+  - name: classify_severity
+    type: ai.prompt
+    connector-id: "CHANGEME-llm-connector"
+    with:
+      prompt: |
+        Based on the reputation results below, return either HIGH or LOW.
+        ip_reputation: {{ steps.ip_reputation.output | default: {} | json }}
+        Reply with the single word HIGH or LOW.
+
+  - name: apply_severity_high
+    type: if
+    condition: '{{ steps.classify_severity.output | strip | upcase }} == "HIGH"'
+    steps:
+      - name: set_high_severity_case
+        type: if
+        condition: "{{ inputs.case_id | size }} > 0"
+        steps:
+          - name: case_high
+            type: kibana.addCaseComment
+            with:
+              caseId: "{{ inputs.case_id }}"
+              comment: "Severity set to HIGH by C2 response workflow."
+    else:
+      - name: set_low_severity_case
+        type: if
+        condition: "{{ inputs.case_id | size }} > 0"
+        steps:
+          - name: case_low
+            type: kibana.addCaseComment
+            with:
+              caseId: "{{ inputs.case_id }}"
+              comment: "Severity set to LOW by C2 response workflow."
+
+  - name: final
+    type: console
+    with:
+      message: "vmworld_c2_response complete."

@@ -1,0 +1,121 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "ServiceNow — Update Incident with Investigation Note"
+description: >
+  Sends a comment from an Elastic Security investigation onto a ServiceNow
+  incident. If a SNOW incident id was supplied directly the workflow uses
+  it; otherwise it queries SNOW for incidents tied to the affected entity
+  and prompts an analyst to choose which incident to update.
+enabled: true
+tags: ["splunk-soar", "ticketing", "servicenow", "update", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: note
+    type: string
+    required: true
+    description: "Free-form text to add as a comment on the SNOW incident."
+  - name: snow_incident
+    type: string
+    required: false
+    description: "Existing SNOW incident sys_id or number. If empty, the workflow searches for related incidents."
+  - name: entity
+    type: string
+    required: false
+    description: "Affected entity name used when searching for related SNOW incidents."
+  - name: launching_user
+    type: string
+    required: false
+    description: "Analyst whose decision is requested when no SNOW incident id is supplied."
+
+consts:
+  servicenow_connector_id: "CHANGEME-servicenow-connector"
+  servicenow_instance_url: "https://CHANGEME.service-now.com"
+  servicenow_auth_header: "Basic CHANGEME_BASE64_USER_PASS"
+
+steps:
+  - name: sanitize_note
+    type: data.set
+    with:
+      # Strip CR/LF and pre-build the SNOW field payload. SOAR runs the note
+      # through remove_crlf + uri_decode; we replicate the gist here.
+      comments: "{{ inputs.note | replace: '\\r\\n', ' ' | replace: '\\n', ' ' }}"
+
+  - name: have_target_incident
+    type: if
+    condition: "{{ inputs.snow_incident | size }} > 0"
+    steps:
+      # Direct path: caller already knows which incident to update.
+      - name: update_known_incident
+        type: servicenow
+        connector-id: "{{ consts.servicenow_connector_id }}"
+        with:
+          subAction: "pushToService"
+          subActionParams:
+            incident:
+              correlation_id: "{{ inputs.snow_incident }}"
+              comments: "{{ steps.sanitize_note.output.comments }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+
+      - name: log_direct_update
+        type: console
+        with:
+          message: "Updated SNOW incident {{ inputs.snow_incident }} with the supplied note."
+    else:
+      # Discovery path: look up related incidents for the entity and prompt
+      # the analyst to choose which one to update.
+      - name: lookup_related
+        type: http
+        with:
+          url: "{{ consts.servicenow_instance_url }}/api/now/table/incident"
+          method: GET
+          headers:
+            Authorization: "{{ consts.servicenow_auth_header }}"
+            Accept: "application/json"
+          query:
+            sysparm_query: "cmdb_ci.name={{ inputs.entity }}^sys_created_onONLast%207%20days"
+            sysparm_limit: "100"
+        on-failure:
+          continue: true
+
+      - name: build_prompt_message
+        type: data.set
+        with:
+          related_summary: "${{ steps.lookup_related.output.result | default: [] }}"
+
+      # TODO: integrate with an analyst-input action when available
+      # (e.g. Kibana Cases prompt or a Slack interactive message). For now
+      # we surface the candidate list to the console for review.
+      - name: surface_candidates
+        type: console
+        with:
+          message: |
+            Related SNOW incidents for {{ inputs.entity }} (review and re-run with snow_incident set):
+            {{ steps.build_prompt_message.output.related_summary | json | default: '[]' }}
+
+      - name: ai_recommend_target
+        type: ai.prompt
+        with:
+          prompt: |
+            You are a SOC analyst helper. Given this list of ServiceNow
+            incidents and the note text, recommend the single incident
+            number that most likely should receive the note. Reply with
+            just the incident number.
+
+            Note: {{ inputs.note }}
+            Incidents: {{ steps.build_prompt_message.output.related_summary | json }}
+        on-failure:
+          continue: true
+
+      - name: log_recommendation
+        type: console
+        with:
+          message: "AI recommended SNOW incident: {{ steps.ai_recommend_target.output | default: 'no recommendation' }}"

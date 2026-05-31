@@ -1,0 +1,237 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Splunk — Identifier Activity Analysis"
+description: >
+  Searches Splunk data models for evidence of recent device or user
+  interaction with a given indicator (URL, file hash, domain, or IP).
+  Builds an SPL tstats query per indicator type, runs it over the last
+  30 days, and emits a per-device observable record. Defaults to a 30d
+  lookback window.
+enabled: true
+tags: ["splunk-soar", "enrichment", "identifier-activity", "splunk", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: url
+    type: string
+    required: false
+    description: "URL indicator to search for in Splunk Web data model."
+  - name: file_hash
+    type: string
+    required: false
+    description: "Process hash to search for in Splunk Endpoint.Processes data model."
+  - name: domain
+    type: string
+    required: false
+    description: "Domain to search for in Splunk Network_Resolution data model."
+  - name: ip
+    type: string
+    required: false
+    description: "IP address to search for in Splunk Network_Traffic data model."
+
+consts:
+  splunk_endpoint: "https://CHANGEME-splunk.internal:8089"
+  splunk_auth_header: "Bearer CHANGEME_SPLUNK_TOKEN"
+  start_time: "-30d"
+  search_mode: "smart"
+
+steps:
+  - name: url_branch
+    type: if
+    condition: "{{ inputs.url | size }} > 0"
+    steps:
+      # Equivalent of parse_url + build_url_query in the Phantom source.
+      - name: build_url_query
+        type: data.set
+        with:
+          query: |
+            count fillnull_value="Unknown" from datamodel=Web.Web where Web.url IN ("*{{ inputs.url }}*") by Web.src Web.user Web.url
+            | `drop_dm_object_name("Web")` | `get_asset(src)`
+            | fields url, src, src_asset_id, src_dns, src_ip, user
+            | fillnull value="Unknown"
+
+      - name: run_url_query
+        type: http
+        with:
+          url: "{{ consts.splunk_endpoint }}/services/search/jobs"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search=| tstats {{ steps.build_url_query.output.query }}&earliest_time={{ consts.start_time }}&output_mode=json&adhoc_search_level={{ consts.search_mode }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: url_results_present
+        type: if
+        condition: "{{ steps.run_url_query.output.results | size | default: 0 }} > 0"
+        steps:
+          - name: build_url_observable
+            type: data.set
+            with:
+              observable:
+                value: "{{ inputs.url }}"
+                type: "url"
+                source: "Splunk"
+                identifier_activity: "${{ steps.run_url_query.output.results }}"
+                total_count: "{{ steps.run_url_query.output.results | size | default: 0 }}"
+
+          - name: log_url_activity
+            type: console
+            with:
+              message: "Splunk URL activity for {{ inputs.url }}: {{ steps.run_url_query.output.results | size | default: 0 }} hits"
+
+  - name: file_branch
+    type: if
+    condition: "{{ inputs.file_hash | size }} > 0"
+    steps:
+      - name: build_file_query
+        type: data.set
+        with:
+          query: |
+            count fillnull_value="Unknown" values(Processes.process_name) as process_name
+            from datamodel=Endpoint.Processes
+            where (Processes.process_hash IN ("{{ inputs.file_hash }}") OR Processes.process_hash IN ("*{{ inputs.file_hash }}*"))
+            by Processes.dest Processes.user Processes.process_hash
+            | `drop_dm_object_name("Processes")` | `get_asset(dest)`
+            | fields process_hash, process_name, dest, dest_asset_id, dest_dns, dest_ip, user
+            | fillnull value="Unknown"
+
+      - name: run_file_query
+        type: http
+        with:
+          url: "{{ consts.splunk_endpoint }}/services/search/jobs"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search=| tstats {{ steps.build_file_query.output.query }}&earliest_time={{ consts.start_time }}&output_mode=json&adhoc_search_level={{ consts.search_mode }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: file_results_present
+        type: if
+        condition: "{{ steps.run_file_query.output.results | size | default: 0 }} > 0"
+        steps:
+          - name: build_file_observable
+            type: data.set
+            with:
+              observable:
+                value: "{{ inputs.file_hash }}"
+                type: "hash"
+                source: "Splunk"
+                identifier_activity: "${{ steps.run_file_query.output.results }}"
+                total_count: "{{ steps.run_file_query.output.results | size | default: 0 }}"
+
+          - name: log_file_activity
+            type: console
+            with:
+              message: "Splunk process hash activity for {{ inputs.file_hash }}: {{ steps.run_file_query.output.results | size | default: 0 }} hits"
+
+  - name: domain_branch
+    type: if
+    condition: "{{ inputs.domain | size }} > 0"
+    steps:
+      - name: build_domain_query
+        type: data.set
+        with:
+          query: |
+            count from datamodel=Network_Resolution where DNS.query IN ("{{ inputs.domain }}")
+            by DNS.src DNS.query
+            | `drop_dm_object_name("DNS")` | `get_asset(src)`
+            | fields query, src, src_asset_id, src_dns, src_ip, src_owner
+            | rename src_owner as src_user
+            | fillnull value="Unknown"
+
+      - name: run_domain_query
+        type: http
+        with:
+          url: "{{ consts.splunk_endpoint }}/services/search/jobs"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search=| tstats {{ steps.build_domain_query.output.query }}&earliest_time={{ consts.start_time }}&output_mode=json&adhoc_search_level={{ consts.search_mode }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: domain_results_present
+        type: if
+        condition: "{{ steps.run_domain_query.output.results | size | default: 0 }} > 0"
+        steps:
+          - name: build_domain_observable
+            type: data.set
+            with:
+              observable:
+                value: "{{ inputs.domain }}"
+                type: "domain"
+                source: "Splunk"
+                identifier_activity: "${{ steps.run_domain_query.output.results }}"
+                total_count: "{{ steps.run_domain_query.output.results | size | default: 0 }}"
+
+          - name: log_domain_activity
+            type: console
+            with:
+              message: "Splunk DNS activity for {{ inputs.domain }}: {{ steps.run_domain_query.output.results | size | default: 0 }} hits"
+
+  - name: ip_branch
+    type: if
+    condition: "{{ inputs.ip | size }} > 0"
+    steps:
+      - name: build_ip_query
+        type: data.set
+        with:
+          query: |
+            count fillnull_value="Unknown" from datamodel=Network_Traffic
+            where All_Traffic.dest_ip IN ("{{ inputs.ip }}")
+            by All_Traffic.src All_Traffic.user All_Traffic.dest_ip
+            | `drop_dm_object_name("All_Traffic")` | `get_asset(src)`
+            | fields src, src_asset_id, src_dns, src_ip, dest_ip, user
+            | fillnull value="Unknown"
+
+      - name: run_ip_query
+        type: http
+        with:
+          url: "{{ consts.splunk_endpoint }}/services/search/jobs"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search=| tstats {{ steps.build_ip_query.output.query }}&earliest_time={{ consts.start_time }}&output_mode=json&adhoc_search_level={{ consts.search_mode }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: ip_results_present
+        type: if
+        condition: "{{ steps.run_ip_query.output.results | size | default: 0 }} > 0"
+        steps:
+          - name: build_ip_observable
+            type: data.set
+            with:
+              observable:
+                value: "{{ inputs.ip }}"
+                type: "ip"
+                source: "Splunk"
+                identifier_activity: "${{ steps.run_ip_query.output.results }}"
+                total_count: "{{ steps.run_ip_query.output.results | size | default: 0 }}"
+
+          - name: log_ip_activity
+            type: console
+            with:
+              message: "Splunk network activity for {{ inputs.ip }}: {{ steps.run_ip_query.output.results | size | default: 0 }} hits"

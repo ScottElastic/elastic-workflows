@@ -1,0 +1,215 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "AWS EC2 — Security Hub Finding Investigation & Notification"
+description: >
+  Investigates a Security Hub finding for an exposed EC2 instance. Fetches
+  EC2 metadata, security groups, host firewall rules, processes, and current
+  network connections; geolocates and looks up reputation on the remote IPs
+  involved; opens a Jira ticket and sends a Slack ping to the instance owner;
+  then prompts a responder before optionally invoking the EC2 Isolation
+  workflow as the response action.
+enabled: true
+tags: ["splunk-soar", "investigation", "aws", "ec2", "security-hub", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: finding_id
+    type: string
+    required: true
+    description: "AWS Security Hub finding ID (the cef.Id field on the artifact)."
+  - name: instance_id
+    type: string
+    required: true
+    description: "EC2 instance ID referenced in the AwsEc2Instance resource."
+  - name: severity_normalized
+    type: number
+    required: true
+    description: "Normalized SecurityHub severity (only proceed if > 35)."
+  - name: remote_ips
+    type: array
+    required: false
+    description: "Remote IPs called out in the finding's productFields."
+  - name: jira_connector_id
+    type: string
+    required: false
+    default: "CHANGEME-jira-connector"
+  - name: slack_connector_id
+    type: string
+    required: false
+    default: "CHANGEME-slack-connector"
+
+consts:
+  aws_ec2_endpoint: "https://ec2.us-east-1.amazonaws.com"
+  aws_security_hub_endpoint: "https://securityhub.us-east-1.amazonaws.com"
+  aws_auth_header: "Bearer CHANGEME"
+  ssh_proxy_endpoint: "https://CHANGEME-ssh-proxy.internal/run"
+  ssh_proxy_auth: "Bearer CHANGEME"
+  maxmind_endpoint: "https://geoip.maxmind.com/geoip/v2.1/city/"
+  maxmind_auth: "Basic CHANGEME"
+  passivetotal_endpoint: "https://api.passivetotal.org/v2/enrichment"
+  passivetotal_auth: "Basic CHANGEME"
+  internal_vpc_cidr: "172.31.0.0/16"
+  # Console search link template for SecurityHub findings.
+  securityhub_console_base: "https://console.aws.amazon.com/securityhub/home?region=us-east-1#/findings?search=Id%3D%255Coperator%255C%253AEQUALS%255C%253A"
+
+steps:
+  - name: severity_gate
+    type: if
+    condition: "{{ inputs.severity_normalized }} > 35"
+    steps:
+      # TODO: replace http stubs with native AWS connectors (with SigV4) when
+      # available in Elastic Workflows.
+      - name: describe_ec2_instance
+        type: http
+        with:
+          url: "{{ consts.aws_ec2_endpoint }}/?Action=DescribeInstances&InstanceId.1={{ inputs.instance_id }}"
+          method: GET
+          headers:
+            Authorization: "{{ consts.aws_auth_header }}"
+        on-failure:
+          continue: true
+
+      - name: list_security_groups
+        type: http
+        with:
+          url: "{{ consts.aws_ec2_endpoint }}/?Action=DescribeSecurityGroups"
+          method: GET
+          headers:
+            Authorization: "{{ consts.aws_auth_header }}"
+        on-failure:
+          continue: true
+
+      - name: list_firewall_rules_on_host
+        type: http
+        with:
+          url: "{{ consts.ssh_proxy_endpoint }}/iptables-list"
+          method: POST
+          headers:
+            Authorization: "{{ consts.ssh_proxy_auth }}"
+          body:
+            host: "{{ steps.describe_ec2_instance.output.Reservations[0].Instances[0].NetworkInterfaces[0].Association.PublicDnsName }}"
+        on-failure:
+          continue: true
+
+      - name: list_processes_on_host
+        type: http
+        with:
+          url: "{{ consts.ssh_proxy_endpoint }}/ps"
+          method: POST
+          headers:
+            Authorization: "{{ consts.ssh_proxy_auth }}"
+          body:
+            host: "{{ steps.describe_ec2_instance.output.Reservations[0].Instances[0].NetworkInterfaces[0].Association.PublicDnsName }}"
+        on-failure:
+          continue: true
+
+      - name: list_connections_on_host
+        type: http
+        with:
+          url: "{{ consts.ssh_proxy_endpoint }}/netstat"
+          method: POST
+          headers:
+            Authorization: "{{ consts.ssh_proxy_auth }}"
+          body:
+            host: "{{ steps.describe_ec2_instance.output.Reservations[0].Instances[0].NetworkInterfaces[0].Association.PublicDnsName }}"
+        on-failure:
+          continue: true
+
+      - name: filter_external_connection_ips
+        type: data.set
+        # Drop addresses that fall in the internal VPC CIDR before sending to
+        # geolocation / reputation services.
+        with:
+          # Downstream consumers should treat this as an opaque list and only
+          # enrich addresses that aren't in {{ consts.internal_vpc_cidr }}.
+          connection_ips: ${{ steps.list_connections_on_host.output.connections }}
+
+      - name: enrich_remote_ips_from_finding
+        type: foreach
+        with:
+          items: ${{ inputs.remote_ips }}
+        steps:
+          - name: geolocate_finding_ip
+            type: http
+            with:
+              url: "{{ consts.maxmind_endpoint }}{{ item }}"
+              method: GET
+              headers:
+                Authorization: "{{ consts.maxmind_auth }}"
+            on-failure:
+              continue: true
+
+          - name: passivetotal_reputation_finding_ip
+            type: http
+            with:
+              url: "{{ consts.passivetotal_endpoint }}"
+              method: GET
+              headers:
+                Authorization: "{{ consts.passivetotal_auth }}"
+              query:
+                query: "{{ item }}"
+            on-failure:
+              continue: true
+
+      - name: build_finding_url
+        type: data.set
+        with:
+          finding_url: "{{ consts.securityhub_console_base }}{{ inputs.finding_id }}"
+
+      - name: build_notification_body
+        type: data.set
+        with:
+          summary: |
+            Security Hub finding {{ inputs.finding_id }} for EC2 instance {{ inputs.instance_id }}
+            Severity (normalized): {{ inputs.severity_normalized }}
+            Direct link: {{ steps.build_finding_url.output.finding_url }}
+
+      - name: create_jira_ticket
+        type: jira
+        connector-id: "{{ inputs.jira_connector_id }}"
+        with:
+          subAction: "pushToService"
+          subActionParams:
+            incident:
+              summary: "Security Hub: exposed EC2 instance {{ inputs.instance_id }}"
+              description: "{{ steps.build_notification_body.output.summary }}"
+              priority: "High"
+              issuetype: "Bug"
+        on-failure:
+          continue: true
+
+      - name: notify_instance_owner
+        type: slack
+        connector-id: "{{ inputs.slack_connector_id }}"
+        with:
+          message: "{{ steps.build_notification_body.output.summary }}"
+        on-failure:
+          continue: true
+
+      # The original playbook then issued a 30-minute analyst prompt and on
+      # "Yes" called the EC2 isolation playbook. There is no native interactive
+      # prompt step yet in Elastic Workflows; surface the link and stop.
+      - name: prompt_for_isolation
+        type: console
+        with:
+          message: |
+            Analyst decision required: should EC2 instance {{ inputs.instance_id }} be moved to the
+            isolation Security Group? If yes, run the EC2 Instance Isolation workflow.
+
+      - name: note_to_securityhub_finding
+        type: http
+        with:
+          url: "{{ consts.aws_security_hub_endpoint }}/findings/{{ inputs.finding_id }}/notes"
+          method: POST
+          headers:
+            Authorization: "{{ consts.aws_auth_header }}"
+            Content-Type: "application/json"
+          body:
+            Text: "Investigated by Elastic Workflow; ticket created and owner notified."
+        on-failure:
+          continue: true

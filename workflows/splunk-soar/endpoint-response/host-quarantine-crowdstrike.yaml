@@ -1,0 +1,86 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "CrowdStrike — Host Quarantine"
+description: >
+  Minimal CrowdStrike Falcon endpoint quarantine workflow. Calls the
+  host-actions containment endpoint with action_name=contain for the
+  supplied device id and, on success, tags the indicator with
+  "contained" so that downstream automation can recognize hosts
+  already in network isolation.
+enabled: true
+tags: ["splunk-soar", "endpoint-response", "crowdstrike", "quarantine", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: device_id
+    type: string
+    required: true
+    description: "CrowdStrike Falcon agent id (device_id) to contain."
+  - name: hostname
+    type: string
+    required: false
+    description: "Optional friendly hostname to tag as 'contained'."
+
+consts:
+  crowdstrike_base_url: "https://api.crowdstrike.com"
+  crowdstrike_bearer: "Bearer CHANGEME_FALCON_OAUTH_TOKEN"
+
+steps:
+  - name: validate_input
+    type: if
+    condition: "{{ inputs.device_id | size }} == 0"
+    steps:
+      - name: log_missing
+        type: console
+        with:
+          message: "device_id is required."
+
+  - name: quarantine_device
+    type: http
+    with:
+      url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices-actions/v2"
+      method: POST
+      headers:
+        Authorization: "{{ consts.crowdstrike_bearer }}"
+        Content-Type: "application/json"
+      query:
+        action_name: "contain"
+      body:
+        ids:
+          - "{{ inputs.device_id }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+
+  - name: check_success
+    type: if
+    condition: "{{ steps.quarantine_device.output.errors | size }} == 0"
+    steps:
+      - name: tag_contained_host
+        type: if
+        condition: "{{ inputs.hostname | size }} > 0"
+        steps:
+          # The original community playbook called a custom function
+          # local/indicator_tag to tag the hostname as 'contained'.
+          # Mirror that by emitting an observable record other workflows
+          # can pick up; integrators with an indicator store can route
+          # this into ES.
+          - name: emit_contained_tag
+            type: data.set
+            with:
+              tagged_indicator:
+                value: "{{ inputs.hostname }}"
+                type: "host name"
+                tag: "contained"
+                source: "CrowdStrike OAuth API"
+
+  - name: log_outcome
+    type: console
+    with:
+      message: |
+        Containment requested for {{ inputs.device_id }} (hostname={{ inputs.hostname | default: '(unspecified)' }}).

@@ -1,0 +1,185 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Recorded Future — Threat Hunting Pivot"
+description: >
+  Starts from a single destination IP, pulls the Recorded Future risk
+  score and gates further work behind a configurable threshold. When the
+  threshold trips, the workflow pulls related IPs, domains, hashes, and
+  CVEs from Recorded Future and runs four Splunk searches looking for any
+  sightings of those entities across firewall, DNS, endpoint and
+  vulnerability data. If any related entity shows up in more than ten
+  events the analyst is prompted to add the originating IPs to the
+  organisation block list and a summary email is sent.
+enabled: true
+tags: ["splunk-soar", "threat-intel", "recorded-future", "splunk", "threat-hunting", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: destination_ip
+    type: string
+    required: false
+    description: "Pivot IP. Defaults to the alert destination address."
+  - name: risk_threshold
+    type: number
+    required: false
+    default: 90
+    description: "Recorded Future risk score required to launch the hunting pivot."
+
+consts:
+  recorded_future_base: "https://api.recordedfuture.com/v2"
+  recorded_future_token: "CHANGEME-recorded-future-token"
+  splunk_base: "https://CHANGEME-splunk.internal:8089"
+  splunk_auth_header: "Bearer CHANGEME_SPLUNK_TOKEN"
+  notify_to: "soc@example.com"
+  notify_from: "workflow@example.com"
+
+steps:
+  - name: derive_ip
+    type: data.set
+    with:
+      ip: "{{ inputs.destination_ip | default: event.alerts[0].destination.ip | default: '' }}"
+
+  # TODO: swap to the native Recorded Future connector once available.
+  - name: rf_ip_reputation
+    type: http
+    with:
+      url: "{{ consts.recorded_future_base }}/ip/{{ steps.derive_ip.output.ip }}"
+      method: GET
+      headers:
+        X-RFToken: "{{ consts.recorded_future_token }}"
+        Accept: "application/json"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+
+  - name: above_threshold
+    type: if
+    condition: "{{ steps.rf_ip_reputation.output.data.risk.score | default: 0 }} >= {{ inputs.risk_threshold }}"
+    steps:
+      - name: rf_ip_intelligence
+        type: http
+        with:
+          url: "{{ consts.recorded_future_base }}/ip/{{ steps.derive_ip.output.ip }}"
+          method: GET
+          headers:
+            X-RFToken: "{{ consts.recorded_future_token }}"
+            Accept: "application/json"
+          query:
+            fields: "relatedEntities,risk"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+
+      # Bucket related entities by type for the Splunk pivots below.
+      - name: bucket_related_entities
+        type: data.set
+        with:
+          related_hashes: "{{ steps.rf_ip_intelligence.output.data.relatedEntities | where: 'type', 'Hash' | default: [] }}"
+          related_cves: "{{ steps.rf_ip_intelligence.output.data.relatedEntities | where: 'type', 'CyberVulnerability' | default: [] }}"
+          related_ips: "{{ steps.rf_ip_intelligence.output.data.relatedEntities | where: 'type', 'IpAddress' | default: [] }}"
+          related_domains: "{{ steps.rf_ip_intelligence.output.data.relatedEntities | where: 'type', 'InternetDomainName' | default: [] }}"
+
+      # TODO: replace these http stubs with the native Splunk connector when supported.
+      - name: hunt_ips_in_splunk
+        type: http
+        with:
+          url: "{{ consts.splunk_base }}/services/search/jobs"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search=search sourcetype=pan:t* earliest=-1d latest=now [| inputlookup huntip.csv | fields IP] | stats count by dest_ip&output_mode=json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+
+      - name: hunt_domains_in_splunk
+        type: http
+        with:
+          url: "{{ consts.splunk_base }}/services/search/jobs"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search=search sourcetype=pan:threat earliest=-1d latest=now [| inputlookup huntdomain.csv | fields domain] | stats count by dest_hostname&output_mode=json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+
+      - name: hunt_files_in_splunk
+        type: http
+        with:
+          url: "{{ consts.splunk_base }}/services/search/jobs"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search=search index=main sourcetype=symantec:ep:risk:file earliest=-1d latest=now [| inputlookup hunthash.csv | fields hash] | stats count by file_hash&output_mode=json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+
+      - name: hunt_vulns_in_splunk
+        type: http
+        with:
+          url: "{{ consts.splunk_base }}/services/search/jobs"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search=search index=main sourcetype=\"tenable:sc:vuln\" earliest=-7d latest=now [| inputlookup huntvuln.csv | fields vuln] | stats count by cve&output_mode=json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+
+      - name: any_matches
+        type: if
+        condition: "{{ steps.hunt_ips_in_splunk.output.results | size | default: 0 }} > 0 or {{ steps.hunt_domains_in_splunk.output.results | size | default: 0 }} > 0 or {{ steps.hunt_files_in_splunk.output.results | size | default: 0 }} > 0 or {{ steps.hunt_vulns_in_splunk.output.results | size | default: 0 }} > 0"
+        steps:
+          - name: build_email_body
+            type: data.set
+            with:
+              body: |
+                Potentially malicious destination IP {{ steps.derive_ip.output.ip }} hit a Recorded Future risk score
+                of {{ steps.rf_ip_reputation.output.data.risk.score }}. The Splunk hunt searches found related
+                entities with more than ten sightings in recent logs.
+
+                Related IPs sighted: {{ steps.hunt_ips_in_splunk.output.results | size | default: 0 }}
+                Related domains sighted: {{ steps.hunt_domains_in_splunk.output.results | size | default: 0 }}
+                Related hashes sighted: {{ steps.hunt_files_in_splunk.output.results | size | default: 0 }}
+                Related CVEs sighted: {{ steps.hunt_vulns_in_splunk.output.results | size | default: 0 }}
+
+          - name: notify_responder
+            type: email
+            with:
+              to: "{{ consts.notify_to }}"
+              from: "{{ consts.notify_from }}"
+              subject: "Malicious IP {{ steps.derive_ip.output.ip }} with related entities found"
+              message: "{{ steps.build_email_body.output.body }}"
+
+      # TODO: this used to be an analyst prompt2 + add_list. Replace with a native
+      # human approval step or a Kibana case-based gate when supported.
+      - name: ask_to_block
+        type: console
+        with:
+          message: "REVIEW: Add the related malicious IPs to the firewall block list. Hit IPs: {{ steps.hunt_ips_in_splunk.output.results | map: 'dest_ip' | join: ', ' }}"
+    else:
+      - name: below_threshold_log
+        type: console
+        with:
+          message: "Recorded Future risk score {{ steps.rf_ip_reputation.output.data.risk.score | default: 0 }} is below the {{ inputs.risk_threshold }} threshold — no hunting performed."

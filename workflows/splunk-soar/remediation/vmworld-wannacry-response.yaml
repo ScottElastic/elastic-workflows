@@ -1,0 +1,156 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "VMWorld — WannaCry Response"
+description: >
+  Ransomware response in a VMware estate. On a Vectra Cognito ransomware
+  alert, immediately blocks C2 traffic via NSX, lists vSphere VMs and
+  snapshots the affected ones to preserve pre-encryption state, then
+  asks an approver whether to quarantine the hosts. On approval the
+  hosts are quarantined via Carbon Black; on denial a ServiceNow incident
+  is opened for follow-up.
+enabled: true
+tags: ["splunk-soar", "remediation", "vmware", "wannacry", "ransomware", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: source_addresses
+    type: array
+    required: true
+    description: "Source IPs of suspect endpoints from the Vectra alert."
+  - name: servicenow_connector_id
+    type: string
+    required: false
+    default: "CHANGEME-servicenow-connector"
+
+consts:
+  nsx_endpoint: "https://CHANGEME-nsx.internal/api"
+  nsx_auth_header: "Bearer CHANGEME_TOKEN"
+  vsphere_endpoint: "https://CHANGEME-vsphere.internal/api"
+  vsphere_auth_header: "Bearer CHANGEME_TOKEN"
+  carbonblack_endpoint: "https://CHANGEME-carbonblack.internal/api/v1"
+  carbonblack_token: "CHANGEME"
+
+steps:
+  - name: block_c2
+    type: foreach
+    with:
+      items: ${{ inputs.source_addresses }}
+    steps:
+      - name: nsx_block_port
+        type: http
+        with:
+          url: "{{ consts.nsx_endpoint }}/firewall/block-ip"
+          method: POST
+          headers:
+            Authorization: "{{ consts.nsx_auth_header }}"
+            Content-Type: "application/json"
+          body:
+            ip: "{{ item }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+  - name: list_vms
+    type: http
+    with:
+      url: "{{ consts.vsphere_endpoint }}/vms"
+      method: GET
+      headers:
+        Authorization: "{{ consts.vsphere_auth_header }}"
+    on-failure:
+      continue: true
+
+  - name: affected_vms
+    type: data.set
+    with:
+      matches: >-
+        ${{ steps.list_vms.output.vms | default: []
+            | where_in: "ip", inputs.source_addresses }}
+
+  - name: snapshot_vms
+    type: foreach
+    with:
+      items: ${{ steps.affected_vms.output.matches }}
+    steps:
+      - name: snapshot_vm
+        type: http
+        with:
+          url: "{{ consts.vsphere_endpoint }}/snapshot"
+          method: POST
+          headers:
+            Authorization: "{{ consts.vsphere_auth_header }}"
+            Content-Type: "application/json"
+          body:
+            vmx_path: "{{ item.vmx_path }}"
+        on-failure:
+          continue: true
+
+  - name: quarantine_decision
+    type: ai.prompt
+    connector-id: "CHANGEME-llm-connector"
+    with:
+      prompt: |
+        A possible WannaCry sighting was detected on the following IPs:
+        {{ inputs.source_addresses | json }}
+        An outbound block has already been deployed. Should we proceed with
+        a full quarantine of these hosts via Carbon Black? Reply YES or NO.
+
+  - name: apply_quarantine
+    type: if
+    condition: '{{ steps.quarantine_decision.output | strip | upcase }} == "YES"'
+    steps:
+      - name: quarantine_each_host
+        type: foreach
+        with:
+          items: ${{ inputs.source_addresses }}
+        steps:
+          - name: carbonblack_quarantine
+            type: http
+            with:
+              url: "{{ consts.carbonblack_endpoint }}/sensor/quarantine"
+              method: POST
+              headers:
+                X-Auth-Token: "{{ consts.carbonblack_token }}"
+                Content-Type: "application/json"
+              body:
+                ip_hostname: "{{ item }}"
+            on-failure:
+              continue: true
+    else:
+      # No quarantine — file a ServiceNow incident so the team follows up.
+      - name: create_ticket
+        type: servicenow
+        connector-id: "{{ inputs.servicenow_connector_id }}"
+        with:
+          subAction: "pushToService"
+          subActionParams:
+            incident:
+              short_description: "WannaCry Endpoints Affected - No Quarantine"
+              description: >-
+                The following endpoints were affected and an analyst declined
+                quarantine: {{ inputs.source_addresses | join: ', ' }}. Outbound
+                C2 traffic has been blocked; review and decide on further
+                isolation in Mission Control / Kibana.
+              urgency: "1"
+              severity: "1"
+              impact: "1"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+
+  - name: log_done
+    type: console
+    with:
+      message: |
+        WannaCry response complete.
+        hosts={{ inputs.source_addresses | size }}
+        snapshotted={{ steps.affected_vms.output.matches | size }}
+        decision={{ steps.quarantine_decision.output | strip | upcase }}

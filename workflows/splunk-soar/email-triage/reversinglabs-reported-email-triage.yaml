@@ -1,0 +1,141 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "ReversingLabs — Reported Email Triage"
+description: >
+  Triages user-reported phishing or malware emails. Filters incoming
+  alerts by name, queries Microsoft Graph for the original message
+  by subject, downloads attachments to the vault, detonates each
+  attachment in ReversingLabs A1000, and pulls back the summary
+  report for analyst review.
+enabled: true
+tags: ["splunk-soar", "email-triage", "reported-email", "reversinglabs", "o365", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: alert_name
+    type: string
+    required: false
+    description: "Name of the originating alert. Defaults to the user-reported phish marker."
+  - name: network_message_id
+    type: string
+    required: true
+    description: "Network message identifier extracted from the alert evidence to find the original email."
+
+consts:
+  graph_endpoint: "https://graph.microsoft.com/v1.0"
+  graph_auth_header: "Bearer CHANGEME_TOKEN"
+  reversinglabs_a1000_endpoint: "https://CHANGEME-a1000.example.com"
+  reversinglabs_a1000_token: "Token CHANGEME"
+  # Original playbook gated on this exact alert name.
+  expected_alert_name: "Email reported by user as malware or phish"
+
+steps:
+  - name: gate_on_alert_name
+    type: if
+    condition: "'{{ inputs.alert_name | default: consts.expected_alert_name }}' != '{{ consts.expected_alert_name }}'"
+    steps:
+      - name: log_filtered_out
+        type: console
+        with:
+          message: "Alert name does not match the reported-phish trigger — skipping triage."
+    else:
+      # Phantom action: ms_graph_for_office_365 "run query" with $filter on subject.
+      - name: query_reported_email
+        type: http
+        with:
+          url: "{{ consts.graph_endpoint }}/me/mailFolders/Inbox/messages"
+          method: GET
+          headers:
+            Authorization: "{{ consts.graph_auth_header }}"
+          query:
+            $filter: "contains(subject, '{{ inputs.network_message_id }}')"
+            $select: "id,subject,from,receivedDateTime,hasAttachments"
+            $top: "1"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: check_email_found
+        type: if
+        condition: "{{ steps.query_reported_email.output.value | size }} >= 1"
+        steps:
+          # Phantom action: ms_graph_for_office_365 "get email" with download_attachments.
+          - name: get_email_attachments
+            type: http
+            with:
+              url: "{{ consts.graph_endpoint }}/me/messages/{{ steps.query_reported_email.output.value[0].id }}/attachments"
+              method: GET
+              headers:
+                Authorization: "{{ consts.graph_auth_header }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+          - name: detonate_each_attachment
+            type: foreach
+            with:
+              items: ${{ steps.get_email_attachments.output.value }}
+            steps:
+              # TODO: swap for a native ReversingLabs connector when available.
+              # Phantom action: reversinglabs_a1000_v2 "detonate file".
+              - name: submit_to_a1000
+                type: http
+                with:
+                  url: "{{ consts.reversinglabs_a1000_endpoint }}/api/uploads/"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.reversinglabs_a1000_token }}"
+                  body:
+                    file_name: "{{ item.name }}"
+                    content_base64: "{{ item.contentBytes }}"
+                on-failure:
+                  retry:
+                    max-attempts: 2
+                    delay: "5s"
+                  continue: true
+
+              # Phantom action: reversinglabs_a1000_v2 "get summary report".
+              - name: get_summary_report
+                type: http
+                with:
+                  url: "{{ consts.reversinglabs_a1000_endpoint }}/api/samples/{{ steps.submit_to_a1000.output.sha1 | default: item.contentSha1 }}/report/"
+                  method: GET
+                  headers:
+                    Authorization: "{{ consts.reversinglabs_a1000_token }}"
+                  query:
+                    include_network_threat_intelligence: "true"
+                on-failure:
+                  retry:
+                    max-attempts: 3
+                    delay: "10s"
+                  continue: true
+
+              - name: record_finding
+                type: data.set
+                with:
+                  finding:
+                    attachment: "{{ item.name }}"
+                    sha1: "{{ steps.submit_to_a1000.output.sha1 | default: '' }}"
+                    classification: "{{ steps.get_summary_report.output.classification | default: 'unknown' }}"
+                    threat_name: "{{ steps.get_summary_report.output.threat_name | default: '' }}"
+
+              - name: log_finding
+                type: console
+                with:
+                  message: |
+                    {{ item.name }} -> {{ steps.record_finding.output.finding.classification }}
+                    threat={{ steps.record_finding.output.finding.threat_name }}
+        else:
+          - name: log_no_email
+            type: console
+            with:
+              message: "No matching message found in mailbox for the reported alert."

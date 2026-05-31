@@ -1,0 +1,145 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "VirusTotal v3 — Dynamic Analysis"
+description: >
+  Submits URLs and file vault IDs to the VirusTotal v3 sandbox for
+  detonation, then derives a normalized OCSF reputation score from the
+  harmless/undetected/malicious/suspicious verdict counts and emits a
+  per-observable record. Maps to MITRE D3FEND DynamicAnalysis.
+enabled: true
+tags: ["splunk-soar", "reputation", "dynamic-analysis", "virustotal", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: urls
+    type: array
+    required: false
+    description: "URLs to detonate (may be empty)."
+  - name: file_vault_ids
+    type: array
+    required: false
+    description: "Vault IDs of files to detonate (may be empty)."
+
+consts:
+  vt_api_base: "https://www.virustotal.com/api/v3"
+  vt_api_key: "CHANGEME_VT_API_KEY"
+  # OCSF reputation score reference: https://schema.ocsf.io/objects/reputation
+  # Score is derived from suspect/(harmless+undetected+malicious+suspicious),
+  # confidence from 1 - undetected/total.
+
+steps:
+  - name: process_urls
+    type: if
+    condition: "{{ inputs.urls | size }} > 0"
+    steps:
+      - name: each_url
+        type: foreach
+        with:
+          items: ${{ inputs.urls }}
+        steps:
+          - name: detonate_url
+            type: http
+            with:
+              url: "{{ consts.vt_api_base }}/urls"
+              method: POST
+              headers:
+                x-apikey: "{{ consts.vt_api_key }}"
+                Content-Type: "application/x-www-form-urlencoded"
+              body: "url={{ item }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "5s"
+              continue: true
+
+          - name: fetch_url_report
+            type: http
+            with:
+              url: "{{ consts.vt_api_base }}/analyses/{{ steps.detonate_url.output.data.id }}"
+              method: GET
+              headers:
+                x-apikey: "{{ consts.vt_api_key }}"
+            on-failure:
+              retry:
+                max-attempts: 5
+                delay: "10s"
+              continue: true
+
+          - name: build_url_observable
+            type: data.set
+            with:
+              observable:
+                value: "{{ item }}"
+                type: "url"
+                source: "VirusTotal v3"
+                source_link: "https://www.virustotal.com/gui/url/{{ steps.fetch_url_report.output.meta.url_info.id | default: '' }}"
+                stats:
+                  harmless: "{{ steps.fetch_url_report.output.data.attributes.stats.harmless | default: 0 }}"
+                  undetected: "{{ steps.fetch_url_report.output.data.attributes.stats.undetected | default: 0 }}"
+                  malicious: "{{ steps.fetch_url_report.output.data.attributes.stats.malicious | default: 0 }}"
+                  suspicious: "{{ steps.fetch_url_report.output.data.attributes.stats.suspicious | default: 0 }}"
+                categories: "{{ steps.fetch_url_report.output.data.attributes.results | default: {} }}"
+
+          - name: log_url_detonation
+            type: console
+            with:
+              message: |
+                VT URL detonation for {{ item }}:
+                malicious={{ steps.fetch_url_report.output.data.attributes.stats.malicious | default: 0 }}
+                suspicious={{ steps.fetch_url_report.output.data.attributes.stats.suspicious | default: 0 }}
+                harmless={{ steps.fetch_url_report.output.data.attributes.stats.harmless | default: 0 }}
+
+  - name: process_files
+    type: if
+    condition: "{{ inputs.file_vault_ids | size }} > 0"
+    steps:
+      - name: each_file
+        type: foreach
+        with:
+          items: ${{ inputs.file_vault_ids }}
+        steps:
+          # NOTE: the Phantom action takes a vault_id and resolves to a
+          # local file; in Elastic, you supply the SHA-256 (or upload the
+          # file to /files first). We assume the item is a SHA-256 string.
+          - name: detonate_file
+            type: virustotal.scanFileHash
+            connector-id: "CHANGEME-virustotal-connector"
+            with:
+              hash: "{{ item }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "5s"
+              continue: true
+
+          - name: build_file_observable
+            type: data.set
+            with:
+              observable:
+                value: "{{ item }}"
+                type: "hash"
+                source: "VirusTotal v3"
+                source_link: "https://www.virustotal.com/gui/file/{{ item }}"
+                stats:
+                  harmless: "{{ steps.detonate_file.output.data.attributes.last_analysis_stats.harmless | default: 0 }}"
+                  undetected: "{{ steps.detonate_file.output.data.attributes.last_analysis_stats.undetected | default: 0 }}"
+                  malicious: "{{ steps.detonate_file.output.data.attributes.last_analysis_stats.malicious | default: 0 }}"
+                  suspicious: "{{ steps.detonate_file.output.data.attributes.last_analysis_stats.suspicious | default: 0 }}"
+                attributes:
+                  name: "{{ steps.detonate_file.output.data.attributes.meaningful_name | default: '' }}"
+                  size: "{{ steps.detonate_file.output.data.attributes.size | default: 0 }}"
+                  md5: "{{ steps.detonate_file.output.data.attributes.md5 | default: '' }}"
+                  sha1: "{{ steps.detonate_file.output.data.attributes.sha1 | default: '' }}"
+                  sha256: "{{ steps.detonate_file.output.data.attributes.sha256 | default: '' }}"
+
+          - name: log_file_detonation
+            type: console
+            with:
+              message: |
+                VT file detonation for {{ item }}:
+                malicious={{ steps.detonate_file.output.data.attributes.last_analysis_stats.malicious | default: 0 }}
+                suspicious={{ steps.detonate_file.output.data.attributes.last_analysis_stats.suspicious | default: 0 }}

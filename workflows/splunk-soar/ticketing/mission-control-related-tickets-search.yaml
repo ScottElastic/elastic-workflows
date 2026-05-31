@@ -1,0 +1,176 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Mission Control — Related Tickets Search Orchestrator"
+description: >
+  Fans out the related-tickets lookup across both ServiceNow and Splunk
+  Notable sources, merges their markdown reports, then writes a closing
+  note onto the matching Mission Control response task and marks it as
+  ended. Mirrors the SOAR Mission Control orchestrator playbook.
+enabled: true
+tags: ["splunk-soar", "ticketing", "mission-control", "related-tickets", "orchestrator", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: search_terms
+    type: array
+    required: false
+    description: "Combined list of indicators (user/src/dest) to search for. If omitted, the workflow pulls them from alert context."
+  - name: external_id
+    type: string
+    required: false
+    description: "Mission Control container/external id used to locate the response task."
+
+consts:
+  # Mission Control is an Elastic Response Plans-equivalent feature in SOAR.
+  # There is no first-class connector yet — stub points at an internal proxy.
+  mission_control_endpoint: "https://CHANGEME-mc-proxy.internal/api"
+  mission_control_auth_header: "Bearer CHANGEME_TOKEN"
+  # Names of the sibling workflows that perform the actual ticket searches.
+  servicenow_search_workflow: "servicenow-related-tickets-search"
+  splunk_search_workflow: "splunk-notable-related-tickets-search"
+
+steps:
+  - name: derive_search_terms
+    type: data.set
+    with:
+      # Build a single deduplicated list from inputs or alert context.
+      terms: >-
+        ${{ inputs.search_terms
+            | default: event.alerts[0].related.user
+            | default: event.alerts[0].related.host
+            | default: [] }}
+
+  # TODO: when sub-workflow invocation is available natively, replace these
+  # http stubs with the dedicated step type. For now we call the Kibana
+  # workflow API directly to launch each child workflow.
+  - name: run_servicenow_search
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/workflows/{{ consts.servicenow_search_workflow }}/run"
+      body:
+        inputs:
+          search_terms: ${{ steps.derive_search_terms.output.terms }}
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+      continue: true
+
+  - name: run_splunk_notable_search
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/workflows/{{ consts.splunk_search_workflow }}/run"
+      body:
+        inputs:
+          search_terms: ${{ steps.derive_search_terms.output.terms }}
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+      continue: true
+
+  - name: merge_reports
+    type: data.set
+    with:
+      merged_report: >-
+        {{ steps.run_servicenow_search.output.markdown_report | default: '' }}
+
+        {{ steps.run_splunk_notable_search.output.markdown_report | default: '' }}
+
+  - name: have_external_id
+    type: if
+    condition: "{{ inputs.external_id | size }} > 0"
+    steps:
+      # Get the list of tasks attached to the Mission Control container.
+      - name: get_tasks
+        type: http
+        with:
+          url: "{{ consts.mission_control_endpoint }}/tasks"
+          method: GET
+          headers:
+            Authorization: "{{ consts.mission_control_auth_header }}"
+          query:
+            id: "{{ inputs.external_id }}"
+        on-failure:
+          continue: true
+
+      # Locate the response task whose suggestions reference the current
+      # workflow, then iterate and apply the closing note + status changes.
+      - name: process_tasks
+        type: foreach
+        with:
+          items: "${{ steps.get_tasks.output.data | default: [] }}"
+        steps:
+          - name: attach_report_note
+            type: http
+            with:
+              url: "{{ consts.mission_control_endpoint }}/tasks/note"
+              method: POST
+              headers:
+                Authorization: "{{ consts.mission_control_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                id: "{{ inputs.external_id }}"
+                title: "Related Tickets Report"
+                content: "{{ steps.merge_reports.output.merged_report }}"
+                task_id: "{{ item.id }}"
+                phase_id: "{{ item.phase_id }}"
+                response_plan_id: "{{ item.response_plan_id }}"
+            on-failure:
+              continue: true
+
+          - name: task_needs_starting
+            type: if
+            condition: "'{{ item.status }}' == 'Pending'"
+            steps:
+              - name: start_task
+                type: http
+                with:
+                  url: "{{ consts.mission_control_endpoint }}/tasks/update"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.mission_control_auth_header }}"
+                    Content-Type: "application/json"
+                  body:
+                    id: "{{ inputs.external_id }}"
+                    name: "{{ item.name }}"
+                    order: "{{ item.order }}"
+                    task_id: "{{ item.id }}"
+                    owner: "soar_automation_user"
+                    status: "Started"
+                on-failure:
+                  continue: true
+
+          - name: close_task
+            type: http
+            with:
+              url: "{{ consts.mission_control_endpoint }}/tasks/update"
+              method: POST
+              headers:
+                Authorization: "{{ consts.mission_control_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                id: "{{ inputs.external_id }}"
+                name: "{{ item.name }}"
+                order: "{{ item.order }}"
+                task_id: "{{ item.id }}"
+                status: "Ended"
+            on-failure:
+              continue: true
+    else:
+      - name: log_no_external_id
+        type: console
+        with:
+          message: "No external Mission Control id provided — skipping task closure."
+
+  - name: emit_summary
+    type: console
+    with:
+      message: "Related-tickets orchestrator finished. Merged report length: {{ steps.merge_reports.output.merged_report | size }}."

@@ -1,0 +1,141 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "ExtraHop — Data Exfiltration Investigation"
+description: >
+  Reacts to an ExtraHop "data_exfiltration" anomaly: pulls the device profile,
+  enumerates external client peers over the past 30 minutes, filters out
+  RFC1918 addresses, scores the remaining IPs through Anomali ThreatStream,
+  and on hits tags the device "bad_ip_reputation" and creates an analyst task.
+enabled: true
+tags: ["splunk-soar", "investigation", "extrahop", "data-exfiltration", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: label
+    type: string
+    required: true
+    description: "Artifact label from ExtraHop; this workflow only runs for 'data_exfiltration'."
+  - name: source_address
+    type: string
+    required: true
+    description: "Source IP of the device that fired the anomaly."
+
+consts:
+  extrahop_endpoint: "https://CHANGEME-extrahop/api/v1"
+  extrahop_auth: "ExtraHop apikey=CHANGEME"
+  threatstream_endpoint: "https://api.threatstream.com/api/v2"
+  threatstream_auth: "Bearer CHANGEME"
+  threat_score_threshold: 1
+  threat_confidence_threshold: 1
+  lookback_minutes: 30
+
+steps:
+  - name: only_handle_exfil_label
+    type: if
+    condition: "'{{ inputs.label }}' == 'data_exfiltration'"
+    steps:
+      # TODO: replace http stubs with a native ExtraHop connector when added.
+      - name: get_device_info
+        type: http
+        with:
+          url: "{{ consts.extrahop_endpoint }}/devices/search"
+          method: POST
+          headers:
+            Authorization: "{{ consts.extrahop_auth }}"
+            Content-Type: "application/json"
+          body:
+            filter:
+              field: "ipaddr4"
+              operand: "{{ inputs.source_address }}"
+              operator: "="
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: get_protocols
+        type: http
+        with:
+          url: "{{ consts.extrahop_endpoint }}/activitymaps"
+          method: POST
+          headers:
+            Authorization: "{{ consts.extrahop_auth }}"
+            Content-Type: "application/json"
+          body:
+            device_id: "{{ steps.get_device_info.output[0].id }}"
+            from_time_minutes: "{{ consts.lookback_minutes }}"
+            mode: "protocols"
+        on-failure:
+          continue: true
+
+      - name: get_client_peers
+        type: http
+        with:
+          url: "{{ consts.extrahop_endpoint }}/activitymaps"
+          method: POST
+          headers:
+            Authorization: "{{ consts.extrahop_auth }}"
+            Content-Type: "application/json"
+          body:
+            device_id: "{{ steps.get_device_info.output[0].id }}"
+            from_time_minutes: "{{ consts.lookback_minutes }}"
+            peer_role: "client"
+            protocol: "any"
+        on-failure:
+          continue: true
+
+      - name: lookup_each_external_peer
+        type: foreach
+        with:
+          items: ${{ steps.get_client_peers.output.peers }}
+        steps:
+          - name: skip_rfc1918
+            type: if
+            # Process only external IPs (NOT in 10/8, 172.16/12, 192.168/16).
+            condition: "not (('{{ item.ipaddr4 }}' contains_prefix '10.') or ('{{ item.ipaddr4 }}' contains_prefix '192.168.') or ('{{ item.ipaddr4 }}' contains_prefix '172.16.') or ('{{ item.ipaddr4 }}' contains_prefix '172.17.') or ('{{ item.ipaddr4 }}' contains_prefix '172.18.') or ('{{ item.ipaddr4 }}' contains_prefix '172.19.') or ('{{ item.ipaddr4 }}' contains_prefix '172.2') or ('{{ item.ipaddr4 }}' contains_prefix '172.30.') or ('{{ item.ipaddr4 }}' contains_prefix '172.31.'))"
+            steps:
+              - name: threatstream_ip_lookup
+                type: http
+                with:
+                  url: "{{ consts.threatstream_endpoint }}/intelligence/"
+                  method: GET
+                  headers:
+                    Authorization: "{{ consts.threatstream_auth }}"
+                  query:
+                    value: "{{ item.ipaddr4 }}"
+                on-failure:
+                  continue: true
+
+              - name: handle_bad_reputation
+                type: if
+                condition: "({{ steps.threatstream_ip_lookup.output.threatscore | default: 0 }} > {{ consts.threat_score_threshold }}) and ({{ steps.threatstream_ip_lookup.output.confidence | default: 0 }} > {{ consts.threat_confidence_threshold }})"
+                steps:
+                  - name: tag_extrahop_device
+                    type: http
+                    with:
+                      url: "{{ consts.extrahop_endpoint }}/devices/{{ item.id }}/tags"
+                      method: POST
+                      headers:
+                        Authorization: "{{ consts.extrahop_auth }}"
+                        Content-Type: "application/json"
+                      body:
+                        name: "bad_ip_reputation"
+                    on-failure:
+                      continue: true
+
+                  - name: create_analyst_task
+                    type: console
+                    # The original playbook used phantom.task to assign a 30-min
+                    # follow-up. We log the same intent here; downstream
+                    # automations can react to this message.
+                    with:
+                      message: |
+                        TASK: investigate data exfiltration anomaly from {{ inputs.source_address }} to {{ item.ipaddr4 }}
+                        ThreatStream score={{ steps.threatstream_ip_lookup.output.threatscore }}
+                        confidence={{ steps.threatstream_ip_lookup.output.confidence }}

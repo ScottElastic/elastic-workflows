@@ -1,0 +1,120 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Customer Firewall Request — Parse CSV"
+description: >
+  Reads a CSV of firewall change requests, validates that each row carries
+  an `action` field (block_ip / unblock_ip) together with at least one of
+  `sourceAddress` or `destinationAddress`, then emits structured request
+  records tagged "customer_request". A companion workflow consumes those
+  records and applies the appropriate block or unblock action on the
+  firewall. Skips rows that fail validation.
+enabled: true
+tags: ["splunk-soar", "misc", "firewall", "csv", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: csv_url
+    type: string
+    required: false
+    description: "URL to fetch the CSV from (alternative to inline_csv)."
+  - name: inline_csv
+    type: string
+    required: false
+    description: >
+      Raw CSV content. Must contain an "action" column and either a
+      "sourceAddress" or "destinationAddress" column.
+  - name: invoke_handler_workflow_id
+    type: string
+    required: false
+    description: "Workflow ID to forward parsed requests to (handle-artifact pair)."
+
+consts:
+  # If you fetch the file via http, this is the bearer header. Leave as
+  # CHANGEME otherwise and rely on inline_csv.
+  csv_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  - name: load_csv
+    type: if
+    condition: "{{ inputs.csv_url | size }} > 0"
+    steps:
+      - name: fetch_csv
+        type: http
+        with:
+          url: "{{ inputs.csv_url }}"
+          method: GET
+          headers:
+            Authorization: "{{ consts.csv_auth_header }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+      - name: stash_fetched
+        type: data.set
+        with:
+          raw_csv: "{{ steps.fetch_csv.output.body }}"
+    else:
+      - name: stash_inline
+        type: data.set
+        with:
+          raw_csv: "{{ inputs.inline_csv }}"
+
+  # The original Phantom playbook embedded a Python csv.DictReader loop. The
+  # equivalent in Elastic Workflows is to lean on an ai.prompt step (or a
+  # simple http call to a CSV-parsing microservice) to turn the raw text
+  # into a structured array of objects.
+  - name: parse_rows
+    type: ai.prompt
+    with:
+      prompt: |
+        Parse the following CSV into a JSON array of objects. Use the header
+        row to determine field names. Drop any row that doesn't have all of:
+        an "action" field equal to "block_ip" or "unblock_ip", AND either a
+        non-empty "sourceAddress" or a non-empty "destinationAddress".
+        For each surviving row, return an object with keys:
+        label="customer_request", action, sourceAddress, destinationAddress,
+        severity="high".
+
+        CSV input:
+        {{ steps.load_csv.output.raw_csv }}
+
+        Return ONLY a JSON array — no commentary, no markdown fence.
+
+  - name: capture_artifacts
+    type: data.set
+    with:
+      requests: "${{ steps.parse_rows.output.response | parse_json }}"
+
+  - name: log_count
+    type: console
+    with:
+      message: "Parsed {{ steps.capture_artifacts.output.requests | size }} customer_request rows."
+
+  # Forward to the sibling handler workflow if a target was provided.
+  # The original Phantom playbook called `phantom.playbook("local/customer_firewall_request_parse_csv", container)`
+  # to invoke the handler. Elastic Workflows does not yet ship a built-in
+  # workflow-from-workflow primitive — operators can either use the Kibana
+  # Workflows REST API directly or chain via an alert trigger that consumes
+  # the indexed requests.
+  - name: dispatch_handler
+    type: if
+    condition: "{{ inputs.invoke_handler_workflow_id | size }} > 0"
+    steps:
+      - name: run_handle_artifact
+        type: kibana.request
+        with:
+          method: POST
+          path: "/api/workflows/{{ inputs.invoke_handler_workflow_id }}/_execute"
+          body:
+            inputs:
+              requests: "${{ steps.capture_artifacts.output.requests }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true

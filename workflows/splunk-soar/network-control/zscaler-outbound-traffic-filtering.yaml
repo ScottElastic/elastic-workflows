@@ -1,0 +1,106 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Zscaler — Outbound URL Block"
+description: >
+  Adds one or more URLs to a Zscaler block category so subsequent egress is
+  denied at the proxy. Iterates each URL, calls the Zscaler URL Categories
+  API, and produces a per-URL observable distinguishing newly-blocked URLs
+  from those Zscaler considered already covered (ignored). Implements
+  MITRE D3FEND outbound traffic filtering (d3f:OutboundTrafficFiltering).
+enabled: true
+tags: ["splunk-soar", "network-control", "outbound-filter", "zscaler", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: urls
+    type: array
+    required: true
+    description: "URLs to block in Zscaler."
+
+consts:
+  # Zscaler ZIA base URL and the custom category to extend with these URLs.
+  # See https://help.zscaler.com/zia/api for endpoint conventions and auth.
+  zscaler_base_url: "https://CHANGEME-zsapi.zscaler.net"
+  zscaler_jsessionid: "CHANGEME-zscaler-jsessionid"
+  zscaler_block_category_id: "CHANGEME-zscaler-category-id"
+
+steps:
+  - name: guard_url_input
+    type: if
+    condition: "{{ inputs.urls | size }} == 0"
+    steps:
+      - name: log_no_urls
+        type: console
+        with:
+          message: "No URLs supplied — skipping Zscaler block."
+
+  - name: block_each_url
+    type: foreach
+    with:
+      items: ${{ inputs.urls }}
+    steps:
+      # TODO: replace with a native Zscaler connector once available. This
+      # stub mirrors the Phantom "block url" action against the zscaler asset.
+      - name: block_url
+        type: http
+        with:
+          url: "{{ consts.zscaler_base_url }}/api/v1/urlCategories/{{ consts.zscaler_block_category_id }}?action=ADD_TO_LIST"
+          method: PUT
+          headers:
+            Content-Type: "application/json"
+            Cookie: "JSESSIONID={{ consts.zscaler_jsessionid }}"
+          body:
+            customCategory: true
+            urls:
+              - "{{ item }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: emit_observable
+        type: if
+        condition: "{{ steps.block_url.output.status }} == 'success'"
+        steps:
+          # Original playbook distinguished URLs Zscaler had already covered
+          # (in summary.ignored) from those it actively updated. We mirror
+          # that behavior using the summary returned by the API.
+          - name: classify_outcome
+            type: if
+            condition: "{{ steps.block_url.output.summary.ignored | size }} > 0"
+            steps:
+              - name: capture_ignored
+                type: data.set
+                with:
+                  observable:
+                    type: "url"
+                    value: "{{ item }}"
+                    source: "Zscaler"
+                    status: "ignored"
+            else:
+              - name: capture_updated
+                type: data.set
+                with:
+                  observable:
+                    type: "url"
+                    value: "{{ item }}"
+                    source: "Zscaler"
+                    status: "updated"
+          - name: log_outcome
+            type: console
+            with:
+              message: |
+                Zscaler block call for {{ item }} completed.
+                ignored={{ steps.block_url.output.summary.ignored | json | default: '[]' }}
+        else:
+          - name: log_block_failed
+            type: console
+            with:
+              message: |
+                Zscaler did not return success for {{ item }}.
+                response={{ steps.block_url.output | json }}

@@ -1,0 +1,100 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Windows Defender ATP — Identifier Activity Analysis"
+description: >
+  Takes a file hash and/or a domain and queries Microsoft Defender for
+  Endpoint for the list of devices that observed each indicator.
+  Produces a normalized observable per indicator with the device hit
+  list, and writes a short console summary.
+enabled: true
+tags: ["splunk-soar", "endpoint-response", "windows-defender-atp", "hunt", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: file_hash
+    type: string
+    required: false
+    description: "File hash to look up via Defender ATP."
+  - name: domain
+    type: string
+    required: false
+    description: "Domain to look up via Defender ATP."
+
+consts:
+  defender_base_url: "https://api.securitycenter.microsoft.com"
+  defender_bearer: "Bearer CHANGEME_DEFENDER_GRAPH_TOKEN"
+
+steps:
+  - name: branch_file
+    type: if
+    condition: "{{ inputs.file_hash | size }} > 0"
+    steps:
+      - name: get_file_devices
+        type: http
+        with:
+          url: "{{ consts.defender_base_url }}/api/files/{{ inputs.file_hash }}/machines"
+          method: GET
+          headers:
+            Authorization: "{{ consts.defender_bearer }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: any_file_hits
+        type: if
+        condition: "{{ steps.get_file_devices.output.value | size }} > 0"
+        steps:
+          - name: build_file_observable
+            type: data.set
+            with:
+              observable:
+                type: "hash"
+                value: "{{ inputs.file_hash }}"
+                source: "Microsoft Defender ATP"
+                devices_seen: "${{ steps.get_file_devices.output.value | default: [] }}"
+                device_count: "{{ steps.get_file_devices.output.value | size }}"
+
+  - name: branch_domain
+    type: if
+    condition: "{{ inputs.domain | size }} > 0"
+    steps:
+      - name: get_domain_devices
+        type: http
+        with:
+          url: "{{ consts.defender_base_url }}/api/domains/{{ inputs.domain }}/machines"
+          method: GET
+          headers:
+            Authorization: "{{ consts.defender_bearer }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: any_domain_hits
+        type: if
+        condition: "{{ steps.get_domain_devices.output.value | size }} > 0"
+        steps:
+          - name: build_domain_observable
+            type: data.set
+            with:
+              observable:
+                type: "domain"
+                value: "{{ inputs.domain }}"
+                source: "Microsoft Defender ATP"
+                devices_seen: "${{ steps.get_domain_devices.output.value | default: [] }}"
+                device_count: "{{ steps.get_domain_devices.output.value | size }}"
+
+  - name: log_summary
+    type: console
+    with:
+      message: |
+        Defender ATP identifier-activity analysis complete.
+        file_hash={{ inputs.file_hash | default: '(none)' }} hits={{ steps.get_file_devices.output.value | size | default: 0 }}
+        domain={{ inputs.domain | default: '(none)' }} hits={{ steps.get_domain_devices.output.value | size | default: 0 }}

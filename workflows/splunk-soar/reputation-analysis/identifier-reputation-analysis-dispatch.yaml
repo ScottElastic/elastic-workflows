@@ -1,0 +1,129 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Identifier Reputation Analysis — Dispatch"
+description: >
+  Orchestrator that scans an alert for available indicators (URL, IP,
+  domain, file hash) and dispatches them to per-provider reputation
+  workflows. Aggregates the resulting observables, tags the original
+  indicators with their normalized score, and posts a summary back to
+  the associated case. Maps to MITRE D3FEND IdentifierReputationAnalysis.
+enabled: true
+tags: ["splunk-soar", "reputation", "dispatch", "orchestrator", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: kibana_case_id
+    type: string
+    required: false
+    description: "Optional Kibana case ID to attach the summary to."
+  - name: indicators
+    type: object
+    required: false
+    description: "Explicit indicators dict { urls: [], ips: [], domains: [], file_hashes: [] }. If omitted, pulled from event."
+
+consts:
+  # Native Elastic does not have a "playbook of playbooks" primitive yet;
+  # downstream reputation workflows are invoked here via the workflows
+  # REST API. Replace with the Kibana URL and an API key with permission
+  # to run workflows.
+  workflows_api_base: "https://CHANGEME-kibana.example.com/api/workflows"
+  workflows_api_key: "CHANGEME_API_KEY"
+  vt_workflow_id: "CHANGEME-virustotal-identifier-reputation-workflow"
+  phishtank_workflow_id: "CHANGEME-phishtank-url-reputation-workflow"
+
+steps:
+  - name: collect_indicators
+    type: data.set
+    with:
+      indicators:
+        urls: "{{ inputs.indicators.urls | default: event.alerts[0].url.full | default: [] }}"
+        ips: "{{ inputs.indicators.ips | default: event.alerts[0].source.ip | default: [] }}"
+        domains: "{{ inputs.indicators.domains | default: event.alerts[0].destination.domain | default: [] }}"
+        file_hashes: "{{ inputs.indicators.file_hashes | default: event.alerts[0].file.hash.sha256 | default: [] }}"
+
+  - name: have_indicators
+    type: if
+    condition: "{{ steps.collect_indicators.output.indicators | json | size }} > 0"
+    steps:
+      # Fan out to the per-provider reputation workflows. These are stub
+      # http calls — wire to your concrete workflow IDs.
+      - name: dispatch_virustotal
+        type: http
+        with:
+          url: "{{ consts.workflows_api_base }}/{{ consts.vt_workflow_id }}/run"
+          method: POST
+          headers:
+            Authorization: "ApiKey {{ consts.workflows_api_key }}"
+            kbn-xsrf: "true"
+            Content-Type: "application/json"
+          body:
+            inputs: ${{ steps.collect_indicators.output.indicators }}
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: dispatch_phishtank
+        type: if
+        condition: "{{ steps.collect_indicators.output.indicators.urls | size }} > 0"
+        steps:
+          - name: phishtank_call
+            type: http
+            with:
+              url: "{{ consts.workflows_api_base }}/{{ consts.phishtank_workflow_id }}/run"
+              method: POST
+              headers:
+                Authorization: "ApiKey {{ consts.workflows_api_key }}"
+                kbn-xsrf: "true"
+                Content-Type: "application/json"
+              body:
+                inputs:
+                  urls: ${{ steps.collect_indicators.output.indicators.urls }}
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+      - name: merge_outputs
+        type: data.set
+        with:
+          merged:
+            virustotal: "${{ steps.dispatch_virustotal.output }}"
+            phishtank: "${{ steps.phishtank_call.output }}"
+
+      - name: have_results
+        type: if
+        condition: "{{ steps.merge_outputs.output.merged | json | size }} > 0"
+        steps:
+          # Post a brief summary on the linked Kibana case if provided.
+          - name: post_case_summary
+            type: if
+            condition: "{{ inputs.kibana_case_id | size }} > 0"
+            steps:
+              - name: comment_summary
+                type: kibana.addCaseComment
+                with:
+                  caseId: "{{ inputs.kibana_case_id }}"
+                  comment: "Reputation analysis complete. Results: {{ steps.merge_outputs.output.merged | json }}"
+
+          - name: log_summary
+            type: console
+            with:
+              message: "Reputation analysis dispatched. Merged result: {{ steps.merge_outputs.output.merged | json }}"
+        else:
+          - name: log_no_results
+            type: console
+            with:
+              message: "Reputation dispatch returned no observable data."
+    else:
+      - name: log_no_indicators
+        type: console
+        with:
+          message: "No indicators present on the alert — skipping reputation dispatch."

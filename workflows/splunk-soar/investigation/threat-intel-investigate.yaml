@@ -1,0 +1,149 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Threat Intel — Investigate Indicators"
+description: >
+  Parent orchestrator that finds and launches child workflows tagged
+  for indicator-type-specific threat intelligence enrichment, gathers
+  their notes back, asks the analyst to choose a follow-up tag for
+  each indicator (block / safe / nothing) plus optional free-form
+  tags, then writes those tags to the indicators.
+enabled: true
+tags: ["splunk-soar", "investigation", "threat-intel", "orchestration", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: indicators
+    type: array
+    required: true
+    description: "List of indicator objects each with `value` and `data_types` fields."
+  - name: child_workflows
+    type: array
+    required: false
+    default: []
+    description: "Pre-selected list of child workflow IDs to invoke (overrides discovery)."
+  - name: tagging_responses
+    type: array
+    required: false
+    default: []
+    description: "Per-indicator analyst responses (one entry per indicator) with optional preset tag and freeform tag list."
+
+consts:
+  kibana_host: "CHANGEME-kibana"
+  indicator_tag_block: "marked_for_block"
+  indicator_tag_safe: "safe"
+
+steps:
+  # Phantom block: playbooks_list with tags=investigate, threat_intel.
+  # In Elastic, workflow discovery isn't first-class; either pre-select
+  # child_workflows or list them via the Kibana workflows API.
+  - name: list_investigate_workflows
+    type: if
+    condition: "${{ inputs.child_workflows | size }} == 0"
+    steps:
+      - name: discover_workflows
+        type: http
+        with:
+          url: "https://{{ consts.kibana_host }}/api/workflows"
+          method: GET
+          query:
+            tags: "investigate,threat_intel"
+        on-failure:
+          continue: true
+
+  # Phantom: collect2 of "all_indicators". Already provided via `inputs.indicators`.
+  - name: dispatch_per_indicator
+    type: foreach
+    with:
+      items: "${{ inputs.indicators }}"
+    steps:
+      - name: log_dispatch_for_indicator
+        type: console
+        with:
+          message: "Launching threat intel child workflows for indicator {{ item.value }} of type {{ item.data_types | join: ',' }}"
+
+      # Phantom loops through each child playbook whose input_spec accepts
+      # one of the indicator's data_types. With no introspection API in
+      # Elastic Workflows, run all configured child workflows for each
+      # indicator. The child is expected to return note_title + note_content.
+      - name: invoke_child_workflows
+        type: foreach
+        with:
+          items: "${{ inputs.child_workflows }}"
+        steps:
+          - name: run_child
+            type: http
+            with:
+              url: "https://{{ consts.kibana_host }}/api/workflows/{{ item }}/run"
+              method: POST
+              body:
+                inputs:
+                  indicators: ["{{ item.value }}"]
+            on-failure:
+              continue: true
+
+          - name: capture_child_note
+            type: kibana.addCaseComment
+            with:
+              # If the parent workflow is run from a case, pass the
+              # caseId via additional inputs; left as a placeholder.
+              caseId: "CHANGEME-case-id"
+              comment: |
+                **{{ steps.run_child.output.note_title | default: 'Threat intel note' }}**
+
+                {{ steps.run_child.output.note_content | default: '(no content returned)' }}
+            on-failure:
+              continue: true
+
+  # Phantom prompt: ask analyst to choose a tag for each indicator and
+  # accept freeform tags. Translated as a foreach that consumes a
+  # pre-populated response array.
+  - name: apply_indicator_tags
+    type: foreach
+    with:
+      items: "${{ inputs.indicators }}"
+    steps:
+      - name: pick_response
+        type: data.set
+        with:
+          # Look up the matching response object by index. Liquid does
+          # not have first-class array indexing in our schema, so we
+          # rely on the analyst aligning the response order with the
+          # indicator order.
+          response: "${{ inputs.tagging_responses[forloop.index0] | default: {} }}"
+
+      - name: preset_tag_block
+        type: if
+        condition: "{{ steps.pick_response.output.response.preset | default: '' }} == 'Tag to block'"
+        steps:
+          - name: tag_block
+            type: console
+            with:
+              message: "Tagging indicator {{ item.value }} with '{{ consts.indicator_tag_block }}'."
+
+      - name: preset_tag_safe
+        type: if
+        condition: "{{ steps.pick_response.output.response.preset | default: '' }} == 'Tag as safe'"
+        steps:
+          - name: tag_safe
+            type: console
+            with:
+              message: "Tagging indicator {{ item.value }} with '{{ consts.indicator_tag_safe }}'."
+
+      - name: apply_freeform_tags
+        type: if
+        condition: "{{ steps.pick_response.output.response.freeform | default: '' | size }} > 0"
+        steps:
+          - name: tag_freeform
+            type: console
+            with:
+              message: "Tagging indicator {{ item.value }} with freeform tags: {{ steps.pick_response.output.response.freeform }}"
+
+  - name: log_complete
+    type: console
+    with:
+      message: "Threat intel orchestration complete for {{ inputs.indicators | size }} indicator(s)."

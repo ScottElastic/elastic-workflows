@@ -1,0 +1,119 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Risk Notable — Auto Undo Containment"
+description: >
+  Reverses earlier auto-containment for a Splunk ES risk notable.
+  Collects indicators tagged with "contained" alongside "known_asset" or
+  "known_identity", and dispatches asset- and identity-undo-containment
+  workflows in parallel. Then updates any Splunk notable event_id with a
+  revert summary.
+enabled: true
+tags: ["splunk-soar", "remediation", "splunk-es", "risk-notable", "undo-containment", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: contained_indicators
+    type: array
+    required: true
+    description: >
+      Array of { indicator_value, indicator_tags: [...] } records pulled
+      from upstream collectors. Tags must include "contained" plus one of
+      "known_asset" or "known_identity".
+  - name: notable_event_ids
+    type: array
+    required: false
+    description: "Optional list of Splunk notable event_ids to update with a revert note."
+  - name: case_id
+    type: string
+    required: false
+
+consts:
+  splunk_endpoint: "https://CHANGEME-splunk.internal/services/notable_update"
+  splunk_auth_header: "Bearer CHANGEME_TOKEN"
+  asset_undo_workflow_id: "CHANGEME-asset-undo-containment-workflow"
+  identity_undo_workflow_id: "CHANGEME-identity-undo-containment-workflow"
+
+steps:
+  - name: partition_indicators
+    type: data.set
+    with:
+      asset_indicators: >-
+        ${{ inputs.contained_indicators | where_exp: "item", "(item.indicator_tags | join: ',') contains 'known_asset'" }}
+      identity_indicators: >-
+        ${{ inputs.contained_indicators | where_exp: "item", "(item.indicator_tags | join: ',') contains 'known_identity'" }}
+
+  - name: have_asset
+    type: if
+    condition: "{{ steps.partition_indicators.output.asset_indicators | size }} > 0"
+    steps:
+      - name: dispatch_asset_undo
+        type: kibana.request
+        with:
+          method: POST
+          path: "/api/workflows/{{ consts.asset_undo_workflow_id }}/run"
+          body:
+            inputs:
+              indicators: ${{ steps.partition_indicators.output.asset_indicators }}
+        on-failure:
+          continue: true
+
+  - name: have_identity
+    type: if
+    condition: "{{ steps.partition_indicators.output.identity_indicators | size }} > 0"
+    steps:
+      - name: dispatch_identity_undo
+        type: kibana.request
+        with:
+          method: POST
+          path: "/api/workflows/{{ consts.identity_undo_workflow_id }}/run"
+          body:
+            inputs:
+              indicators: ${{ steps.partition_indicators.output.identity_indicators }}
+        on-failure:
+          continue: true
+
+  - name: build_summary_note
+    type: data.set
+    with:
+      note:
+        title: "[Auto-Generated] Revert Containment Summary"
+        assets_targeted: '${{ steps.partition_indicators.output.asset_indicators | map: "indicator_value" }}'
+        identities_targeted: '${{ steps.partition_indicators.output.identity_indicators | map: "indicator_value" }}'
+
+  - name: have_notables
+    type: if
+    condition: "{{ inputs.notable_event_ids | size }} > 0"
+    steps:
+      - name: update_notables
+        type: foreach
+        with:
+          items: ${{ inputs.notable_event_ids }}
+        steps:
+          - name: post_revert_comment
+            type: http
+            with:
+              url: "{{ consts.splunk_endpoint }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.splunk_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                event_ids: "{{ item }}"
+                comment: "{{ steps.build_summary_note.output.note.title }} — see SOAR for details"
+            on-failure:
+              continue: true
+
+  - name: attach_to_case
+    type: if
+    condition: "{{ inputs.case_id | size }} > 0"
+    steps:
+      - name: comment_on_case
+        type: kibana.addCaseComment
+        with:
+          caseId: "{{ inputs.case_id }}"
+          comment: "Undo-containment dispatched. Assets={{ steps.partition_indicators.output.asset_indicators | size }}, Identities={{ steps.partition_indicators.output.identity_indicators | size }}"

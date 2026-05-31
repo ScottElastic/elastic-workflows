@@ -1,0 +1,178 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Recorded Future — Indicator Enrichment"
+description: >
+  Pulls Recorded Future threat intelligence for any source IP, destination
+  IP, file hash, source domain, destination domain, or URL surfaced on the
+  triggering alert. Only the fields that are present on the event are
+  enriched, so the workflow is safe to attach broadly.
+enabled: true
+tags: ["splunk-soar", "threat-intel", "recorded-future", "enrichment", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: source_ip
+    type: string
+    required: false
+    description: "Override for the source IP. Defaults to the alert source.ip."
+  - name: destination_ip
+    type: string
+    required: false
+    description: "Override for the destination IP."
+  - name: file_hash
+    type: string
+    required: false
+    description: "Override for the file hash."
+  - name: source_domain
+    type: string
+    required: false
+    description: "Override for the source domain name."
+  - name: destination_domain
+    type: string
+    required: false
+    description: "Override for the destination domain name."
+  - name: request_url
+    type: string
+    required: false
+    description: "Override for the requested URL."
+
+consts:
+  recorded_future_base: "https://api.recordedfuture.com/v2"
+  recorded_future_token: "CHANGEME-recorded-future-token"
+
+steps:
+  - name: derive_indicators
+    type: data.set
+    with:
+      source_ip: "{{ inputs.source_ip | default: event.alerts[0].source.ip | default: '' }}"
+      destination_ip: "{{ inputs.destination_ip | default: event.alerts[0].destination.ip | default: '' }}"
+      file_hash: "{{ inputs.file_hash | default: event.alerts[0].file.hash.sha256 | default: '' }}"
+      source_domain: "{{ inputs.source_domain | default: event.alerts[0].source.domain | default: '' }}"
+      destination_domain: "{{ inputs.destination_domain | default: event.alerts[0].destination.domain | default: '' }}"
+      request_url: "{{ inputs.request_url | default: event.alerts[0].url.full | default: '' }}"
+
+  - name: enrich_source_ip
+    type: if
+    condition: "{{ steps.derive_indicators.output.source_ip | size }} > 0"
+    steps:
+      # TODO: replace with a native Recorded Future connector when available.
+      - name: rf_ip_source
+        type: http
+        with:
+          url: "{{ consts.recorded_future_base }}/ip/{{ steps.derive_indicators.output.source_ip }}"
+          method: GET
+          headers:
+            X-RFToken: "{{ consts.recorded_future_token }}"
+            Accept: "application/json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+
+  - name: enrich_destination_ip
+    type: if
+    condition: "{{ steps.derive_indicators.output.destination_ip | size }} > 0"
+    steps:
+      - name: rf_ip_destination
+        type: http
+        with:
+          url: "{{ consts.recorded_future_base }}/ip/{{ steps.derive_indicators.output.destination_ip }}"
+          method: GET
+          headers:
+            X-RFToken: "{{ consts.recorded_future_token }}"
+            Accept: "application/json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+
+  - name: enrich_file_hash
+    type: if
+    condition: "{{ steps.derive_indicators.output.file_hash | size }} > 0"
+    steps:
+      - name: rf_file_intelligence
+        type: http
+        with:
+          url: "{{ consts.recorded_future_base }}/hash/{{ steps.derive_indicators.output.file_hash }}"
+          method: GET
+          headers:
+            X-RFToken: "{{ consts.recorded_future_token }}"
+            Accept: "application/json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+
+  - name: enrich_source_domain
+    type: if
+    condition: "{{ steps.derive_indicators.output.source_domain | size }} > 0"
+    steps:
+      - name: rf_domain_source
+        type: http
+        with:
+          url: "{{ consts.recorded_future_base }}/domain/{{ steps.derive_indicators.output.source_domain }}"
+          method: GET
+          headers:
+            X-RFToken: "{{ consts.recorded_future_token }}"
+            Accept: "application/json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+
+  - name: enrich_destination_domain
+    type: if
+    condition: "{{ steps.derive_indicators.output.destination_domain | size }} > 0"
+    steps:
+      - name: rf_domain_destination
+        type: http
+        with:
+          url: "{{ consts.recorded_future_base }}/domain/{{ steps.derive_indicators.output.destination_domain }}"
+          method: GET
+          headers:
+            X-RFToken: "{{ consts.recorded_future_token }}"
+            Accept: "application/json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+
+  - name: enrich_url
+    type: if
+    condition: "{{ steps.derive_indicators.output.request_url | size }} > 0"
+    steps:
+      - name: rf_url_intelligence
+        type: http
+        with:
+          url: "{{ consts.recorded_future_base }}/url/{{ steps.derive_indicators.output.request_url | url_encode }}"
+          method: GET
+          headers:
+            X-RFToken: "{{ consts.recorded_future_token }}"
+            Accept: "application/json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+
+  - name: log_summary
+    type: console
+    with:
+      message: |
+        Recorded Future enrichment summary:
+        source_ip={{ steps.derive_indicators.output.source_ip | default: '-' }}
+        destination_ip={{ steps.derive_indicators.output.destination_ip | default: '-' }}
+        file_hash={{ steps.derive_indicators.output.file_hash | default: '-' }}
+        source_domain={{ steps.derive_indicators.output.source_domain | default: '-' }}
+        destination_domain={{ steps.derive_indicators.output.destination_domain | default: '-' }}
+        url={{ steps.derive_indicators.output.request_url | default: '-' }}

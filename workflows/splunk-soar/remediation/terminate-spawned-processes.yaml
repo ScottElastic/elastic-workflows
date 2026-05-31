@@ -1,0 +1,90 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Endpoint — Terminate Spawned Processes"
+description: >
+  Kills a known-malicious process and any children it has spawned.
+  For each {host, pid} pair, terminates the parent process via WinRM,
+  searches Splunk for any child processes (parent_process_id == pid),
+  and terminates those children too.
+enabled: true
+tags: ["splunk-soar", "remediation", "endpoint", "process-kill", "winrm", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: parent_processes
+    type: array
+    required: true
+    description: "Array of { host, pid } entries identifying the parent processes to terminate."
+
+consts:
+  winrm_endpoint: "https://CHANGEME-winrm-proxy.internal/api/terminate-process"
+  winrm_auth_header: "Bearer CHANGEME_TOKEN"
+  splunk_search_endpoint: "https://CHANGEME-splunk.internal/services/search/jobs"
+  splunk_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  - name: terminate_parents
+    type: foreach
+    with:
+      items: ${{ inputs.parent_processes }}
+    steps:
+      - name: terminate_parent
+        type: http
+        with:
+          url: "{{ consts.winrm_endpoint }}"
+          method: POST
+          headers:
+            Authorization: "{{ consts.winrm_auth_header }}"
+            Content-Type: "application/json"
+          body:
+            ip_hostname: "{{ item.host }}"
+            pid: "{{ item.pid }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      # Discover any children the parent spawned, via Splunk search.
+      - name: find_children
+        type: http
+        with:
+          url: "{{ consts.splunk_search_endpoint }}"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+          body:
+            search: "search index=* dest={{ item.host }} parent_process_id={{ item.pid }} | fields ProcessId"
+            output_mode: "json"
+        on-failure:
+          continue: true
+
+      - name: terminate_children
+        type: foreach
+        with:
+          items: '${{ steps.find_children.output.results | default: [] }}'
+        steps:
+          - name: terminate_child
+            type: http
+            with:
+              url: "{{ consts.winrm_endpoint }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.winrm_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                ip_hostname: "{{ item.host }}"
+                pid: "{{ item.ProcessId }}"
+            on-failure:
+              continue: true
+
+      - name: log_pair_complete
+        type: console
+        with:
+          message: |
+            Processed parent host={{ item.host }} pid={{ item.pid }}
+            children_terminated={{ steps.find_children.output.results | default: [] | size }}

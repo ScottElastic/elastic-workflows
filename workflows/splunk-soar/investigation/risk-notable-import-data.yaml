@@ -1,0 +1,172 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Splunk Risk Notable — Import Contributing Events"
+description: >
+  Runs a Splunk Datamodel:Risk query for a notable's risk_object, parses
+  each contributing event into an artifact-shaped record (Splunk CIM →
+  Phantom CEF mapping), tags high-risk events, and builds a markdown
+  summary note with a MITRE ATT&CK breakdown by tactic and technique.
+  The note is suitable for inlining into a case comment.
+enabled: true
+tags: ["splunk-soar", "investigation", "splunk", "risk-notable", "import", "mitre", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: container_id
+    type: string
+    required: true
+    description: "Owning SOAR/Kibana case identifier."
+  - name: event_id
+    type: string
+    required: true
+    description: "Splunk ES notable event_id."
+  - name: risk_object
+    type: string
+    required: true
+    description: "Risk object value (typically user or host)."
+  - name: risk_object_type
+    type: string
+    required: true
+    description: "Risk object type (user, system, etc.)."
+  - name: info_min_time
+    type: string
+    required: true
+    description: "Earliest time for the contributing-events query."
+  - name: info_max_time
+    type: string
+    required: true
+    description: "Latest time for the contributing-events query."
+
+consts:
+  splunk_endpoint: "https://CHANGEME-splunk.internal:8089"
+  splunk_auth_header: "Bearer CHANGEME_SPLUNK_TOKEN"
+  splunk_ui_host: "CHANGEME-splunk-ui"
+  individual_risk_threshold: 70
+  cumulative_risk_threshold: 250
+
+steps:
+  # Step 1: Look up the Splunk asset settings — original Phantom playbook
+  # uses this to render the link to the ES risk_analysis dashboard.
+  - name: resolve_splunk_host
+    type: data.set
+    with:
+      device: "{{ consts.splunk_ui_host }}"
+
+  - name: ensure_event_id
+    type: if
+    condition: "{{ inputs.event_id | size }} > 0"
+    steps:
+      # Step 2: Build the Splunk SPL for contributing risk events.
+      # The original SPL aggregates risk events for the matched user/host
+      # by search_name and risk_message and computes _total_risk_score.
+      - name: compose_risk_query
+        type: data.set
+        with:
+          query: |
+            datamodel:Risk
+            | search risk_object="{{ inputs.risk_object }}" risk_object_type="{{ inputs.risk_object_type }}"
+            | where _time>={{ inputs.info_min_time }} AND _time<={{ inputs.info_max_time }}
+            | eval risk_event_id = if(isnull(risk_event_id), index + "_" + _cd + "_" + splunk_server, risk_event_id)
+            | eventstats count by risk_event_id
+            | where count < 2
+            | stats values(*) as * sum(calculated_risk_score) as _total_risk_score earliest(_time) as earliest latest(_time) as latest by search_name risk_message
+            | where NOT (match(source, "Splunk\sSOAR") AND _total_risk_score<=0)
+
+      - name: run_risk_query
+        type: http
+        with:
+          url: "{{ consts.splunk_endpoint }}/services/search/jobs/export"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search=|search {{ steps.compose_risk_query.output.query }}&output_mode=json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+
+      - name: results_present
+        type: if
+        condition: "${{ steps.run_risk_query.output.summary.total_events | default: 0 }} > 0"
+        steps:
+          # Phantom: parse_risk_results_1 — convert each Splunk row into an
+          # artifact JSON with CIM→CEF mapping, threat objects, etc.
+          # Modeled here as an ai.prompt that produces the same structure.
+          # TODO: connect to your preferred LLM connector or replace with a
+          # deterministic transformer if available.
+          - name: parse_risk_results
+            type: ai.prompt
+            connector-id: "CHANGEME-llm-connector"
+            with:
+              prompt: |
+                You will receive raw rows from a Splunk Datamodel:Risk search.
+                For each row, produce a JSON object with:
+                  - cef_data: row fields, with CIM names rewritten to CEF
+                    (src→sourceAddress|sourceHostName, dest→destinationAddress|destinationHostName,
+                    user→destinationUserName, file_hash→fileHash, url→requestURL, etc.)
+                  - tags: extracted from rule_attack_tactic_technique
+                  - data: structured threat_object and risk_event entries
+                  - name: from search_name
+                  - description: from risk_message or description
+                Output a JSON array, one entry per row.
+
+                Rows: {{ steps.run_risk_query.output | json }}
+
+          # Create artifact-shaped documents in Elasticsearch. The original
+          # playbook uses community/artifact_create.
+          - name: index_risk_artifacts
+            type: elasticsearch.index
+            with:
+              index: "soar-risk-artifacts"
+              document:
+                container_id: "{{ inputs.container_id }}"
+                event_id: "{{ inputs.event_id }}"
+                label: "risk_rule"
+                severity: "informational"
+                artifacts: "${{ steps.parse_risk_results.output }}"
+            on-failure:
+              continue: true
+
+          # Build a MITRE ATT&CK summary grouped by tactic/technique.
+          # Original Phantom block does this in Python — modeled as
+          # an LLM-assisted summary step here.
+          - name: build_mitre_summary
+            type: ai.prompt
+            connector-id: "CHANGEME-llm-connector"
+            with:
+              prompt: |
+                Given the parsed artifacts below, produce a markdown summary
+                organized by MITRE ATT&CK tactic and technique. For each
+                tactic produce an "## Tactic Name" heading, then for each
+                technique a "- #### Technique: TID" line followed by a
+                bulleted list of the underlying risk_message values. If no
+                MITRE data exists, output: "No Tactics / Techniques available in contributing risk events."
+
+                Artifacts: {{ steps.parse_risk_results.output | json }}
+
+          # Compose final summary note: ES Risk Analysis link + event table
+          # + MITRE breakdown. Avoids copying the original template verbatim.
+          - name: build_summary_note
+            type: data.set
+            with:
+              note_title: "[Auto-Generated] Notable Event Summary"
+              note_content: |
+                ### Splunk Enterprise Security detected that {{ inputs.risk_object_type }} **{{ inputs.risk_object }}** has accumulated risk.
+
+                [View on Splunk ES](https://{{ steps.resolve_splunk_host.output.device }}/en-US/app/SplunkEnterpriseSecuritySuite/risk_analysis?form.risk_object_raw={{ inputs.risk_object }}&form.risk_object_type_raw={{ inputs.risk_object_type }}&earliest={{ inputs.info_min_time }}&latest={{ inputs.info_max_time }})
+
+                # MITRE ATT&CK Breakdown
+
+                {{ steps.build_mitre_summary.output | default: 'No MITRE data available.' }}
+
+          - name: log_summary
+            type: console
+            with:
+              message: "Risk import complete for {{ inputs.risk_object }} — {{ steps.run_risk_query.output.summary.total_events | default: 0 }} contributing events parsed."

@@ -1,0 +1,67 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "ReversingLabs TitaniumScale — File Detonation"
+description: >
+  Submits each vaulted file to a ReversingLabs TitaniumScale appliance for
+  static and dynamic analysis, asks for the full report, and surfaces the
+  TC classification (malicious / suspicious / known / unknown) for each
+  sample. The classification list is returned for downstream automation.
+enabled: true
+tags: ["splunk-soar", "misc", "file-analysis", "reversinglabs", "titaniumscale", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: vault_ids
+    type: array
+    required: true
+    description: "One or more vault IDs (file hashes) to detonate on TitaniumScale."
+
+consts:
+  # TitaniumScale appliance base URL and API token. The original Phantom
+  # asset wrapped this in the reversinglabs_titaniumscale_v2 connector.
+  titaniumscale_endpoint: "https://CHANGEME-titaniumscale.example.com/api/tiscale/v1"
+  titaniumscale_token: "Token CHANGEME_TOKEN"
+
+steps:
+  - name: detonate_each_file
+    type: foreach
+    with:
+      items: ${{ inputs.vault_ids }}
+    steps:
+      # TODO: replace with a native ReversingLabs TitaniumScale connector
+      # when one ships. The original SOAR action was "detonate file and get
+      # report" against the reversinglabs_titaniumscale_v2 asset.
+      - name: titaniumscale_detonate
+        type: http
+        with:
+          url: "{{ consts.titaniumscale_endpoint }}/upload"
+          method: POST
+          headers:
+            Authorization: "{{ consts.titaniumscale_token }}"
+            Content-Type: "application/json"
+          body:
+            vault_id: "{{ item }}"
+            full_report: true
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+
+      - name: record_classification
+        type: data.set
+        with:
+          observable:
+            type: "vault_id"
+            value: "{{ item }}"
+            classification: "{{ steps.titaniumscale_detonate.output.tc_report.classification.classification | default: 'unknown' }}"
+
+      - name: log_classification
+        type: console
+        with:
+          message: |
+            File {{ item }} TitaniumScale verdict: {{ steps.record_classification.output.observable.classification }}

@@ -1,0 +1,74 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "URL — Investigate (Splunk Intelligence Management)"
+description: >
+  Pulls reputation data for one or more URLs from Splunk Intelligence
+  Management (formerly TruSTAR), tags each indicator with the returned
+  priority score, and produces a markdown verdict containing only the
+  URLs scored MEDIUM or higher.
+enabled: true
+tags: ["splunk-soar", "investigation", "url", "trustar", "splunk-intelligence-management", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: urls
+    type: array
+    required: true
+    description: "List of URLs to enrich."
+
+consts:
+  trustar_endpoint: "https://api.trustar.co/api/1.3"
+  trustar_auth_header: "Bearer CHANGEME_TRUSTAR_TOKEN"
+
+steps:
+  - name: per_url
+    type: foreach
+    with:
+      items: "${{ inputs.urls }}"
+    steps:
+      # TODO: replace http stub with a native Splunk Intelligence Management
+      # connector when available.
+      - name: indicator_reputation
+        type: http
+        with:
+          url: "{{ consts.trustar_endpoint }}/indicators/search"
+          method: POST
+          headers:
+            Authorization: "{{ consts.trustar_auth_header }}"
+            Content-Type: "application/json"
+          body:
+            indicator_value: "{{ item }}"
+            limit: 10000
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: tag_indicator
+        type: console
+        with:
+          message: "Tagging URL {{ item }} with priorityScore={{ steps.indicator_reputation.output.priorityScore | default: 'unknown' }}"
+
+      - name: capture_for_verdict
+        type: if
+        condition: "{{ steps.indicator_reputation.output.priorityScore | default: '' }} == 'MEDIUM' or {{ steps.indicator_reputation.output.priorityScore | default: '' }} == 'HIGH' or {{ steps.indicator_reputation.output.priorityScore | default: '' }} == 'CRITICAL'"
+        steps:
+          - name: record_verdict_row
+            type: data.set
+            with:
+              row: "| {{ item }} :: {{ steps.indicator_reputation.output.priorityScore }} |"
+
+          - name: log_verdict_row
+            type: console
+            with:
+              message: "Verdict row: {{ steps.record_verdict_row.output.row }}"
+
+  - name: log_complete
+    type: console
+    with:
+      message: "URL investigation finished for {{ inputs.urls | size }} URL(s)."

@@ -1,0 +1,162 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "ExtraHop — Externally Accessible Database Investigation"
+description: >
+  Responds to a "publicly_exposed_db" ExtraHop detection by collecting profile,
+  peer, and protocol information for both the internal database server and the
+  external client over the past 30 minutes, and blocking the client IP on a
+  Palo Alto Networks NGFW.
+enabled: true
+tags: ["splunk-soar", "investigation", "extrahop", "database", "pan", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: label
+    type: string
+    required: true
+    description: "Artifact label. Only continues for 'publicly_exposed_db'."
+  - name: client_ip
+    type: string
+    required: true
+    description: "External client IP that connected to the database."
+  - name: server_ip
+    type: string
+    required: true
+    description: "Internal database server IP."
+
+consts:
+  extrahop_endpoint: "https://CHANGEME-extrahop/api/v1"
+  extrahop_auth: "ExtraHop apikey=CHANGEME"
+  pan_endpoint: "https://CHANGEME-pan/api"
+  pan_api_key: "CHANGEME"
+  lookback_minutes: 30
+  pan_vsys: "vsys1"
+
+steps:
+  - name: only_handle_exposed_db
+    type: if
+    condition: "'{{ inputs.label }}' == 'publicly_exposed_db'"
+    steps:
+      # Internal database side
+      - name: get_db_device_info
+        type: http
+        with:
+          url: "{{ consts.extrahop_endpoint }}/devices/search"
+          method: POST
+          headers:
+            Authorization: "{{ consts.extrahop_auth }}"
+            Content-Type: "application/json"
+          body:
+            filter:
+              field: "ipaddr4"
+              operand: "{{ inputs.server_ip }}"
+              operator: "="
+        on-failure:
+          continue: true
+
+      - name: get_db_peers
+        type: http
+        with:
+          url: "{{ consts.extrahop_endpoint }}/activitymaps"
+          method: POST
+          headers:
+            Authorization: "{{ consts.extrahop_auth }}"
+            Content-Type: "application/json"
+          body:
+            device_id: "{{ steps.get_db_device_info.output[0].id }}"
+            from_time_minutes: "{{ consts.lookback_minutes }}"
+            peer_role: "any"
+            protocol: "any"
+        on-failure:
+          continue: true
+
+      - name: get_db_protocols
+        type: http
+        with:
+          url: "{{ consts.extrahop_endpoint }}/activitymaps"
+          method: POST
+          headers:
+            Authorization: "{{ consts.extrahop_auth }}"
+            Content-Type: "application/json"
+          body:
+            device_id: "{{ steps.get_db_device_info.output[0].id }}"
+            from_time_minutes: "{{ consts.lookback_minutes }}"
+            mode: "protocols"
+        on-failure:
+          continue: true
+
+      # External client side
+      - name: get_client_device_info
+        type: http
+        with:
+          url: "{{ consts.extrahop_endpoint }}/devices/search"
+          method: POST
+          headers:
+            Authorization: "{{ consts.extrahop_auth }}"
+            Content-Type: "application/json"
+          body:
+            filter:
+              field: "ipaddr4"
+              operand: "{{ inputs.client_ip }}"
+              operator: "="
+        on-failure:
+          continue: true
+
+      - name: get_client_peers
+        type: http
+        with:
+          url: "{{ consts.extrahop_endpoint }}/activitymaps"
+          method: POST
+          headers:
+            Authorization: "{{ consts.extrahop_auth }}"
+            Content-Type: "application/json"
+          body:
+            device_id: "{{ steps.get_client_device_info.output[0].id }}"
+            from_time_minutes: "{{ consts.lookback_minutes }}"
+            peer_role: "any"
+            protocol: "any"
+        on-failure:
+          continue: true
+
+      - name: get_client_protocols
+        type: http
+        with:
+          url: "{{ consts.extrahop_endpoint }}/activitymaps"
+          method: POST
+          headers:
+            Authorization: "{{ consts.extrahop_auth }}"
+            Content-Type: "application/json"
+          body:
+            device_id: "{{ steps.get_client_device_info.output[0].id }}"
+            from_time_minutes: "{{ consts.lookback_minutes }}"
+            mode: "protocols"
+        on-failure:
+          continue: true
+
+      # TODO: replace http stub with a native Palo Alto connector when added.
+      - name: block_client_on_palo_alto
+        type: http
+        with:
+          url: "{{ consts.pan_endpoint }}/?type=config&action=set&xpath=/config/devices/entry/vsys/entry[@name='{{ consts.pan_vsys }}']/address-group/entry[@name='SOAR_block']/static&element=<member>{{ inputs.client_ip }}</member>&key={{ consts.pan_api_key }}"
+          method: POST
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+
+      - name: investigation_summary
+        type: console
+        with:
+          message: |
+            ExtraHop external DB access investigation
+            Client IP: {{ inputs.client_ip }}
+            Server IP: {{ inputs.server_ip }}
+            Client peers seen: {{ steps.get_client_peers.output.peers | size | default: 0 }}
+            Server peers seen: {{ steps.get_db_peers.output.peers | size | default: 0 }}
+            PAN block requested: {{ steps.block_client_on_palo_alto.output.status | default: 'failed' }}

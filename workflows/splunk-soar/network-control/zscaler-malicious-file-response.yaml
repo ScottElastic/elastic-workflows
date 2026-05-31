@@ -1,0 +1,237 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Zscaler — Malicious File Response (Patient Zero)"
+description: >
+  Reacts to a Zscaler patient-zero file alert. For artifacts named
+  "zScaler Alert Artifact", runs four parallel enrichment + containment
+  legs against the alerted MD5: VirusTotal file reputation, Carbon Black
+  hash block, Carbon Black hunt-file (locating endpoints with the file on
+  disk), and a Splunk Zscaler-proxy query for the affected user.
+  Endpoints discovered by hunt-file are then quarantined and the file
+  pulled back to the analyst's vault. Active Directory is queried for
+  user context. A summarizing ServiceNow incident is created.
+enabled: true
+tags: ["splunk-soar", "network-control", "zscaler", "carbon-black", "virustotal", "splunk", "ad", "servicenow", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: file_hash_md5
+    type: string
+    required: true
+    description: "MD5 hash from the Zscaler patient-zero alert (cef.fileHashMd5)."
+  - name: artifact_name
+    type: string
+    required: false
+    default: "zScaler Alert Artifact"
+    description: "Only artifacts with this name are processed (matches SOAR filter)."
+
+consts:
+  virustotal_connector_id: "CHANGEME-virustotal-connector"
+  servicenow_connector_id: "CHANGEME-servicenow-connector"
+  splunk_search_endpoint: "https://CHANGEME-splunk.example.com:8089/services/search/jobs/export"
+  splunk_auth_header: "Bearer CHANGEME-splunk-token"
+  splunk_index: "proxy_logs_zscaler"
+  splunk_host: "zscalertwo-phantom"
+  carbonblack_endpoint: "https://CHANGEME-carbonblack.example.com/integrationServices/v3"
+  carbonblack_auth_header: "X-Auth-Token CHANGEME-cb-token"
+  ldap_endpoint: "https://CHANGEME-ldap-proxy.internal/api/get-user"
+  ldap_auth_header: "Bearer CHANGEME-ldap-token"
+  block_hash_comment: "Patient-zero alert from Zscaler validated against VirusTotal."
+
+steps:
+  # The SOAR playbook's filter_1 gate: only proceed for the Zscaler-shaped
+  # artifact name. Accept the input as-is otherwise.
+  - name: artifact_gate
+    type: if
+    condition: "{{ inputs.artifact_name }} == 'zScaler Alert Artifact'"
+    steps:
+      # Leg 1: VirusTotal reputation on the MD5.
+      - name: file_reputation
+        type: virustotal.scanFileHash
+        connector-id: "{{ consts.virustotal_connector_id }}"
+        with:
+          hash: "{{ inputs.file_hash_md5 }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      # Leg 2: Block hash future-execution in Carbon Black Response.
+      - name: block_hash_in_carbonblack
+        type: http
+        with:
+          url: "{{ consts.carbonblack_endpoint }}/banning/blacklist"
+          method: POST
+          headers:
+            Authorization: "{{ consts.carbonblack_auth_header }}"
+            Content-Type: "application/json"
+          body:
+            md5hash: "{{ inputs.file_hash_md5 }}"
+            text: "{{ consts.block_hash_comment }}"
+            description: "Blocked by Elastic Workflow {{ execution.id }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      # Leg 3: Locate endpoints with the file on disk.
+      - name: hunt_file_in_carbonblack
+        type: http
+        with:
+          url: "{{ consts.carbonblack_endpoint }}/binary"
+          method: GET
+          headers:
+            Authorization: "{{ consts.carbonblack_auth_header }}"
+          body:
+            md5: "{{ inputs.file_hash_md5 }}"
+            rows: 10
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      # Leg 4: Splunk query for proxy events that mention the MD5, used to
+      # find the affected user. The original template was a hand-built SPL
+      # string; we re-issue an equivalent search through Splunk's REST API.
+      - name: run_proxy_query
+        type: http
+        with:
+          url: "{{ consts.splunk_search_endpoint }}"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search=search host=\"{{ consts.splunk_host }}\" index=\"{{ consts.splunk_index }}\" sourcetype=\"csv\" MD5=\"{{ inputs.file_hash_md5 }}\" | rename \"Client IP\" as client_ip \"Policy Action\" as policy_action | fields client_ip, policy_action, MD5, User&output_mode=json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      # For each endpoint reported by hunt-file, quarantine it AND pull a
+      # copy of the file to the analyst's vault for IR. The SOAR playbook
+      # iterates the `binary.results[*].endpoint` array, taking the IP from
+      # before the first "|" — we recreate that here with a foreach + split.
+      - name: per_endpoint_actions
+        type: foreach
+        with:
+          items: "${{ steps.hunt_file_in_carbonblack.output.results | default: [] }}"
+        steps:
+          - name: quarantine_device
+            type: http
+            with:
+              url: "{{ consts.carbonblack_endpoint }}/device_actions"
+              method: POST
+              headers:
+                Authorization: "{{ consts.carbonblack_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                action_type: "QUARANTINE"
+                # endpoint field is "<ip>|<sensor_id>"; take the IP half.
+                device_id: "{{ item.endpoint | split: '|' | first | default: item.endpoint }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "5s"
+              continue: true
+
+          - name: get_file_to_vault
+            type: http
+            with:
+              url: "{{ consts.carbonblack_endpoint }}/binary/{{ inputs.file_hash_md5 }}/file"
+              method: GET
+              headers:
+                Authorization: "{{ consts.carbonblack_auth_header }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "5s"
+              continue: true
+
+          - name: get_system_info
+            type: http
+            with:
+              url: "{{ consts.carbonblack_endpoint }}/device"
+              method: GET
+              headers:
+                Authorization: "{{ consts.carbonblack_auth_header }}"
+              body:
+                ip: "{{ item.endpoint | split: '|' | first | default: item.endpoint }}"
+            on-failure:
+              continue: true
+
+      # Once Splunk has produced a User, pull AD attributes for them.
+      - name: get_user_attributes
+        type: if
+        condition: "{{ steps.run_proxy_query.output.results[0].User | size | default: 0 }} > 0"
+        steps:
+          - name: ad_lookup
+            type: http
+            with:
+              url: "{{ consts.ldap_endpoint }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.ldap_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                username: "{{ steps.run_proxy_query.output.results[0].User }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+      # SOAR joined on completion of all parallel legs then built two format
+      # templates and pushed to ServiceNow. We collapse to one concise
+      # incident with the same essential context.
+      - name: create_servicenow_ticket
+        type: servicenow
+        connector-id: "{{ consts.servicenow_connector_id }}"
+        with:
+          subAction: "pushToService"
+          subActionParams:
+            incident:
+              short_description: "Malicious MD5 Found on Endpoint(s) — {{ inputs.file_hash_md5 }}"
+              description: |
+                Zscaler patient-zero response summary (Elastic Workflow).
+
+                Actions performed:
+                1. Pulled VirusTotal reputation for the MD5.
+                2. Queried Splunk Zscaler proxy logs for the affected user.
+                3. Blocked future executions of this hash in Carbon Black Response.
+                4. Quarantined endpoints on which the file was detected.
+
+                MD5: {{ inputs.file_hash_md5 }}
+                VirusTotal positives: {{ steps.file_reputation.output.summary.positives | default: 0 }}
+                Endpoints touched: {{ steps.hunt_file_in_carbonblack.output.results | size | default: 0 }}
+                Workflow run: {{ execution.id }}
+              urgency: "2"
+              severity: "2"
+              impact: "2"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+
+      - name: log_response_summary
+        type: console
+        with:
+          message: |
+            Zscaler malicious-file response completed.
+            md5={{ inputs.file_hash_md5 }}
+            vt_positives={{ steps.file_reputation.output.summary.positives | default: 0 }}
+            endpoints={{ steps.hunt_file_in_carbonblack.output.results | size | default: 0 }}
+    else:
+      - name: log_skipped
+        type: console
+        with:
+          message: "Artifact name '{{ inputs.artifact_name }}' did not match the Zscaler alert filter; skipping response."

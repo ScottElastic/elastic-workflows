@@ -1,0 +1,172 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Cisco Talos Intelligence — Identifier Reputation Analysis"
+description: >
+  Routes URLs, domains, and IPs to the Cisco Talos Intelligence reputation
+  endpoints, then maps each Talos threat level to a normalized OCSF
+  reputation score and constructs an observable record for downstream
+  consumers.
+enabled: true
+tags: ["splunk-soar", "reputation", "url", "domain", "ip", "cisco-talos", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: urls
+    type: array
+    required: false
+    description: "URLs to evaluate (may be empty)."
+  - name: domains
+    type: array
+    required: false
+    description: "Domains to evaluate (may be empty)."
+  - name: ips
+    type: array
+    required: false
+    description: "IP addresses to evaluate (may be empty)."
+
+consts:
+  # Cisco Talos Intelligence does not currently have a native Elastic
+  # connector; use the public Talos API or your licensed endpoint.
+  talos_endpoint: "https://talosintelligence.com/sb_api/query_lookup"
+  talos_auth_header: "Bearer CHANGEME_TALOS_TOKEN"
+  # OCSF reputation score reference: https://schema.ocsf.io/objects/reputation
+  # threat_level (talos) -> ocsf score mapping is applied per-item below.
+
+steps:
+  - name: process_urls
+    type: if
+    condition: "{{ inputs.urls | size }} > 0"
+    steps:
+      - name: each_url
+        type: foreach
+        with:
+          items: ${{ inputs.urls }}
+        steps:
+          # TODO: replace with a native Cisco Talos connector when available.
+          - name: talos_url_lookup
+            type: http
+            with:
+              url: "{{ consts.talos_endpoint }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.talos_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                type: "url"
+                value: "{{ item }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+          - name: build_url_observable
+            type: data.set
+            with:
+              observable:
+                value: "{{ item }}"
+                type: "url"
+                source: "Cisco Talos Intelligence"
+                threat_level: "{{ steps.talos_url_lookup.output.Threat_Level | default: 'unknown' }}"
+                threat_categories: "{{ steps.talos_url_lookup.output.Threat_Categories | default: '' }}"
+                aup_categories: "{{ steps.talos_url_lookup.output.AUP | default: '' }}"
+
+          - name: log_url_result
+            type: console
+            with:
+              message: |
+                Talos URL lookup for {{ item }}:
+                threat_level={{ steps.talos_url_lookup.output.Threat_Level | default: 'unknown' }}
+                threat_categories={{ steps.talos_url_lookup.output.Threat_Categories | default: '' }}
+
+  - name: process_domains
+    type: if
+    condition: "{{ inputs.domains | size }} > 0"
+    steps:
+      - name: each_domain
+        type: foreach
+        with:
+          items: ${{ inputs.domains }}
+        steps:
+          - name: talos_domain_lookup
+            type: http
+            with:
+              url: "{{ consts.talos_endpoint }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.talos_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                type: "domain"
+                value: "{{ item }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+          - name: build_domain_observable
+            type: data.set
+            with:
+              observable:
+                value: "{{ item }}"
+                type: "domain"
+                source: "Cisco Talos Intelligence"
+                threat_level: "{{ steps.talos_domain_lookup.output.Threat_Level | default: 'unknown' }}"
+                threat_categories: "{{ steps.talos_domain_lookup.output.Threat_Categories | default: '' }}"
+                aup_categories: "{{ steps.talos_domain_lookup.output.AUP | default: '' }}"
+
+          - name: log_domain_result
+            type: console
+            with:
+              message: |
+                Talos domain lookup for {{ item }}:
+                threat_level={{ steps.talos_domain_lookup.output.Threat_Level | default: 'unknown' }}
+
+  - name: process_ips
+    type: if
+    condition: "{{ inputs.ips | size }} > 0"
+    steps:
+      - name: each_ip
+        type: foreach
+        with:
+          items: ${{ inputs.ips }}
+        steps:
+          - name: talos_ip_lookup
+            type: http
+            with:
+              url: "{{ consts.talos_endpoint }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.talos_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                type: "ip"
+                value: "{{ item }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+          - name: build_ip_observable
+            type: data.set
+            with:
+              observable:
+                value: "{{ item }}"
+                type: "ip"
+                source: "Cisco Talos Intelligence"
+                threat_level: "{{ steps.talos_ip_lookup.output.Threat_Level | default: 'unknown' }}"
+                threat_categories: "{{ steps.talos_ip_lookup.output.Threat_Categories | default: '' }}"
+                aup_categories: "{{ steps.talos_ip_lookup.output.AUP | default: '' }}"
+
+          - name: log_ip_result
+            type: console
+            with:
+              message: |
+                Talos IP lookup for {{ item }}:
+                threat_level={{ steps.talos_ip_lookup.output.Threat_Level | default: 'unknown' }}

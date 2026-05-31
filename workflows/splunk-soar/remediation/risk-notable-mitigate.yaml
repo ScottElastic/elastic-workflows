@@ -1,0 +1,105 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Risk Notable — Mitigate"
+description: >
+  Second-phase mitigation workflow for a Splunk ES risk notable. Calls the
+  review-indicators sub-workflow, then (when indicators are flagged
+  marked_for_block) the block-indicators sub-workflow, then the
+  protect-assets-and-users sub-workflow. Per-stage notes are added as case
+  comments rather than rendered via the SOAR workbook system.
+enabled: true
+tags: ["splunk-soar", "remediation", "splunk-es", "risk-notable", "mitigate", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: case_id
+    type: string
+    required: false
+    description: "Kibana case to record per-stage progress against."
+  - name: review_workflow_id
+    type: string
+    required: false
+    default: "risk-notable-review-indicators"
+  - name: block_workflow_id
+    type: string
+    required: false
+    default: "risk-notable-block-indicators"
+  - name: protect_workflow_id
+    type: string
+    required: false
+    default: "risk-notable-protect-assets-and-users"
+
+consts:
+  workflow_runner_base: "/api/workflows"
+
+steps:
+  - name: run_review
+    type: kibana.request
+    with:
+      method: POST
+      path: "{{ consts.workflow_runner_base }}/{{ inputs.review_workflow_id }}/run"
+      body:
+        inputs: {}
+    on-failure:
+      continue: true
+
+  - name: have_review_result
+    type: if
+    condition: "{{ steps.run_review.output.marked_for_block_count | default: 0 }} > 0"
+    steps:
+      - name: run_block
+        type: kibana.request
+        with:
+          method: POST
+          path: "{{ consts.workflow_runner_base }}/{{ inputs.block_workflow_id }}/run"
+          body:
+            inputs:
+              indicators: '${{ steps.run_review.output.marked_indicators | default: [] }}'
+        on-failure:
+          continue: true
+
+      - name: comment_after_block
+        type: if
+        condition: "{{ inputs.case_id | size }} > 0"
+        steps:
+          - name: case_block_note
+            type: kibana.addCaseComment
+            with:
+              caseId: "{{ inputs.case_id }}"
+              comment: |
+                Block stage complete.
+                title={{ steps.run_block.output.note_title | default: 'block result' }}
+                content={{ steps.run_block.output.note_content | default: 'see workflow output' }}
+
+  - name: run_protect
+    type: kibana.request
+    with:
+      method: POST
+      path: "{{ consts.workflow_runner_base }}/{{ inputs.protect_workflow_id }}/run"
+      body:
+        inputs: {}
+    on-failure:
+      continue: true
+
+  - name: comment_after_protect
+    type: if
+    condition: "{{ inputs.case_id | size }} > 0"
+    steps:
+      - name: case_protect_note
+        type: kibana.addCaseComment
+        with:
+          caseId: "{{ inputs.case_id }}"
+          comment: |
+            Protect stage complete.
+            title={{ steps.run_protect.output.note_title | default: 'protect result' }}
+            content={{ steps.run_protect.output.note_content | default: 'see workflow output' }}
+
+  - name: log_done
+    type: console
+    with:
+      message: "risk_notable_mitigate finished."

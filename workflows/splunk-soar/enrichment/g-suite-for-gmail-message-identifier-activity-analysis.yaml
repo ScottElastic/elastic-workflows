@@ -1,0 +1,99 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "GSuite Gmail — Message Identifier Activity Analysis"
+description: >
+  Given an internet message id, pulls the list of mailboxes from Google
+  Workspace and searches each for a matching message. Returns a normalized
+  per-mailbox observable record with recipient, addressee, subject, sender,
+  and Gmail message id. Refer to D3FEND D3-IAA for context. Note: not
+  designed for tenants with more than 500 mailboxes.
+enabled: true
+tags: ["splunk-soar", "enrichment", "identifier-activity", "gmail", "gsuite", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: message_id
+    type: string
+    required: true
+    description: "Internet message id to search for across Gmail mailboxes."
+
+consts:
+  # TODO: wire to a real Google Workspace endpoint or native connector when
+  # available. The original Phantom asset was `g_suite_for_gmail`.
+  gsuite_endpoint: "https://CHANGEME-google-workspace-proxy.internal"
+  gsuite_auth_header: "Bearer CHANGEME_TOKEN"
+  max_mailboxes: 500
+  max_results_per_mailbox: 100
+
+steps:
+  - name: message_provided
+    type: if
+    condition: "{{ inputs.message_id | size }} > 0"
+    steps:
+      - name: list_mailboxes
+        type: http
+        with:
+          url: "{{ consts.gsuite_endpoint }}/users"
+          method: GET
+          headers:
+            Authorization: "{{ consts.gsuite_auth_header }}"
+            Accept: "application/json"
+          query:
+            maxResults: "{{ consts.max_mailboxes }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: per_mailbox_search
+        type: foreach
+        with:
+          items: "${{ steps.list_mailboxes.output.users }}"
+        steps:
+          - name: search_mailbox
+            type: http
+            with:
+              url: "{{ consts.gsuite_endpoint }}/users/{{ item.primaryEmail }}/messages"
+              method: GET
+              headers:
+                Authorization: "{{ consts.gsuite_auth_header }}"
+                Accept: "application/json"
+              query:
+                q: "rfc822msgid:{{ inputs.message_id }}"
+                labelIds: "INBOX"
+                maxResults: "{{ consts.max_results_per_mailbox }}"
+            on-failure:
+              continue: true
+
+          - name: hits_in_mailbox
+            type: if
+            condition: "{{ steps.search_mailbox.output.messages | size }} > 0"
+            steps:
+              - name: build_message_observable
+                type: data.set
+                with:
+                  observable:
+                    type: "internet message ID"
+                    value: "{{ inputs.message_id }}"
+                    source: "GSuite for GMail"
+                    recipient: "{{ item.primaryEmail }}"
+                    addressee: "{{ steps.search_mailbox.output.messages[0].to | default: '' }}"
+                    subject: "{{ steps.search_mailbox.output.messages[0].subject | default: '' }}"
+                    sender: "{{ steps.search_mailbox.output.messages[0].from | default: '' }}"
+                    gmail_id: "{{ steps.search_mailbox.output.messages[0].id | default: '' }}"
+
+              - name: log_message_observable
+                type: console
+                with:
+                  message: |
+                    Match in {{ item.primaryEmail }}: subject="{{ steps.search_mailbox.output.messages[0].subject | default: '' }}", sender={{ steps.search_mailbox.output.messages[0].from | default: '' }}
+
+      - name: log_summary
+        type: console
+        with:
+          message: "Searched {{ steps.list_mailboxes.output.users | size | default: 0 }} mailboxes for internet message id {{ inputs.message_id }}."

@@ -1,0 +1,78 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Endpoint — Delete Detected Files"
+description: >
+  For each host/file path indicator, first reads the file via WinRM
+  (so the contents are captured for evidence), then deletes the file.
+  Useful when a SOC alert flags a malicious artifact such as a dropped
+  webshell that should be both preserved and removed.
+enabled: true
+tags: ["splunk-soar", "remediation", "endpoint", "winrm", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: targets
+    type: array
+    required: true
+    description: "List of {host, file_path} objects identifying the files to capture and delete."
+
+consts:
+  # Replace with your WinRM execution endpoint. The original Phantom playbook
+  # used the `winrm` asset's "run command" action; here we stub it as HTTP
+  # against an internal automation proxy that can shell into Windows hosts.
+  winrm_endpoint: "https://CHANGEME-winrm-proxy.internal/api/run-command"
+  winrm_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  - name: process_targets
+    type: foreach
+    with:
+      items: ${{ inputs.targets }}
+    steps:
+      # TODO: replace this http stub with a real WinRM / remote-shell connector
+      - name: capture_file_contents
+        type: http
+        with:
+          url: "{{ consts.winrm_endpoint }}"
+          method: POST
+          headers:
+            Authorization: "{{ consts.winrm_auth_header }}"
+            Content-Type: "application/json"
+          body:
+            ip_hostname: "{{ item.host }}"
+            command: 'more "{{ item.file_path }}"'
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: delete_file
+        type: http
+        with:
+          url: "{{ consts.winrm_endpoint }}"
+          method: POST
+          headers:
+            Authorization: "{{ consts.winrm_auth_header }}"
+            Content-Type: "application/json"
+          body:
+            ip_hostname: "{{ item.host }}"
+            command: 'del "{{ item.file_path }}"'
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: log_delete_result
+        type: console
+        with:
+          message: |
+            Host={{ item.host }}
+            file_path={{ item.file_path }}
+            capture_status={{ steps.capture_file_contents.output.status | default: 'unknown' }}
+            delete_status={{ steps.delete_file.output.status | default: 'unknown' }}

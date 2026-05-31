@@ -1,0 +1,82 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Identifier Activity Analysis — Dispatch"
+description: >
+  Routes alert indicators to downstream identifier-activity analysis
+  workflows (Splunk, Defender ATP, CrowdStrike, etc.) tagged for that
+  purpose. Collects each workflow's markdown summary and observable
+  output and posts a consolidated note back to the case task.
+enabled: true
+tags: ["splunk-soar", "enrichment", "dispatch", "identifier-activity", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: artifact_ids
+    type: array
+    required: false
+    description: "Optional artifact id list to limit dispatch. Defaults to all current alert artifacts."
+  - name: case_id
+    type: string
+    required: false
+    description: "Optional Kibana case ID to update with the merged report."
+
+consts:
+  dispatch_tags: ["identifier_activity"]
+
+steps:
+  - name: collect_artifacts
+    type: data.set
+    with:
+      artifacts: "${{ inputs.artifact_ids }}"
+
+  - name: have_artifacts
+    type: if
+    condition: "{{ steps.collect_artifacts.output.artifacts | size }} > 0"
+    steps:
+      # TODO: Replace with native multi-workflow dispatcher when available.
+      # The original Phantom playbook called community/dispatch_input_playbooks
+      # with playbook_tags=identifier_activity.
+      - name: ai_dispatch_decision
+        type: ai.prompt
+        with:
+          prompt: |
+            For each artifact, identify any URLs, IPs, domains, file
+            hashes, or message ids and suggest which identifier-activity
+            analysis workflows to run (Splunk, Splunk Message,
+            Defender ATP, CrowdStrike, GMail message, O365 message).
+            Artifacts: {{ steps.collect_artifacts.output.artifacts | json }}
+        on-failure:
+          continue: true
+
+      - name: merge_reports
+        type: data.set
+        with:
+          merged_report: |
+            Identifier activity analysis dispatch run.
+            Artifacts processed: {{ steps.collect_artifacts.output.artifacts | size }}
+            Recommended workflows: {{ steps.ai_dispatch_decision.output | default: '(none)' }}
+
+      - name: case_update_branch
+        type: if
+        condition: "{{ inputs.case_id | size }} > 0"
+        steps:
+          - name: comment_with_report
+            type: kibana.addCaseComment
+            with:
+              caseId: "{{ inputs.case_id }}"
+              comment: "{{ steps.merge_reports.output.merged_report }}"
+
+      - name: log_dispatch
+        type: console
+        with:
+          message: "{{ steps.merge_reports.output.merged_report }}"
+    else:
+      - name: no_artifacts
+        type: console
+        with:
+          message: "No artifacts available — nothing to dispatch."

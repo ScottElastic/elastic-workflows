@@ -1,0 +1,66 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Mission Control — Automated Enrichment"
+description: >
+  Mission Control orchestrator that chains three Mission Control workflows
+  in sequence: identifier reputation analysis, attribute lookup, and
+  related ticket search. Acts as a one-call enrichment pipeline once a new
+  Mission Control incident is opened.
+enabled: true
+tags: ["splunk-soar", "enrichment", "orchestrator", "mission-control", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: external_id
+    type: string
+    required: false
+    description: "Mission Control incident id to enrich."
+
+consts:
+  mc_identifier_reputation_workflow: "CHANGEME-mission-control-identifier-reputation-analysis"
+  mc_attribute_lookup_workflow: "CHANGEME-mission-control-attribute-lookup"
+  mc_related_tickets_workflow: "CHANGEME-mission-control-related-tickets-search"
+
+steps:
+  - name: run_identifier_reputation
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/workflows/{{ consts.mc_identifier_reputation_workflow }}/_run"
+      body:
+        inputs:
+          external_id: "{{ inputs.external_id }}"
+    on-failure:
+      continue: true
+
+  - name: run_attribute_lookup
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/workflows/{{ consts.mc_attribute_lookup_workflow }}/_run"
+      body:
+        inputs:
+          external_id: "{{ inputs.external_id }}"
+    on-failure:
+      continue: true
+
+  - name: run_related_tickets_search
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/workflows/{{ consts.mc_related_tickets_workflow }}/_run"
+      body:
+        inputs:
+          external_id: "{{ inputs.external_id }}"
+    on-failure:
+      continue: true
+
+  - name: log_completion
+    type: console
+    with:
+      message: "Mission Control enrichment chain dispatched for incident {{ inputs.external_id | default: '(none)' }}."

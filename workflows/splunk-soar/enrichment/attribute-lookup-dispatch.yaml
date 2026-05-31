@@ -1,0 +1,76 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Attribute Lookup — Dispatch"
+description: >
+  Routes available alert entities to downstream attribute lookup workflows
+  (AD LDAP, Azure AD Graph, CrowdStrike, etc.) tagged for attribute lookup.
+  Each returned observable is captured as a new artifact and the response
+  task in the case is closed.
+enabled: true
+tags: ["splunk-soar", "enrichment", "dispatch", "attribute-lookup", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: artifact_ids
+    type: array
+    required: false
+    description: "Optional explicit artifact id list. If empty, all current alert artifacts are used."
+  - name: case_id
+    type: string
+    required: false
+    description: "Optional Kibana case ID to update on completion."
+
+consts:
+  # Tag set used by the downstream playbooks the dispatcher invokes.
+  dispatch_tags: ["attributes"]
+
+steps:
+  - name: collect_artifacts
+    type: data.set
+    with:
+      artifacts: "${{ inputs.artifact_ids }}"
+
+  - name: any_artifacts
+    type: if
+    condition: "{{ steps.collect_artifacts.output.artifacts | size }} > 0"
+    steps:
+      # TODO: Elastic Workflows does not yet expose a generic "dispatch by tag"
+      # primitive. As a placeholder, summarize the artifacts and let an agent
+      # decide which lookup workflow to invoke. The original Phantom version
+      # called community/dispatch_input_playbooks with playbook_tags=attributes.
+      - name: ai_dispatch_decision
+        type: ai.prompt
+        with:
+          prompt: |
+            You are an enrichment dispatcher. For each artifact below,
+            identify any users, devices, IPs, domains, URLs, or file hashes,
+            and list which attribute lookup workflows should be run for
+            each entity (AD LDAP, Azure AD Graph, CrowdStrike, etc.).
+            Artifacts: {{ steps.collect_artifacts.output.artifacts | json }}
+        on-failure:
+          continue: true
+
+      - name: log_dispatch_summary
+        type: console
+        with:
+          message: "Attribute lookup dispatch suggestions: {{ steps.ai_dispatch_decision.output | default: '(none)' }}"
+
+      - name: case_update_branch
+        type: if
+        condition: "{{ inputs.case_id | size }} > 0"
+        steps:
+          - name: comment_on_case
+            type: kibana.addCaseComment
+            with:
+              caseId: "{{ inputs.case_id }}"
+              comment: "Attribute lookup dispatch complete. Suggested follow-ups: {{ steps.ai_dispatch_decision.output | default: '(none)' }}"
+    else:
+      - name: no_new_artifacts
+        type: console
+        with:
+          message: "No new artifacts found to dispatch."

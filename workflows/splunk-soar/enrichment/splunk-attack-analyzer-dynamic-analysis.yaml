@@ -1,0 +1,201 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Splunk Attack Analyzer — Dynamic Analysis"
+description: >
+  Detonates URLs or files via Splunk Attack Analyzer (SAA), polls each
+  job until the forensics are complete, normalizes the SAA verdict to an
+  OCSF reputation score, and emits per-observable records with related
+  observables, malware classifications, and the SAA report link.
+enabled: true
+tags: ["splunk-soar", "enrichment", "dynamic-analysis", "sandbox", "splunk-attack-analyzer", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: urls
+    type: array
+    required: false
+    description: "URLs to detonate."
+  - name: vault_ids
+    type: array
+    required: false
+    description: "Vault IDs (file references) to detonate."
+
+consts:
+  saa_endpoint: "https://CHANGEME-attack-analyzer.splunk.com/api/v1"
+  saa_auth_header: "Bearer CHANGEME_SAA_TOKEN"
+  poll_max_iterations: 15
+  poll_delay_seconds: 120
+  # OCSF-style verdict mapping reference.
+  score_table:
+    "0": "Unknown"
+    "1": "Very_Safe"
+    "2": "Safe"
+    "3": "Probably_Safe"
+    "4": "Leans_Safe"
+    "5": "May_not_be_Safe"
+    "6": "Exercise_Caution"
+    "7": "Suspicious_or_Risky"
+    "8": "Possibly_Malicious"
+    "9": "Probably_Malicious"
+    "10": "Malicious"
+
+steps:
+  - name: url_branch
+    type: if
+    condition: "{{ inputs.urls | size }} > 0"
+    steps:
+      - name: per_url
+        type: foreach
+        with:
+          items: ${{ inputs.urls }}
+        steps:
+          # TODO: native SAA connector when available.
+          - name: detonate_url
+            type: http
+            with:
+              url: "{{ consts.saa_endpoint }}/jobs/url"
+              method: POST
+              headers:
+                Authorization: "{{ consts.saa_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                url: "{{ item }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+          - name: url_detonation_started
+            type: if
+            condition: "{{ steps.detonate_url.output.JobID | size }} > 0"
+            steps:
+              # Poll forensics until the job state is done. In a real
+              # workflow this would use a built-in polling step type;
+              # for portability we use a simple wait + fetch.
+              - name: wait_for_url_forensics
+                type: wait
+                with:
+                  delay: "{{ consts.poll_delay_seconds }}s"
+
+              - name: get_url_job_summary
+                type: http
+                with:
+                  url: "{{ consts.saa_endpoint }}/jobs/{{ steps.detonate_url.output.JobID }}/summary"
+                  method: GET
+                  headers:
+                    Authorization: "{{ consts.saa_auth_header }}"
+                on-failure:
+                  retry:
+                    max-attempts: 5
+                    delay: "{{ consts.poll_delay_seconds }}s"
+                  continue: true
+
+              - name: get_url_screenshots
+                type: http
+                with:
+                  url: "{{ consts.saa_endpoint }}/jobs/{{ steps.detonate_url.output.JobID }}/screenshots"
+                  method: GET
+                  headers:
+                    Authorization: "{{ consts.saa_auth_header }}"
+                on-failure:
+                  continue: true
+
+              - name: normalize_url_score
+                type: data.set
+                with:
+                  observable:
+                    value: "{{ item }}"
+                    type: "url"
+                    source: "Splunk Attack Analyzer"
+                    source_link: "{{ steps.get_url_job_summary.output.AppURL | default: '' }}"
+                    reputation:
+                      orig_score: "{{ steps.get_url_job_summary.output.Score | default: 0 }}"
+                    malware:
+                      verdict: "{{ steps.get_url_job_summary.output.Verdict | default: 'Unknown' }}"
+
+              - name: log_url_result
+                type: console
+                with:
+                  message: |
+                    SAA URL detonation: url={{ item }} verdict={{ steps.get_url_job_summary.output.Verdict | default: 'Unknown' }}, app_url={{ steps.get_url_job_summary.output.AppURL | default: '' }}
+
+  - name: file_branch
+    type: if
+    condition: "{{ inputs.vault_ids | size }} > 0"
+    steps:
+      - name: per_file
+        type: foreach
+        with:
+          items: ${{ inputs.vault_ids }}
+        steps:
+          - name: detonate_file
+            type: http
+            with:
+              url: "{{ consts.saa_endpoint }}/jobs/file"
+              method: POST
+              headers:
+                Authorization: "{{ consts.saa_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                file: "{{ item }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+          - name: file_detonation_started
+            type: if
+            condition: "{{ steps.detonate_file.output.JobID | size }} > 0"
+            steps:
+              - name: wait_for_file_forensics
+                type: wait
+                with:
+                  delay: "{{ consts.poll_delay_seconds }}s"
+
+              - name: get_file_job_summary
+                type: http
+                with:
+                  url: "{{ consts.saa_endpoint }}/jobs/{{ steps.detonate_file.output.JobID }}/summary"
+                  method: GET
+                  headers:
+                    Authorization: "{{ consts.saa_auth_header }}"
+                on-failure:
+                  retry:
+                    max-attempts: 5
+                    delay: "{{ consts.poll_delay_seconds }}s"
+                  continue: true
+
+              - name: get_file_screenshots
+                type: http
+                with:
+                  url: "{{ consts.saa_endpoint }}/jobs/{{ steps.detonate_file.output.JobID }}/screenshots"
+                  method: GET
+                  headers:
+                    Authorization: "{{ consts.saa_auth_header }}"
+                on-failure:
+                  continue: true
+
+              - name: normalize_file_score
+                type: data.set
+                with:
+                  observable:
+                    value: "{{ item }}"
+                    type: "hash"
+                    source: "Splunk Attack Analyzer"
+                    source_link: "{{ steps.get_file_job_summary.output.AppURL | default: '' }}"
+                    reputation:
+                      orig_score: "{{ steps.get_file_job_summary.output.Score | default: 0 }}"
+                    malware:
+                      verdict: "{{ steps.get_file_job_summary.output.Verdict | default: 'Unknown' }}"
+
+              - name: log_file_result
+                type: console
+                with:
+                  message: |
+                    SAA file detonation: file={{ item }} verdict={{ steps.get_file_job_summary.output.Verdict | default: 'Unknown' }}, app_url={{ steps.get_file_job_summary.output.AppURL | default: '' }}

@@ -1,0 +1,81 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Azure AD Graph — User Attribute Lookup"
+description: >
+  Fetches the current Azure AD profile for a user via Microsoft Graph,
+  normalizes the profile into an OCSF-style user observable, and emits
+  the result. Useful as a building block for entity-attribute enrichment
+  pipelines.
+enabled: true
+tags: ["splunk-soar", "enrichment", "attribute-lookup", "azure-ad", "ms-graph", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: user
+    type: string
+    required: true
+    description: "Azure AD user id or UPN to look up."
+
+consts:
+  graph_base: "https://graph.microsoft.com/v1.0"
+  graph_auth_header: "Bearer CHANGEME_GRAPH_TOKEN"
+
+steps:
+  # TODO: Replace with a native Microsoft Graph connector when one ships.
+  - name: get_user_attributes
+    type: http
+    with:
+      url: "{{ consts.graph_base }}/users/{{ inputs.user }}"
+      method: GET
+      headers:
+        Authorization: "{{ consts.graph_auth_header }}"
+        Accept: "application/json"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: lookup_succeeded
+    type: if
+    condition: "{{ steps.get_user_attributes.output.userPrincipalName | size }} > 0"
+    steps:
+      - name: build_user_observable
+        type: data.set
+        with:
+          user_observable:
+            type: "user"
+            value: "{{ inputs.user }}"
+            source: "Azure AD Graph"
+            attributes:
+              account_type: "Azure AD Account"
+              account_type_id: 6
+              account_uid: "{{ steps.get_user_attributes.output.userPrincipalName }}"
+              email_addr: "{{ steps.get_user_attributes.output.mail | default: '' }}"
+              full_name: "{{ steps.get_user_attributes.output.displayName | default: '' }}"
+              name: "{{ steps.get_user_attributes.output.userPrincipalName }}"
+              start_date: "{{ steps.get_user_attributes.output.createdDateTime | default: '' }}"
+              uid: "{{ steps.get_user_attributes.output.id | default: '' }}"
+              type: "User"
+              type_id: 1
+              job_title: "{{ steps.get_user_attributes.output.jobTitle | default: '' }}"
+              department: "{{ steps.get_user_attributes.output.department | default: '' }}"
+              telephone: "{{ steps.get_user_attributes.output.businessPhones[0] | default: '' }}"
+
+      - name: log_user_record
+        type: console
+        with:
+          message: |
+            Azure AD lookup for {{ inputs.user }}:
+            display_name={{ steps.get_user_attributes.output.displayName | default: '' }}
+            mail={{ steps.get_user_attributes.output.mail | default: '' }}
+            department={{ steps.get_user_attributes.output.department | default: '' }}
+    else:
+      - name: no_user_found
+        type: console
+        with:
+          message: "No Azure AD record returned for {{ inputs.user }}."

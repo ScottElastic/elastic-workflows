@@ -1,0 +1,174 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "AD LDAP — Entity Attribute Lookup"
+description: >
+  Looks up attribute and group membership details for a user and/or device
+  in Active Directory via LDAP. Returns a normalized observable record per
+  entity, combining account fields (UPN, email, account expiration, phones)
+  and a deduplicated set of group memberships with descriptions.
+enabled: true
+tags: ["splunk-soar", "enrichment", "attribute-lookup", "ad-ldap", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: user
+    type: string
+    required: false
+    description: "AD principal (sAMAccountName, UPN, or DN) to look up."
+  - name: device
+    type: string
+    required: false
+    description: "Device hostname / sAMAccountName / DN to look up."
+
+consts:
+  # Replace with the endpoint that fronts your AD/LDAP directory.
+  ad_ldap_endpoint: "https://CHANGEME-ldap-proxy.internal/api/ldap"
+  ad_ldap_auth_header: "Bearer CHANGEME_TOKEN"
+  user_attribute_list: "userPrincipalName;mail;accountExpires;name;memberOf;title;department;manager;sAMAccountName;distinguishedName;mobile;ipPhone;homePhone;telephoneNumber;otherMobile;otherIpPhone;otherHomePhone;otherTelephone;whenCreated;objectSid;objectGUID"
+  group_attribute_list: "description;name;memberOf;distinguishedName"
+  device_attribute_list: "description;distinguishedName;objectSid;memberOf;name;sAMAccountName"
+
+steps:
+  - name: lookup_user_branch
+    type: if
+    condition: "{{ inputs.user | size }} > 0"
+    steps:
+      # TODO: replace with native AD/LDAP connector once available.
+      - name: get_user_attributes
+        type: http
+        with:
+          url: "{{ consts.ad_ldap_endpoint }}/get-attributes"
+          method: POST
+          headers:
+            Authorization: "{{ consts.ad_ldap_auth_header }}"
+            Content-Type: "application/json"
+          body:
+            principals: "{{ inputs.user }}"
+            attributes: "{{ consts.user_attribute_list }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: user_found_check
+        type: if
+        condition: "{{ steps.get_user_attributes.output.total_objects | default: 0 }} > 0"
+        steps:
+          # Look up details for every group the user belongs to.
+          - name: get_user_group_attributes
+            type: http
+            with:
+              url: "{{ consts.ad_ldap_endpoint }}/run-query"
+              method: POST
+              headers:
+                Authorization: "{{ consts.ad_ldap_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                filter_template: "(|(distinguishedName={member}))"
+                members: "${{ steps.get_user_attributes.output.entries[0].attributes.memberOf }}"
+                attributes: "{{ consts.group_attribute_list }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+          - name: build_user_observable
+            type: data.set
+            with:
+              user_observable:
+                type: "user"
+                value: "{{ inputs.user }}"
+                source: "AD LDAP"
+                attributes:
+                  account_type: "LDAP Account"
+                  account_type_id: 1
+                  account_uid: "{{ steps.get_user_attributes.output.entries[0].attributes.userPrincipalName | default: '' }}"
+                  email_addr: "{{ steps.get_user_attributes.output.entries[0].attributes.mail | default: '' }}"
+                  full_name: "{{ steps.get_user_attributes.output.entries[0].attributes.name | default: '' }}"
+                  name: "{{ steps.get_user_attributes.output.entries[0].attributes.sAMAccountName | default: '' }}"
+                  end_date: "{{ steps.get_user_attributes.output.entries[0].attributes.accountExpires | default: '' }}"
+                  start_date: "{{ steps.get_user_attributes.output.entries[0].attributes.whenCreated | default: '' }}"
+                  uid: "{{ steps.get_user_attributes.output.entries[0].attributes.distinguishedName | default: '' }}"
+                  uuid: "{{ steps.get_user_attributes.output.entries[0].attributes.objectGUID | default: '' }}"
+                  type: "User"
+                  type_id: 1
+                  groups: "${{ steps.get_user_group_attributes.output.entries }}"
+
+  - name: lookup_device_branch
+    type: if
+    condition: "{{ inputs.device | size }} > 0"
+    steps:
+      # Equivalent of the source playbook's "format_device_query" template.
+      - name: build_device_filter
+        type: data.set
+        with:
+          device_filter: "(&(objectCategory=computer)(|(sAMAccountName={{ inputs.device }}*)(distinguishedName={{ inputs.device }}*)(userPrincipalName={{ inputs.device }}*)))"
+
+      - name: get_device_attributes
+        type: http
+        with:
+          url: "{{ consts.ad_ldap_endpoint }}/run-query"
+          method: POST
+          headers:
+            Authorization: "{{ consts.ad_ldap_auth_header }}"
+            Content-Type: "application/json"
+          body:
+            filter: "{{ steps.build_device_filter.output.device_filter }}"
+            attributes: "{{ consts.device_attribute_list }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: device_found_check
+        type: if
+        condition: "{{ steps.get_device_attributes.output.total_objects | default: 0 }} > 0"
+        steps:
+          - name: get_device_group_attributes
+            type: http
+            with:
+              url: "{{ consts.ad_ldap_endpoint }}/run-query"
+              method: POST
+              headers:
+                Authorization: "{{ consts.ad_ldap_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                filter_template: "(|(distinguishedName={member}))"
+                members: "${{ steps.get_device_attributes.output.entries[0].attributes.memberof }}"
+                attributes: "{{ consts.group_attribute_list }}"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "3s"
+              continue: true
+
+          - name: build_device_observable
+            type: data.set
+            with:
+              device_observable:
+                type: "host name"
+                value: "{{ inputs.device }}"
+                source: "AD LDAP"
+                attributes:
+                  desc: "{{ steps.get_device_attributes.output.entries[0].attributes.description | default: '' }}"
+                  hostname: "{{ steps.get_device_attributes.output.entries[0].attributes.name | default: '' }}"
+                  name: "{{ steps.get_device_attributes.output.entries[0].attributes.samaccountname | default: '' }}"
+                  uid: "{{ steps.get_device_attributes.output.entries[0].attributes.objectsid | default: '' }}"
+                  type: "Unknown"
+                  type_id: 0
+                  groups: "${{ steps.get_device_group_attributes.output.entries }}"
+
+  - name: summarize
+    type: console
+    with:
+      message: |
+        AD LDAP entity attribute lookup complete.
+        user_query={{ inputs.user | default: '(none)' }}
+        device_query={{ inputs.device | default: '(none)' }}

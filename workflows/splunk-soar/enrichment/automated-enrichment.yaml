@@ -1,0 +1,87 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Automated Enrichment"
+description: >
+  Orchestrator workflow that flips the case to open and then chains three
+  dispatcher workflows: identifier activity analysis, attribute lookup, and
+  related ticket search. Use as a one-call enrichment trigger when a new
+  alert lands.
+enabled: true
+tags: ["splunk-soar", "enrichment", "orchestrator", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: case_id
+    type: string
+    required: false
+    description: "Kibana case to mark as open prior to enrichment."
+
+consts:
+  # Workflow IDs to dispatch. Wire these to the actual workflow IDs created
+  # for the downstream dispatch workflows in this folder.
+  identifier_activity_workflow: "CHANGEME-identifier-activity-analysis-dispatch"
+  attribute_lookup_workflow: "CHANGEME-attribute-lookup-dispatch"
+  related_tickets_workflow: "CHANGEME-related-tickets-search-dispatch"
+
+steps:
+  - name: open_case
+    type: if
+    condition: "{{ inputs.case_id | size }} > 0"
+    steps:
+      - name: case_to_open
+        type: kibana.request
+        with:
+          method: PATCH
+          path: "/api/cases"
+          body:
+            cases:
+              - id: "{{ inputs.case_id }}"
+                status: "open"
+        on-failure:
+          continue: true
+
+  # Each chained dispatch is represented as a Kibana request that triggers the
+  # target workflow run. Replace endpoints with the actual workflow execution
+  # endpoint in your deployment.
+  - name: run_identifier_activity_dispatch
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/workflows/{{ consts.identifier_activity_workflow }}/_run"
+      body:
+        inputs:
+          case_id: "{{ inputs.case_id }}"
+    on-failure:
+      continue: true
+
+  - name: run_attribute_lookup_dispatch
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/workflows/{{ consts.attribute_lookup_workflow }}/_run"
+      body:
+        inputs:
+          case_id: "{{ inputs.case_id }}"
+    on-failure:
+      continue: true
+
+  - name: run_related_tickets_dispatch
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/workflows/{{ consts.related_tickets_workflow }}/_run"
+      body:
+        inputs:
+          case_id: "{{ inputs.case_id }}"
+    on-failure:
+      continue: true
+
+  - name: log_completion
+    type: console
+    with:
+      message: "Automated enrichment chain dispatched for case {{ inputs.case_id | default: '(no case)' }}."

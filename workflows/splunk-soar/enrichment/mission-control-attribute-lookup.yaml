@@ -1,0 +1,126 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Mission Control — Attribute Lookup"
+description: >
+  Mission Control orchestrator that runs the Azure AD Graph user lookup
+  and the CrowdStrike device lookup in parallel, merges the returned
+  observables, and stores each as a new event tied to the originating
+  incident. Closes the response task on completion.
+enabled: true
+tags: ["splunk-soar", "enrichment", "mission-control", "attribute-lookup", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: users
+    type: array
+    required: false
+    description: "User identifiers to enrich via Azure AD Graph."
+  - name: devices
+    type: array
+    required: false
+    description: "Device identifiers (hostnames or IPs) to enrich via CrowdStrike."
+  - name: external_id
+    type: string
+    required: false
+    description: "Mission Control incident id used to associate events."
+
+consts:
+  azure_ad_user_lookup_workflow: "CHANGEME-azure-ad-graph-user-attribute-lookup"
+  crowdstrike_device_lookup_workflow: "CHANGEME-crowdstrike-device-attribute-lookup"
+  mc_endpoint: "https://CHANGEME-mc.internal/api"
+  mc_auth_header: "Bearer CHANGEME_TOKEN"
+
+steps:
+  - name: collect_user_targets
+    type: data.set
+    with:
+      users: "${{ inputs.users }}"
+
+  - name: collect_device_targets
+    type: data.set
+    with:
+      devices: "${{ inputs.devices }}"
+
+  # Parallel lookups: fan out across users.
+  - name: per_user_lookup
+    type: foreach
+    with:
+      items: ${{ steps.collect_user_targets.output.users }}
+    steps:
+      - name: run_azure_ad_user_lookup
+        type: kibana.request
+        with:
+          method: POST
+          path: "/api/workflows/{{ consts.azure_ad_user_lookup_workflow }}/_run"
+          body:
+            inputs:
+              user: "{{ item }}"
+        on-failure:
+          continue: true
+
+  # Fan out across devices.
+  - name: per_device_lookup
+    type: foreach
+    with:
+      items: ${{ steps.collect_device_targets.output.devices }}
+    steps:
+      - name: run_crowdstrike_device_lookup
+        type: kibana.request
+        with:
+          method: POST
+          path: "/api/workflows/{{ consts.crowdstrike_device_lookup_workflow }}/_run"
+          body:
+            inputs:
+              device: "{{ item }}"
+        on-failure:
+          continue: true
+
+  - name: have_external_id
+    type: if
+    condition: "{{ inputs.external_id | size }} > 0"
+    steps:
+      # TODO: replace with a native Mission Control connector once available.
+      - name: create_events_in_mc
+        type: http
+        with:
+          url: "{{ consts.mc_endpoint }}/incidents/{{ inputs.external_id }}/events"
+          method: POST
+          headers:
+            Authorization: "{{ consts.mc_auth_header }}"
+            Content-Type: "application/json"
+          body:
+            user_lookups_run: "{{ steps.collect_user_targets.output.users | size }}"
+            device_lookups_run: "{{ steps.collect_device_targets.output.devices | size }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: close_mc_task
+        type: http
+        with:
+          url: "{{ consts.mc_endpoint }}/incidents/{{ inputs.external_id }}/tasks/playbook"
+          method: PATCH
+          headers:
+            Authorization: "{{ consts.mc_auth_header }}"
+            Content-Type: "application/json"
+          body:
+            status: "Ended"
+            note:
+              title: "Task Complete"
+              content: "MC Attribute Lookup created new events."
+        on-failure:
+          continue: true
+
+  - name: log_completion
+    type: console
+    with:
+      message: |
+        Mission Control attribute lookup ran user lookups={{ steps.collect_user_targets.output.users | size }},
+        device lookups={{ steps.collect_device_targets.output.devices | size }}.

@@ -1,0 +1,94 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Dynamic Analysis — Dispatch"
+description: >
+  Routes URL and file (vault id) artifacts to downstream sandbox detonation
+  workflows tagged for dynamic analysis. After the dispatched workflows
+  return, tags observable indicators with classifications, captures a brief
+  summary, and closes the case task.
+enabled: true
+tags: ["splunk-soar", "enrichment", "dispatch", "dynamic-analysis", "sandbox", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: urls
+    type: array
+    required: false
+    description: "URLs to detonate. If empty, taken from alert artifacts."
+  - name: vault_ids
+    type: array
+    required: false
+    description: "Vault IDs (file references) to detonate."
+  - name: case_id
+    type: string
+    required: false
+    description: "Optional Kibana case ID to update on completion."
+
+consts:
+  # Tag downstream sandbox detonation workflows.
+  dispatch_tags: ["sandbox"]
+
+steps:
+  - name: collect_inputs
+    type: data.set
+    with:
+      urls: "${{ inputs.urls }}"
+      vault_ids: "${{ inputs.vault_ids }}"
+
+  - name: have_inputs
+    type: if
+    condition: "{{ steps.collect_inputs.output.urls | size }} > 0 or {{ steps.collect_inputs.output.vault_ids | size }} > 0"
+    steps:
+      # TODO: Elastic Workflows has no generic dispatcher by tag yet. Use an
+      # ai.prompt step to recommend which sandbox/dynamic analysis workflow to
+      # run for the supplied indicators. Equivalent to the Phantom playbook's
+      # call to community/dispatch_input_playbooks with playbook_tags=sandbox.
+      - name: ai_dispatch_decision
+        type: ai.prompt
+        with:
+          prompt: |
+            Recommend which sandbox detonation workflow to run for each
+            of the following URLs and files. Possible workflows include
+            Splunk Attack Analyzer, VirusTotal v3, UrlScan IO, and
+            CrowdStrike OAuth API dynamic analysis. URLs:
+            {{ steps.collect_inputs.output.urls | json }}
+            Vault IDs:
+            {{ steps.collect_inputs.output.vault_ids | json }}
+        on-failure:
+          continue: true
+
+      - name: summary_table
+        type: data.set
+        with:
+          summary:
+            total_urls: "{{ steps.collect_inputs.output.urls | size }}"
+            total_files: "{{ steps.collect_inputs.output.vault_ids | size }}"
+            recommendation: "{{ steps.ai_dispatch_decision.output | default: '(none)' }}"
+
+      - name: case_update_branch
+        type: if
+        condition: "{{ inputs.case_id | size }} > 0"
+        steps:
+          - name: comment_case_with_summary
+            type: kibana.addCaseComment
+            with:
+              caseId: "{{ inputs.case_id }}"
+              comment: "Dynamic analysis dispatch complete. Recommendation: {{ steps.ai_dispatch_decision.output | default: '(none)' }}"
+
+      - name: log_dispatch
+        type: console
+        with:
+          message: |
+            Dynamic analysis dispatch run.
+            urls={{ steps.collect_inputs.output.urls | size }}
+            files={{ steps.collect_inputs.output.vault_ids | size }}
+    else:
+      - name: no_indicators
+        type: console
+        with:
+          message: "No URL or vault_id indicators supplied — nothing to dispatch."

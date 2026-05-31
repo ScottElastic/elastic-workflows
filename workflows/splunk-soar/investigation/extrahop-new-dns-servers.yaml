@@ -1,0 +1,143 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "ExtraHop — New DNS Server Discovery & Scan"
+description: >
+  Runs on a 30-minute cadence to surface newly seen DNS servers from ExtraHop.
+  For each new device it pulls profile/peer/protocol context and triggers a
+  Nessus scan using a configured policy.
+enabled: true
+tags: ["splunk-soar", "investigation", "extrahop", "dns", "nessus", "scheduled", "translated"]
+
+triggers:
+  - type: scheduled
+    with:
+      every: "30m"
+  - type: manual
+
+inputs:
+  - name: nessus_policy_name
+    type: string
+    required: true
+    description: "Name of the Nessus scan policy to apply against any newly seen DNS server."
+
+consts:
+  extrahop_endpoint: "https://CHANGEME-extrahop/api/v1"
+  extrahop_auth: "ExtraHop apikey=CHANGEME"
+  nessus_endpoint: "https://CHANGEME-nessus:8834"
+  nessus_auth: "X-ApiKeys: accessKey=CHANGEME; secretKey=CHANGEME"
+  lookback_minutes: 30
+
+steps:
+  # TODO: replace these http stubs with native ExtraHop and Tenable connectors
+  # when they become available in Elastic Workflows.
+  - name: get_new_dns_servers
+    type: http
+    with:
+      url: "{{ consts.extrahop_endpoint }}/devices/search"
+      method: POST
+      headers:
+        Authorization: "{{ consts.extrahop_auth }}"
+        Content-Type: "application/json"
+      body:
+        active_from_time_minutes: "{{ consts.lookback_minutes }}"
+        activity_type: "dns_server"
+    on-failure:
+      continue: true
+
+  - name: list_nessus_policies
+    type: http
+    with:
+      url: "{{ consts.nessus_endpoint }}/policies"
+      method: GET
+      headers:
+        Authorization: "{{ consts.nessus_auth }}"
+    on-failure:
+      continue: true
+
+  - name: any_new_servers_found
+    type: if
+    condition: "{{ steps.get_new_dns_servers.output.devices | size }} > 0"
+    steps:
+      - name: investigate_each_new_server
+        type: foreach
+        with:
+          items: ${{ steps.get_new_dns_servers.output.devices }}
+        steps:
+          - name: skip_if_no_ip
+            type: if
+            condition: "{{ item.ipaddr4 | size }} > 0"
+            steps:
+              - name: get_device_info
+                type: http
+                with:
+                  url: "{{ consts.extrahop_endpoint }}/devices/{{ item.id }}"
+                  method: GET
+                  headers:
+                    Authorization: "{{ consts.extrahop_auth }}"
+                on-failure:
+                  continue: true
+
+              - name: get_peers
+                type: http
+                with:
+                  url: "{{ consts.extrahop_endpoint }}/activitymaps"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.extrahop_auth }}"
+                    Content-Type: "application/json"
+                  body:
+                    device_id: "{{ item.id }}"
+                    from_time_minutes: "{{ consts.lookback_minutes }}"
+                    peer_role: "any"
+                    protocol: "any"
+                on-failure:
+                  continue: true
+
+              - name: get_protocols
+                type: http
+                with:
+                  url: "{{ consts.extrahop_endpoint }}/activitymaps"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.extrahop_auth }}"
+                    Content-Type: "application/json"
+                  body:
+                    device_id: "{{ item.id }}"
+                    from_time_minutes: "{{ consts.lookback_minutes }}"
+                    mode: "protocols"
+                on-failure:
+                  continue: true
+
+              - name: pick_policy_id
+                type: data.set
+                # Picks the first policy whose name matches inputs.nessus_policy_name.
+                # In Phantom the filter was looser (==""); we use the input value.
+                with:
+                  matched_policies: ${{ steps.list_nessus_policies.output.policies }}
+
+              - name: launch_nessus_scan
+                type: http
+                with:
+                  url: "{{ consts.nessus_endpoint }}/scans"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.nessus_auth }}"
+                    Content-Type: "application/json"
+                  body:
+                    uuid: "{{ steps.pick_policy_id.output.matched_policies[0].id }}"
+                    settings:
+                      name: "Auto-scan new DNS server {{ item.ipaddr4 }}"
+                      text_targets: "{{ item.ipaddr4 }}"
+                      policy_id: "{{ steps.pick_policy_id.output.matched_policies[0].id }}"
+                on-failure:
+                  retry:
+                    max-attempts: 2
+                    delay: "5s"
+                  continue: true
+
+              - name: log_scan_launched
+                type: console
+                with:
+                  message: "Nessus scan launched against newly seen DNS server {{ item.ipaddr4 }} (scan id {{ steps.launch_nessus_scan.output.scan.id | default: 'n/a' }})."

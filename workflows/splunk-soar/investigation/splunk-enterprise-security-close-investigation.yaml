@@ -1,0 +1,89 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Splunk ES — Close Investigation"
+description: >
+  Finishes an investigation by closing both the Kibana case and the
+  corresponding Splunk Enterprise Security notable. A short comment
+  with the executing user, the case ID, and the close timestamp is
+  written back into the Splunk notable.
+enabled: true
+tags: ["splunk-soar", "investigation", "splunk", "close", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: container_id
+    type: string
+    required: true
+    description: "Kibana case identifier."
+  - name: event_id
+    type: string
+    required: true
+    description: "Splunk ES notable event_id."
+  - name: close_time
+    type: string
+    required: false
+    description: "Close timestamp (defaults to now)."
+  - name: closing_user
+    type: string
+    required: false
+    description: "Username of the analyst closing the case."
+
+consts:
+  splunk_endpoint: "https://CHANGEME-splunk.internal:8089"
+  splunk_auth_header: "Bearer CHANGEME_SPLUNK_TOKEN"
+  kibana_case_id: "CHANGEME-case-id"
+
+steps:
+  - name: resolve_user
+    type: data.set
+    with:
+      user: "{{ inputs.closing_user | default: 'workflow-automation' }}"
+      timestamp: "{{ inputs.close_time | default: 'now' }}"
+
+  - name: close_kibana_case
+    type: kibana.request
+    with:
+      method: PATCH
+      path: "/api/cases"
+      body:
+        cases:
+          - id: "{{ consts.kibana_case_id }}"
+            status: "closed"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: ensure_event_id_present
+    type: if
+    condition: "{{ inputs.event_id | size }} > 0"
+    steps:
+      - name: build_close_comment
+        type: data.set
+        with:
+          comment: "Elastic case {{ inputs.container_id }} closed at {{ steps.resolve_user.output.timestamp }} by {{ steps.resolve_user.output.user }}"
+
+      - name: close_splunk_notable
+        type: http
+        with:
+          url: "{{ consts.splunk_endpoint }}/services/notable_update"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "ruleUIDs={{ inputs.event_id }}&status=closed&comment={{ steps.build_close_comment.output.comment }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+
+  - name: log_complete
+    type: console
+    with:
+      message: "Closed investigation for event_id {{ inputs.event_id }} / case {{ inputs.container_id }}."

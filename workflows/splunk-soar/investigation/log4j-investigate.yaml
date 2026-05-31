@@ -1,0 +1,154 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "log4j — Master Investigation Orchestrator (CVE-2021-44228)"
+description: >
+  Top-level orchestrator for the log4j (CVE-2021-44228) investigation. Reads
+  a configured list of potential affected hosts (and OS family), runs Splunk
+  context searches, then dispatches per-host investigation workflows for
+  Linux (SSH) and Windows (WinRM) — including dedicated log4j sweeps — and
+  finally chains into the log4j response playbook.
+enabled: true
+tags: ["splunk-soar", "investigation", "log4j", "cve-2021-44228", "orchestrator", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: hosts
+    type: array
+    required: true
+    description: >
+      List of objects describing target hosts:
+      [{ ip_or_hostname: 'host1', os_family: 'unix' }, { ip_or_hostname: '1.1.1.1', os_family: 'windows' }, ...]
+      os_family may be 'unix', 'windows', or 'unknown' (unknown runs both branches).
+
+consts:
+  workflow_runner_endpoint: "https://CHANGEME-kibana/api/workflows"
+  workflow_runner_auth: "ApiKey CHANGEME"
+  splunk_log4j_workflow_id: "CHANGEME-internal_host_splunk_investigate_log4j"
+  ssh_investigate_workflow_id: "CHANGEME-internal_host_ssh_investigate"
+  ssh_log4j_workflow_id: "CHANGEME-internal_host_ssh_log4j_investigate"
+  winrm_investigate_workflow_id: "CHANGEME-internal_host_winrm_investigate"
+  winrm_log4j_workflow_id: "CHANGEME-internal_host_winrm_log4j_investigate"
+  log4j_respond_workflow_id: "CHANGEME-log4j_respond"
+
+steps:
+  - name: ensure_have_hosts
+    type: if
+    condition: "{{ inputs.hosts | size }} == 0"
+    steps:
+      - name: no_hosts_provided
+        type: console
+        with:
+          message: "ERROR: No hosts provided. log4j investigation cannot proceed."
+
+  - name: have_hosts
+    type: if
+    condition: "{{ inputs.hosts | size }} > 0"
+    steps:
+      - name: run_splunk_log4j_lookup
+        # TODO: replace with native workflow-invoke step when Elastic Workflows
+        # adds one. For now invoke via the Kibana workflows API.
+        type: http
+        with:
+          url: "{{ consts.workflow_runner_endpoint }}/{{ consts.splunk_log4j_workflow_id }}/execute"
+          method: POST
+          headers:
+            Authorization: "{{ consts.workflow_runner_auth }}"
+            kbn-xsrf: "true"
+            Content-Type: "application/json"
+          body:
+            inputs:
+              ip_or_hostname: "{{ inputs.hosts | map: 'ip_or_hostname' | join: ',' }}"
+        on-failure:
+          continue: true
+
+      - name: per_host_dispatch
+        type: foreach
+        with:
+          items: ${{ inputs.hosts }}
+        steps:
+          - name: unix_or_unknown
+            type: if
+            condition: "('{{ item.os_family }}' == 'unix') or ('{{ item.os_family }}' == 'unknown')"
+            steps:
+              - name: ssh_general_investigate
+                type: http
+                with:
+                  url: "{{ consts.workflow_runner_endpoint }}/{{ consts.ssh_investigate_workflow_id }}/execute"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.workflow_runner_auth }}"
+                    kbn-xsrf: "true"
+                    Content-Type: "application/json"
+                  body:
+                    inputs:
+                      ip_or_hostname: "{{ item.ip_or_hostname }}"
+                on-failure:
+                  continue: true
+
+              - name: ssh_log4j_investigate
+                type: http
+                with:
+                  url: "{{ consts.workflow_runner_endpoint }}/{{ consts.ssh_log4j_workflow_id }}/execute"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.workflow_runner_auth }}"
+                    kbn-xsrf: "true"
+                    Content-Type: "application/json"
+                  body:
+                    inputs:
+                      ip_or_hostname: "{{ item.ip_or_hostname }}"
+                on-failure:
+                  continue: true
+
+          - name: windows_or_unknown
+            type: if
+            condition: "('{{ item.os_family }}' == 'windows') or ('{{ item.os_family }}' == 'unknown')"
+            steps:
+              - name: winrm_general_investigate
+                type: http
+                with:
+                  url: "{{ consts.workflow_runner_endpoint }}/{{ consts.winrm_investigate_workflow_id }}/execute"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.workflow_runner_auth }}"
+                    kbn-xsrf: "true"
+                    Content-Type: "application/json"
+                  body:
+                    inputs:
+                      ip_or_hostname: "{{ item.ip_or_hostname }}"
+                on-failure:
+                  continue: true
+
+              - name: winrm_log4j_investigate
+                type: http
+                with:
+                  url: "{{ consts.workflow_runner_endpoint }}/{{ consts.winrm_log4j_workflow_id }}/execute"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.workflow_runner_auth }}"
+                    kbn-xsrf: "true"
+                    Content-Type: "application/json"
+                  body:
+                    inputs:
+                      ip_or_hostname: "{{ item.ip_or_hostname }}"
+                on-failure:
+                  continue: true
+
+      - name: chain_into_response
+        type: http
+        with:
+          url: "{{ consts.workflow_runner_endpoint }}/{{ consts.log4j_respond_workflow_id }}/execute"
+          method: POST
+          headers:
+            Authorization: "{{ consts.workflow_runner_auth }}"
+            kbn-xsrf: "true"
+            Content-Type: "application/json"
+          body:
+            inputs:
+              hosts: ${{ inputs.hosts }}
+        on-failure:
+          continue: true

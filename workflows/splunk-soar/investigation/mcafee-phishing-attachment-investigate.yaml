@@ -1,0 +1,196 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "McAfee — Phishing Attachment Investigation"
+description: >
+  Investigates a phishing email containing a suspicious attachment. Detonates
+  the attachment in McAfee Advanced Threat Defense, geolocates and looks up
+  reputation on any IPs surfaced during dynamic analysis, pushes IOCs to the
+  OpenDXL fabric for TIE consumption, hunts McAfee Active Response for the
+  detected hashes, and finally creates a ServiceNow ticket plus emails an
+  analyst with the rollup.
+enabled: true
+tags: ["splunk-soar", "investigation", "phishing", "mcafee", "atd", "opendxl", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: vault_id
+    type: string
+    required: true
+    description: "Vault/file ID of the email attachment to detonate."
+  - name: from_email
+    type: string
+    required: false
+    description: "Sender of the original phishing email (for ticket context)."
+  - name: source_data_identifier
+    type: string
+    required: false
+    description: "Original alert source identifier (for ticket context)."
+
+consts:
+  mcafee_atd_endpoint: "https://CHANGEME-atd.example.com/php"
+  mcafee_atd_auth: "Bearer CHANGEME"
+  mcafee_opendxl_endpoint: "https://CHANGEME-opendxl.example.com"
+  mcafee_opendxl_auth: "Bearer CHANGEME"
+  maxmind_endpoint: "https://geoip.maxmind.com/geoip/v2.1/city/"
+  maxmind_auth: "Basic CHANGEME"
+  passivetotal_endpoint: "https://api.passivetotal.org/v2/enrichment"
+  passivetotal_auth: "Basic CHANGEME"
+  servicenow_connector_id: "CHANGEME-servicenow-connector"
+  smtp_connector_id: "CHANGEME-email-connector"
+  analyst_email: "analyst@mcafee-ebc.com"
+  admin_email: "admin@mcafee-ebc.com"
+  email_from: "phantom@mcafee-ebc.com"
+  malicious_severity_threshold: 3
+
+steps:
+  - name: has_attachment
+    type: if
+    condition: "{{ inputs.vault_id | size }} > 0"
+    steps:
+      # TODO: swap http stub for a native McAfee ATD connector when available.
+      - name: atd_detonate_file
+        type: http
+        with:
+          url: "{{ consts.mcafee_atd_endpoint }}/fileupload.php"
+          method: POST
+          headers:
+            Authorization: "{{ consts.mcafee_atd_auth }}"
+          body:
+            vault_id: "{{ inputs.vault_id }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "10s"
+          continue: true
+
+      - name: notify_admin_with_verdict
+        type: email
+        connector-id: "{{ consts.smtp_connector_id }}"
+        with:
+          to: "{{ consts.admin_email }}"
+          from: "{{ consts.email_from }}"
+          subject: "ATD verdict: {{ steps.atd_detonate_file.output.Summary.verdict | default: 'unknown' }}"
+          body: "{{ steps.atd_detonate_file.output.Summary.Verdict.Description | default: 'no description' }}"
+        on-failure:
+          continue: true
+
+      - name: detonation_was_malicious
+        type: if
+        condition: "{{ steps.atd_detonate_file.output.Summary.Verdict.Severity | default: 0 }} >= {{ consts.malicious_severity_threshold }}"
+        steps:
+          - name: enrich_ips_seen_during_detonation
+            type: foreach
+            with:
+              items: ${{ steps.atd_detonate_file.output.Summary.Ips }}
+            steps:
+              - name: geolocate_ip
+                type: http
+                with:
+                  url: "{{ consts.maxmind_endpoint }}{{ item.Ipv4 }}"
+                  method: GET
+                  headers:
+                    Authorization: "{{ consts.maxmind_auth }}"
+                on-failure:
+                  continue: true
+
+              - name: opendxl_push_ip
+                type: http
+                with:
+                  url: "{{ consts.mcafee_opendxl_endpoint }}/ip"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.mcafee_opendxl_auth }}"
+                  body:
+                    dxl_ip: "{{ item.Ipv4 }}"
+                on-failure:
+                  continue: true
+
+              - name: passivetotal_ip_reputation
+                type: http
+                with:
+                  url: "{{ consts.passivetotal_endpoint }}"
+                  method: GET
+                  headers:
+                    Authorization: "{{ consts.passivetotal_auth }}"
+                  query:
+                    query: "{{ item.Ipv4 }}"
+                on-failure:
+                  continue: true
+
+          - name: hunt_each_hash_via_mar
+            type: foreach
+            with:
+              items: ${{ steps.atd_detonate_file.output.Summary.Files }}
+            steps:
+              - name: opendxl_mar_lookup_hash
+                type: http
+                with:
+                  url: "{{ consts.mcafee_opendxl_endpoint }}/mar/lookup"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.mcafee_opendxl_auth }}"
+                  body:
+                    mar_md5: "{{ item.Md5 }}"
+                on-failure:
+                  continue: true
+
+              - name: mar_hit_remediation
+                type: if
+                condition: "{{ steps.opendxl_mar_lookup_hash.output.items | size | default: 0 }} > 0"
+                steps:
+                  - name: opendxl_push_hash_to_tie
+                    type: http
+                    with:
+                      url: "{{ consts.mcafee_opendxl_endpoint }}/tie/hash"
+                      method: POST
+                      headers:
+                        Authorization: "{{ consts.mcafee_opendxl_auth }}"
+                      body:
+                        dxl_rep: "KNOWN_MALICIOUS"
+                        tie_md5: "{{ item.Md5 }}"
+                    on-failure:
+                      continue: true
+
+                  - name: build_ticket_body
+                    type: data.set
+                    with:
+                      body: |
+                        Suspected phishing email received from {{ inputs.from_email | default: 'unknown' }}
+                        (source_data_identifier {{ inputs.source_data_identifier | default: 'unknown' }}).
+
+                        ATD severity: {{ steps.atd_detonate_file.output.Summary.Verdict.Severity }}
+                        MAR hits: {{ steps.opendxl_mar_lookup_hash.output.items | size }}
+                        First MAR hostname: {{ steps.opendxl_mar_lookup_hash.output.items[0].output.HostInfo.hostname | default: 'n/a' }}
+
+                        Please continue to investigate these endpoints as soon as possible.
+
+                  - name: create_servicenow_ticket
+                    type: servicenow
+                    connector-id: "{{ consts.servicenow_connector_id }}"
+                    with:
+                      subAction: "pushToService"
+                      subActionParams:
+                        incident:
+                          short_description: "phishing attachment present on endpoints"
+                          description: "{{ steps.build_ticket_body.output.body }}"
+                          impact: "2"
+                          urgency: "2"
+                          severity: "2"
+                    on-failure:
+                      continue: true
+
+                  - name: email_analyst
+                    type: email
+                    connector-id: "{{ consts.smtp_connector_id }}"
+                    with:
+                      to: "{{ consts.analyst_email }}"
+                      from: "{{ consts.email_from }}"
+                      subject: "phishing attachment present on endpoints"
+                      body: "{{ steps.build_ticket_body.output.body }}"
+                    on-failure:
+                      continue: true

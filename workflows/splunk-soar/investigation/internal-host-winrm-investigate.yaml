@@ -1,0 +1,119 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Windows Host — WinRM Investigation"
+description: >
+  Collects host context from a Windows endpoint over WinRM: process list,
+  active TCP connections, active sessions, plus a PowerShell collection
+  script that exports autoruns, installed programs, listening sockets,
+  processes, services, scheduled tasks, local users, and local groups to
+  CSV, zips them, copies the zip back, and removes the temp files.
+enabled: true
+tags: ["splunk-soar", "investigation", "endpoint", "winrm", "windows", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: ip_or_hostname
+    type: string
+    required: true
+    description: "Target Windows host (hostname or IP)."
+
+consts:
+  winrm_proxy_endpoint: "https://CHANGEME-winrm-proxy.internal"
+  winrm_proxy_auth: "Bearer CHANGEME"
+  collector_zip_name: "SOARFetch.zip"
+
+steps:
+  # TODO: swap http stubs for a native WinRM connector once available.
+  - name: list_processes
+    type: http
+    with:
+      url: "{{ consts.winrm_proxy_endpoint }}/processes"
+      method: POST
+      headers:
+        Authorization: "{{ consts.winrm_proxy_auth }}"
+      body:
+        host: "{{ inputs.ip_or_hostname }}"
+    on-failure:
+      continue: true
+
+  - name: list_connections
+    type: http
+    with:
+      url: "{{ consts.winrm_proxy_endpoint }}/connections"
+      method: POST
+      headers:
+        Authorization: "{{ consts.winrm_proxy_auth }}"
+      body:
+        host: "{{ inputs.ip_or_hostname }}"
+    on-failure:
+      continue: true
+
+  - name: list_sessions
+    type: http
+    with:
+      url: "{{ consts.winrm_proxy_endpoint }}/sessions"
+      method: POST
+      headers:
+        Authorization: "{{ consts.winrm_proxy_auth }}"
+      body:
+        host: "{{ inputs.ip_or_hostname }}"
+    on-failure:
+      continue: true
+
+  - name: build_collect_script
+    type: data.set
+    # Powershell that exports autoruns, installed programs, listening conns,
+    # processes, services, scheduled tasks, users and groups to per-host CSVs
+    # and zips them. Mirrors the original SOARFetch pattern.
+    with:
+      script: "$ProgressPreference = 'SilentlyContinue'; Get-CimInstance -ClassName Win32_StartupCommand | Export-Csv -Path .\\{{ inputs.ip_or_hostname }}-SOARFetch-Autorun.csv -NoType; Get-ItemProperty HKLM:\\Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\* | Export-Csv -Path .\\{{ inputs.ip_or_hostname }}-SOARFetch-InstalledPrograms.csv -NoType; Get-NetTCPConnection -State Listen | Export-Csv -Path .\\{{ inputs.ip_or_hostname }}-SOARFetch-NetworkConnections.csv -NoType; Get-Process -IncludeUserName | Export-Csv -Path .\\{{ inputs.ip_or_hostname }}-SOARFetch-Processes.csv -NoType; Get-Service | Export-Csv -Path .\\{{ inputs.ip_or_hostname }}-SOARFetch-Services.csv -NoType; Get-ScheduledTask | Export-Csv -Path .\\{{ inputs.ip_or_hostname }}-SOARFetch-ScheduledTasks.csv -NoType; Get-LocalUser | Export-Csv -Path .\\{{ inputs.ip_or_hostname }}-SOARFetch-Users.csv -NoType; Get-LocalGroup | Export-Csv -Path .\\{{ inputs.ip_or_hostname }}-SOARFetch-Groups.csv -NoType; Compress-Archive -Path .\\{{ inputs.ip_or_hostname }}-SOARFetch* .\\{{ inputs.ip_or_hostname }}-SOARFetch.zip"
+
+  - name: run_collect_script
+    type: http
+    with:
+      url: "{{ consts.winrm_proxy_endpoint }}/run-script"
+      method: POST
+      headers:
+        Authorization: "{{ consts.winrm_proxy_auth }}"
+      body:
+        host: "{{ inputs.ip_or_hostname }}"
+        script: "{{ steps.build_collect_script.output.script }}"
+    on-failure:
+      continue: true
+
+  - name: fetch_collect_zip
+    type: http
+    with:
+      url: "{{ consts.winrm_proxy_endpoint }}/get-file"
+      method: POST
+      headers:
+        Authorization: "{{ consts.winrm_proxy_auth }}"
+      body:
+        host: "{{ inputs.ip_or_hostname }}"
+        path: ".\\{{ inputs.ip_or_hostname }}-SOARFetch.zip"
+    on-failure:
+      continue: true
+
+  - name: cleanup_collect_files
+    type: http
+    with:
+      url: "{{ consts.winrm_proxy_endpoint }}/run-script"
+      method: POST
+      headers:
+        Authorization: "{{ consts.winrm_proxy_auth }}"
+      body:
+        host: "{{ inputs.ip_or_hostname }}"
+        script: "Remove-Item -Path .\\{{ inputs.ip_or_hostname }}-SOARFetch*"
+    on-failure:
+      continue: true
+
+  - name: investigation_summary
+    type: console
+    with:
+      message: |
+        WinRM investigation complete for {{ inputs.ip_or_hostname }}.
+        Collector zip retrieved: {{ steps.fetch_collect_zip.output.path | default: 'not retrieved' }}

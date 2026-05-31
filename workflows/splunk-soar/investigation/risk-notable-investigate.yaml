@@ -1,0 +1,145 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Splunk Risk Notable — Investigate"
+description: >
+  Bootstraps investigation of a risk notable: confirms whether the Risk
+  Investigation workbook exists, runs the preprocess and import-data
+  child workflows, then runs the enrichment child workflow. As each
+  child completes, the workflow updates the corresponding workbook task
+  with the returned note — or, when the workbook is not present, adds
+  the note directly as a case comment.
+enabled: true
+tags: ["splunk-soar", "investigation", "splunk", "risk-notable", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: container_id
+    type: string
+    required: true
+    description: "SOAR/Kibana case identifier."
+  - name: event_id
+    type: string
+    required: false
+    description: "Splunk notable event_id."
+  - name: workbook_present
+    type: boolean
+    required: false
+    default: false
+    description: "True if the Risk Investigation workbook is already attached."
+  - name: risk_rule_artifacts
+    type: array
+    required: false
+    default: []
+    description: "Pre-existing risk_rule artifacts (skip processing if non-empty)."
+
+consts:
+  kibana_case_id: "CHANGEME-case-id"
+  child_preprocess_workflow: "CHANGEME-risk-notable-preprocess"
+  child_import_workflow: "CHANGEME-risk-notable-import-data"
+  child_enrich_workflow: "CHANGEME-risk-notable-enrich"
+  kibana_host: "CHANGEME-kibana"
+
+steps:
+  - name: only_proceed_when_no_risk_rule_artifacts
+    type: if
+    condition: "{{ inputs.risk_rule_artifacts | size }} == 0"
+    steps:
+      - name: workbook_branch
+        type: if
+        condition: "{{ inputs.workbook_present }}"
+        steps:
+          - name: add_workbook
+            type: kibana.addCaseComment
+            with:
+              caseId: "{{ consts.kibana_case_id }}"
+              comment: "Risk Investigation workbook attached."
+            on-failure:
+              continue: true
+
+          - name: start_preprocess_task
+            type: data.set
+            with:
+              task: "Preprocess"
+              status: "in_progress"
+
+      # Always run preprocess + import_data + enrich chain in order.
+      - name: run_preprocess
+        type: http
+        with:
+          url: "https://{{ consts.kibana_host }}/api/workflows/{{ consts.child_preprocess_workflow }}/run"
+          method: POST
+          body:
+            inputs:
+              container_id: "{{ inputs.container_id }}"
+              event_id: "{{ inputs.event_id }}"
+        on-failure:
+          continue: true
+
+      - name: run_import_data
+        type: http
+        with:
+          url: "https://{{ consts.kibana_host }}/api/workflows/{{ consts.child_import_workflow }}/run"
+          method: POST
+          body:
+            inputs:
+              container_id: "{{ inputs.container_id }}"
+              event_id: "{{ inputs.event_id }}"
+        on-failure:
+          continue: true
+
+      - name: import_note_decision
+        type: if
+        condition: "{{ steps.run_import_data.output.note_title | default: '' | size }} > 0 and {{ steps.run_import_data.output.note_content | default: '' | size }} > 0"
+        steps:
+          - name: write_import_note
+            type: kibana.addCaseComment
+            with:
+              caseId: "{{ consts.kibana_case_id }}"
+              comment: |
+                **{{ steps.run_import_data.output.note_title }}**
+
+                {{ steps.run_import_data.output.note_content }}
+            on-failure:
+              continue: true
+
+          - name: start_investigate_task
+            type: if
+            condition: "{{ inputs.workbook_present }}"
+            steps:
+              - name: investigate_task_in_progress
+                type: data.set
+                with:
+                  task: "Investigate"
+                  status: "in_progress"
+
+      - name: run_enrich
+        type: http
+        with:
+          url: "https://{{ consts.kibana_host }}/api/workflows/{{ consts.child_enrich_workflow }}/run"
+          method: POST
+          body:
+            inputs:
+              container_id: "{{ inputs.container_id }}"
+              event_id: "{{ inputs.event_id }}"
+        on-failure:
+          continue: true
+
+      - name: enrich_note_decision
+        type: if
+        condition: "{{ steps.run_enrich.output.note_title | default: '' | size }} > 0 and {{ steps.run_enrich.output.note_content | default: '' | size }} > 0"
+        steps:
+          - name: write_enrich_note
+            type: kibana.addCaseComment
+            with:
+              caseId: "{{ consts.kibana_case_id }}"
+              comment: |
+                **{{ steps.run_enrich.output.note_title }}**
+
+                {{ steps.run_enrich.output.note_content }}
+            on-failure:
+              continue: true

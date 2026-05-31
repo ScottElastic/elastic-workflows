@@ -1,0 +1,260 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "ThreatQuotient — Investigate and Respond"
+description: >
+  Enriches source and destination IPs against ThreatQuotient's threat
+  library and VirusTotal. If ThreatQuotient returns no record, the IP
+  is pushed back to ThreatQuotient as an IOC for review. Active
+  adversary-linked IPs are blocked on the Palo Alto firewall. URLs
+  observed by VirusTotal that exceed positive thresholds are also
+  promoted to IOCs and added to the URL block list. The workflow also
+  creates a new ThreatQ event and, if a vault file is supplied, attaches
+  it to the event.
+enabled: true
+tags: ["splunk-soar", "investigation", "threatquotient", "virustotal", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: source_address
+    type: string
+    required: false
+    description: "External source address from the alert."
+  - name: destination_address
+    type: string
+    required: false
+    description: "External destination address from the alert."
+  - name: internal_ranges
+    type: array
+    required: false
+    default: []
+    description: "CIDRs / IPs considered internal (skip enrichment)."
+  - name: vault_id
+    type: string
+    required: false
+    description: "Optional file vault ID (uploads to ThreatQ event)."
+
+consts:
+  threatq_endpoint: "https://CHANGEME-threatq.internal/api"
+  threatq_auth_header: "Bearer CHANGEME_TQ_TOKEN"
+  panorama_endpoint: "https://CHANGEME-panorama.internal"
+  virustotal_connector_id: "CHANGEME-virustotal-connector"
+  vt_positives_threshold: 1
+
+steps:
+  # Always create a ThreatQ event for this incident.
+  # TODO: replace with a native ThreatQuotient connector when available.
+  - name: create_threatq_event
+    type: http
+    with:
+      url: "{{ consts.threatq_endpoint }}/events"
+      method: POST
+      headers:
+        Authorization: "{{ consts.threatq_auth_header }}"
+        Content-Type: "application/json"
+      body:
+        title: "Phantom-translated investigation event"
+        type: "Incident"
+    on-failure:
+      continue: true
+
+  # If a file was attached to the alert, upload it to the ThreatQ event.
+  - name: upload_file_if_present
+    type: if
+    condition: "{{ inputs.vault_id | size }} > 0"
+    steps:
+      - name: upload_file
+        type: http
+        with:
+          url: "{{ consts.threatq_endpoint }}/attachments"
+          method: POST
+          headers:
+            Authorization: "{{ consts.threatq_auth_header }}"
+          body:
+            vault_id: "{{ inputs.vault_id }}"
+            event_id: "{{ steps.create_threatq_event.output.id | default: '' }}"
+        on-failure:
+          continue: true
+
+  # Destination IP path.
+  - name: dst_branch
+    type: if
+    condition: "{{ inputs.destination_address | size }} > 0 and not {{ inputs.internal_ranges | includes: inputs.destination_address }}"
+    steps:
+      - name: dst_ip_reputation_tq
+        type: http
+        with:
+          url: "{{ consts.threatq_endpoint }}/indicators/search"
+          method: POST
+          headers:
+            Authorization: "{{ consts.threatq_auth_header }}"
+          body:
+            query: "{{ inputs.destination_address }}"
+        on-failure:
+          continue: true
+
+      - name: dst_present_in_tq
+        type: if
+        condition: "{{ steps.dst_ip_reputation_tq.output.message | default: '' }} == 'SUCCESS'"
+        steps:
+          - name: dst_ip_reputation_vt
+            type: virustotal.scanIp
+            connector-id: "{{ consts.virustotal_connector_id }}"
+            with:
+              ip: "{{ inputs.destination_address }}"
+            on-failure:
+              continue: true
+
+          - name: dst_block_if_active_adversary
+            type: if
+            condition: "{{ steps.dst_ip_reputation_tq.output.data | json | contains: 'Active' }}"
+            steps:
+              # TODO: replace with Palo Alto Networks native connector.
+              - name: block_dst_ip
+                type: http
+                with:
+                  url: "{{ consts.panorama_endpoint }}/api/?type=op"
+                  method: POST
+                  headers:
+                    Content-Type: "application/x-www-form-urlencoded"
+                  body: "cmd=block_ip&ip={{ inputs.destination_address }}"
+                on-failure:
+                  continue: true
+
+          - name: dst_block_high_url
+            type: if
+            condition: "${{ steps.dst_ip_reputation_vt.output.detected_urls | default: [] | size }} > 0"
+            steps:
+              - name: create_dst_url_ioc
+                type: http
+                with:
+                  url: "{{ consts.threatq_endpoint }}/indicators"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.threatq_auth_header }}"
+                  body:
+                    indicator: "${{ steps.dst_ip_reputation_vt.output.detected_urls | map: 'url' }}"
+                    indicator_type: "URL"
+                    indicator_status: "Review"
+                on-failure:
+                  continue: true
+
+              - name: block_dst_url
+                type: http
+                with:
+                  url: "{{ consts.panorama_endpoint }}/api/?type=op"
+                  method: POST
+                  body:
+                    cmd: "block_url"
+                    source_step: "create_dst_url_ioc"
+                on-failure:
+                  continue: true
+        else:
+          # No ThreatQ record yet → create an IOC for analyst review.
+          - name: create_dst_ip_ioc
+            type: http
+            with:
+              url: "{{ consts.threatq_endpoint }}/indicators"
+              method: POST
+              headers:
+                Authorization: "{{ consts.threatq_auth_header }}"
+              body:
+                indicator: "{{ inputs.destination_address }}"
+                indicator_type: "IP Address"
+                indicator_status: "Review"
+            on-failure:
+              continue: true
+
+  # Source IP path (mirror image of destination).
+  - name: src_branch
+    type: if
+    condition: "{{ inputs.source_address | size }} > 0 and not {{ inputs.internal_ranges | includes: inputs.source_address }}"
+    steps:
+      - name: src_ip_reputation_tq
+        type: http
+        with:
+          url: "{{ consts.threatq_endpoint }}/indicators/search"
+          method: POST
+          headers:
+            Authorization: "{{ consts.threatq_auth_header }}"
+          body:
+            query: "{{ inputs.source_address }}"
+        on-failure:
+          continue: true
+
+      - name: src_present_in_tq
+        type: if
+        condition: "{{ steps.src_ip_reputation_tq.output.message | default: '' }} == 'SUCCESS'"
+        steps:
+          - name: src_ip_reputation_vt
+            type: virustotal.scanIp
+            connector-id: "{{ consts.virustotal_connector_id }}"
+            with:
+              ip: "{{ inputs.source_address }}"
+            on-failure:
+              continue: true
+
+          - name: src_block_if_active_adversary
+            type: if
+            condition: "{{ steps.src_ip_reputation_tq.output.data | json | contains: 'Active' }}"
+            steps:
+              - name: block_src_ip
+                type: http
+                with:
+                  url: "{{ consts.panorama_endpoint }}/api/?type=op"
+                  method: POST
+                  body: "cmd=block_ip&ip={{ inputs.source_address }}"
+                on-failure:
+                  continue: true
+
+          - name: src_block_high_url
+            type: if
+            condition: "${{ steps.src_ip_reputation_vt.output.detected_urls | default: [] | size }} > 0"
+            steps:
+              - name: create_src_url_ioc
+                type: http
+                with:
+                  url: "{{ consts.threatq_endpoint }}/indicators"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.threatq_auth_header }}"
+                  body:
+                    indicator: "${{ steps.src_ip_reputation_vt.output.detected_urls | map: 'url' }}"
+                    indicator_type: "URL"
+                    indicator_status: "Review"
+                on-failure:
+                  continue: true
+
+              - name: block_src_url
+                type: http
+                with:
+                  url: "{{ consts.panorama_endpoint }}/api/?type=op"
+                  method: POST
+                  body:
+                    cmd: "block_url"
+                    source_step: "create_src_url_ioc"
+                on-failure:
+                  continue: true
+        else:
+          - name: create_src_ip_ioc
+            type: http
+            with:
+              url: "{{ consts.threatq_endpoint }}/indicators"
+              method: POST
+              headers:
+                Authorization: "{{ consts.threatq_auth_header }}"
+              body:
+                indicator: "{{ inputs.source_address }}"
+                indicator_type: "IP Address"
+                indicator_status: "Review"
+            on-failure:
+              continue: true
+
+  - name: log_complete
+    type: console
+    with:
+      message: "ThreatQuotient investigation finished for src={{ inputs.source_address | default: '-' }} dst={{ inputs.destination_address | default: '-' }}."

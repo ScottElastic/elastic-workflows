@@ -1,0 +1,226 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Corelight — DNS Alert Investigation"
+description: >
+  Investigates a Suricata DNS alert by pivoting through Zeek/Corelight data
+  in Splunk. Pulls the DNS log matching the alert UID, checks for traffic
+  between the source host and resolved IPs, queries connection/HTTP/SSL/file
+  log entries, runs Suricata correlations, and submits any extracted SHA1
+  file hashes to VirusTotal for reputation.
+enabled: true
+tags: ["splunk-soar", "investigation", "corelight", "splunk", "dns", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: dns_uid
+    type: string
+    required: true
+    description: "Corelight/Zeek UID for the DNS event that fired the alert."
+  - name: dns_query
+    type: string
+    required: false
+    description: "The DNS name being queried (for context display)."
+  - name: id_orig_h
+    type: string
+    required: true
+    description: "Originating (client) IP address from the DNS event."
+  - name: event_timestamp
+    type: string
+    required: false
+    description: "ISO 8601 timestamp of the alert; used to bound the Splunk search."
+
+consts:
+  splunk_search_endpoint: "https://CHANGEME-splunk.example.com:8089/services/search/jobs/export"
+  splunk_auth_header: "Bearer CHANGEME_SPLUNK_TOKEN"
+  virustotal_connector_id: "CHANGEME-virustotal-connector"
+
+steps:
+  - name: build_dns_alert_query
+    type: data.set
+    with:
+      query: "index=corelight sourcetype=corelight_dns {{ inputs.dns_uid }} earliest=-1h latest=now | table uid answer id.orig_h"
+
+  # TODO: replace with a native Splunk connector when one becomes available.
+  - name: run_dns_alert_query
+    type: http
+    with:
+      url: "{{ consts.splunk_search_endpoint }}"
+      method: POST
+      headers:
+        Authorization: "{{ consts.splunk_auth_header }}"
+        Content-Type: "application/x-www-form-urlencoded"
+      body: "search={{ steps.build_dns_alert_query.output.query }}&output_mode=json"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+      continue: true
+
+  - name: check_dns_answer_present
+    type: if
+    condition: "{{ steps.run_dns_alert_query.output.results | size }} > 0"
+    steps:
+      - name: build_source_dest_query
+        type: data.set
+        with:
+          # Phantom's playbook used a regex over collected answers to confirm
+          # the response was a valid IPv4 and then counted matching connections.
+          # We pass through the answer list and let Splunk do the filtering.
+          query: "index=corelight id.orig_h={{ inputs.id_orig_h }} AND id.resp_h IN (${{ steps.run_dns_alert_query.output.results }}) | stats count(id.orig_h) as count by id.resp_h uid"
+
+      - name: run_source_dest_query
+        type: http
+        with:
+          url: "{{ consts.splunk_search_endpoint }}"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth_header }}"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "search={{ steps.build_source_dest_query.output.query }}&output_mode=json"
+        on-failure:
+          continue: true
+
+      - name: traffic_seen_between_hosts
+        type: if
+        condition: "{{ steps.run_source_dest_query.output.results | size }} > 0"
+        steps:
+          - name: pin_dns_alert_context
+            type: console
+            with:
+              message: "DNS alert UID {{ inputs.dns_uid }} resolved to monitored answers; investigating connection log."
+
+          - name: build_connection_query
+            type: data.set
+            with:
+              query: "index=corelight sourcetype=corelight_conn ${{ steps.run_source_dest_query.output.results }} | table *"
+
+          - name: run_connection_query
+            type: http
+            with:
+              url: "{{ consts.splunk_search_endpoint }}"
+              method: POST
+              headers:
+                Authorization: "{{ consts.splunk_auth_header }}"
+                Content-Type: "application/x-www-form-urlencoded"
+              body: "search={{ steps.build_connection_query.output.query }}&output_mode=json"
+            on-failure:
+              continue: true
+
+          - name: keep_nonzero_byte_flows
+            type: if
+            condition: "{{ steps.run_connection_query.output.results | size }} > 0"
+            steps:
+              - name: build_http_query
+                type: data.set
+                with:
+                  query: "index=corelight sourcetype=corelight_http ${{ steps.run_connection_query.output.results }} | search service=http | table ts uid host uri method referrer user_agent"
+
+              - name: run_http_query
+                type: http
+                with:
+                  url: "{{ consts.splunk_search_endpoint }}"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.splunk_auth_header }}"
+                    Content-Type: "application/x-www-form-urlencoded"
+                  body: "search={{ steps.build_http_query.output.query }}&output_mode=json"
+                on-failure:
+                  continue: true
+
+              - name: build_ssl_query
+                type: data.set
+                with:
+                  query: "index=corelight sourcetype=corelight_ssl ${{ steps.run_connection_query.output.results }} | search service=ssl | table uid subject validation_status version ja3 ja3s"
+
+              - name: run_ssl_query
+                type: http
+                with:
+                  url: "{{ consts.splunk_search_endpoint }}"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.splunk_auth_header }}"
+                    Content-Type: "application/x-www-form-urlencoded"
+                  body: "search={{ steps.build_ssl_query.output.query }}&output_mode=json"
+                on-failure:
+                  continue: true
+
+              - name: build_suricata_query
+                type: data.set
+                with:
+                  query: "index=corelight sourcetype=corelight_suricata_corelight ${{ steps.run_connection_query.output.results }} | table uid alert.signature alert.signature_id alert.category alert.severity"
+
+              - name: run_suricata_query
+                type: http
+                with:
+                  url: "{{ consts.splunk_search_endpoint }}"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.splunk_auth_header }}"
+                    Content-Type: "application/x-www-form-urlencoded"
+                  body: "search={{ steps.build_suricata_query.output.query }}&output_mode=json"
+                on-failure:
+                  continue: true
+
+              - name: build_file_query
+                type: data.set
+                with:
+                  query: "index=corelight sourcetype=corelight_files ${{ steps.run_connection_query.output.results }} | table tx_hosts rx_hosts filename mime_type source sha1"
+
+              - name: run_file_query
+                type: http
+                with:
+                  url: "{{ consts.splunk_search_endpoint }}"
+                  method: POST
+                  headers:
+                    Authorization: "{{ consts.splunk_auth_header }}"
+                    Content-Type: "application/x-www-form-urlencoded"
+                  body: "search={{ steps.build_file_query.output.query }}&output_mode=json"
+                on-failure:
+                  continue: true
+
+              - name: check_for_files
+                type: if
+                condition: "{{ steps.run_file_query.output.results | size }} > 0"
+                steps:
+                  - name: file_reputation_lookups
+                    type: foreach
+                    with:
+                      items: ${{ steps.run_file_query.output.results }}
+                    steps:
+                      - name: virustotal_hash_lookup
+                        type: virustotal.scanFileHash
+                        connector-id: "{{ consts.virustotal_connector_id }}"
+                        with:
+                          hash: "{{ item.sha1 }}"
+                        on-failure:
+                          retry:
+                            max-attempts: 2
+                            delay: "3s"
+                          continue: true
+
+                      - name: log_vt_hit
+                        type: if
+                        condition: "{{ steps.virustotal_hash_lookup.output.positives | default: 0 }} > 1"
+                        steps:
+                          - name: pin_vt_hit
+                            type: console
+                            with:
+                              message: "VirusTotal flagged downloaded SHA1 {{ item.sha1 }} as malicious."
+
+              - name: summarize_investigation
+                type: console
+                with:
+                  message: |
+                    DNS alert investigation summary
+                    DNS UID: {{ inputs.dns_uid }}
+                    DNS query: {{ inputs.dns_query | default: 'n/a' }}
+                    Source host: {{ inputs.id_orig_h }}
+                    HTTP rows: {{ steps.run_http_query.output.results | size | default: 0 }}
+                    SSL rows: {{ steps.run_ssl_query.output.results | size | default: 0 }}
+                    Suricata rows: {{ steps.run_suricata_query.output.results | size | default: 0 }}
+                    File rows: {{ steps.run_file_query.output.results | size | default: 0 }}

@@ -1,0 +1,108 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Splunk — Internal Host log4j Investigation (CVE-2021-44228)"
+description: >
+  Runs four Splunk searches against an internal host to gather context for a
+  log4j (CVE-2021-44228) investigation: notable-event history, Java process
+  metadata, processes spawned by Java, and ES asset details from the asset
+  lookup. Results are emitted to the workflow log for downstream consumers.
+enabled: true
+tags: ["splunk-soar", "investigation", "log4j", "cve-2021-44228", "splunk", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: ip_or_hostname
+    type: string
+    required: true
+    description: "Hostname or IP of the host to query about."
+
+consts:
+  splunk_search_endpoint: "https://CHANGEME-splunk:8089/services/search/jobs/export"
+  splunk_auth_header: "Bearer CHANGEME"
+
+steps:
+  - name: build_notable_history_query
+    type: data.set
+    with:
+      query: "`notable` | search dest={{ inputs.ip_or_hostname }} | table _time, dest, rule_name, owner, priority, severity, status_description"
+
+  - name: build_process_info_query
+    type: data.set
+    with:
+      query: "| tstats `security_content_summariesonly` count values(Processes.process) as process min(_time) as firstTime max(_time) as lastTime FROM datamodel=Endpoint.Processes where earliest=-7d by Processes.user Processes.parent_process_name Processes.process_name Processes.dest | `drop_dm_object_name(\"Processes\")` | search process_name=\"*java*\" | search dest={{ inputs.ip_or_hostname }} | `security_content_ctime(firstTime)` | `security_content_ctime(lastTime)`"
+
+  - name: build_children_of_java_query
+    type: data.set
+    with:
+      query: "| tstats `security_content_summariesonly` count values(Processes.process) as process min(_time) as firstTime max(_time) as lastTime FROM datamodel=Endpoint.Processes where earliest=-7d by Processes.user Processes.parent_process_name Processes.process_name Processes.dest | `drop_dm_object_name(\"Processes\")` | search parent_process_name=\"*java*\" | search dest={{ inputs.ip_or_hostname }} | `security_content_ctime(firstTime)` | `security_content_ctime(lastTime)`"
+
+  - name: build_es_assets_query
+    type: data.set
+    with:
+      query: "| inputlookup asset_lookup_by_str | search asset IN (\"{{ inputs.ip_or_hostname }}\") | eval category = mvjoin(category, \"; \")"
+
+  # TODO: replace with a native Splunk connector when available.
+  - name: run_notable_history
+    type: http
+    with:
+      url: "{{ consts.splunk_search_endpoint }}"
+      method: POST
+      headers:
+        Authorization: "{{ consts.splunk_auth_header }}"
+        Content-Type: "application/x-www-form-urlencoded"
+      body: "search={{ steps.build_notable_history_query.output.query }}&output_mode=json"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+      continue: true
+
+  - name: run_process_info
+    type: http
+    with:
+      url: "{{ consts.splunk_search_endpoint }}"
+      method: POST
+      headers:
+        Authorization: "{{ consts.splunk_auth_header }}"
+        Content-Type: "application/x-www-form-urlencoded"
+      body: "search={{ steps.build_process_info_query.output.query }}&output_mode=json"
+    on-failure:
+      continue: true
+
+  - name: run_children_of_java
+    type: http
+    with:
+      url: "{{ consts.splunk_search_endpoint }}"
+      method: POST
+      headers:
+        Authorization: "{{ consts.splunk_auth_header }}"
+        Content-Type: "application/x-www-form-urlencoded"
+      body: "search={{ steps.build_children_of_java_query.output.query }}&output_mode=json"
+    on-failure:
+      continue: true
+
+  - name: run_es_assets
+    type: http
+    with:
+      url: "{{ consts.splunk_search_endpoint }}"
+      method: POST
+      headers:
+        Authorization: "{{ consts.splunk_auth_header }}"
+        Content-Type: "application/x-www-form-urlencoded"
+      body: "search={{ steps.build_es_assets_query.output.query }}&output_mode=json"
+    on-failure:
+      continue: true
+
+  - name: summary
+    type: console
+    with:
+      message: |
+        Splunk log4j investigation summary for {{ inputs.ip_or_hostname }}
+        Notable hits: {{ steps.run_notable_history.output.results | size | default: 0 }}
+        Java processes: {{ steps.run_process_info.output.results | size | default: 0 }}
+        Java children: {{ steps.run_children_of_java.output.results | size | default: 0 }}
+        Asset lookup rows: {{ steps.run_es_assets.output.results | size | default: 0 }}

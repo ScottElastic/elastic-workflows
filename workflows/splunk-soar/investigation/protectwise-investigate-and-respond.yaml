@@ -1,0 +1,199 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "ProtectWise — Investigate and Respond"
+description: >
+  Investigates a file hash and destination IP from an alert using
+  VirusTotal reputation, ProtectWise hunt/PCAP retrieval, MaxMind
+  geolocation, and WHOIS. Confirmed-malicious file hashes are blocked
+  via Carbon Black; IPs flagged as beacons are blocked via the
+  Palo Alto firewall. Outcomes are summarized into a Jira ticket and
+  the case is closed.
+enabled: true
+tags: ["splunk-soar", "investigation", "protectwise", "virustotal", "carbonblack", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: file_hash
+    type: string
+    required: false
+    description: "SHA-256/MD5 hash extracted from alert artifact (cef.fileHash)."
+  - name: destination_address
+    type: string
+    required: false
+    description: "Destination IP from the alert artifact (cef.destinationAddress)."
+  - name: observation_id
+    type: string
+    required: false
+    description: "ProtectWise observation ID used for PCAP retrieval."
+  - name: sensor_id
+    type: string
+    required: false
+    description: "ProtectWise sensor ID for PCAP retrieval."
+
+consts:
+  protectwise_endpoint: "https://api.protectwise.net"
+  carbonblack_endpoint: "https://CHANGEME-carbonblack.internal"
+  panorama_endpoint: "https://CHANGEME-panorama.internal"
+  maxmind_endpoint: "https://geoip.maxmind.com/geoip/v2.1"
+  whois_endpoint: "https://CHANGEME-whois.internal/lookup"
+  virustotal_connector_id: "CHANGEME-virustotal-connector"
+  jira_connector_id: "CHANGEME-jira-connector"
+  smtp_connector_id: "CHANGEME-email-connector"
+  notification_to: "soc@example.com"
+  jira_project_key: "AP"
+  vt_positives_threshold: 10
+
+steps:
+  - name: hash_branch
+    type: if
+    condition: "{{ inputs.file_hash | size }} > 0"
+    steps:
+      - name: file_reputation
+        type: virustotal.scanFileHash
+        connector-id: "{{ consts.virustotal_connector_id }}"
+        with:
+          hash: "{{ inputs.file_hash }}"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "3s"
+          continue: true
+
+      - name: maybe_block_hash
+        type: if
+        condition: "${{ steps.file_reputation.output.positives | default: 0 }} >= ${{ consts.vt_positives_threshold }}"
+        steps:
+          # TODO: replace with a native Carbon Black connector when available.
+          - name: block_hash
+            type: http
+            with:
+              url: "{{ consts.carbonblack_endpoint }}/api/v1/banning/blacklist"
+              method: POST
+              headers:
+                Content-Type: "application/json"
+              body:
+                md5hash: "{{ inputs.file_hash }}"
+                text: "Phantom translated workflow — blocked from ProtectWise investigation"
+                enabled: true
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "5s"
+              continue: true
+
+          - name: raise_severity_high
+            type: data.set
+            with:
+              container_severity: "high"
+              container_status: "closed"
+
+          - name: notify_closed
+            type: email
+            connector-id: "{{ consts.smtp_connector_id }}"
+            with:
+              to: "{{ consts.notification_to }}"
+              subject: "Phantom — Hash blocked, container closed"
+              message: "Hash {{ inputs.file_hash }} was blocked via Carbon Black after VT reported {{ steps.file_reputation.output.positives }} positives."
+
+  - name: ip_branch
+    type: if
+    condition: "{{ inputs.destination_address | size }} > 0"
+    steps:
+      # TODO: replace with native ProtectWise connector if/when available.
+      - name: hunt_ip
+        type: http
+        with:
+          url: "{{ consts.protectwise_endpoint }}/api/v1/observations/threats/search"
+          method: POST
+          headers:
+            Content-Type: "application/json"
+          body:
+            destinationAddress: "{{ inputs.destination_address }}"
+        on-failure:
+          continue: true
+
+      - name: ip_reputation
+        type: virustotal.scanIp
+        connector-id: "{{ consts.virustotal_connector_id }}"
+        with:
+          ip: "{{ inputs.destination_address }}"
+        on-failure:
+          continue: true
+
+      - name: geolocate_ip
+        type: http
+        with:
+          url: "{{ consts.maxmind_endpoint }}/city/{{ inputs.destination_address }}"
+          method: GET
+        on-failure:
+          continue: true
+
+      - name: whois_ip
+        type: http
+        with:
+          url: "{{ consts.whois_endpoint }}"
+          method: POST
+          body:
+            ip: "{{ inputs.destination_address }}"
+        on-failure:
+          continue: true
+
+      - name: get_pcap
+        type: if
+        condition: "{{ inputs.observation_id | size }} > 0"
+        steps:
+          - name: pcap_request
+            type: http
+            with:
+              url: "{{ consts.protectwise_endpoint }}/api/v1/pcap"
+              method: POST
+              body:
+                id: "{{ inputs.observation_id }}"
+                type: "Observation"
+                sensorid: "{{ inputs.sensor_id }}"
+            on-failure:
+              continue: true
+
+      - name: beacon_detected
+        type: if
+        condition: "{{ steps.hunt_ip.output | json | contains: 'Beacon' }}"
+        steps:
+          # TODO: replace with a Palo Alto Networks connector when available.
+          - name: block_ip
+            type: http
+            with:
+              url: "{{ consts.panorama_endpoint }}/api/?type=op"
+              method: POST
+              headers:
+                Content-Type: "application/x-www-form-urlencoded"
+              body: "cmd=block_ip&ip={{ inputs.destination_address }}&vsys=vsys1"
+            on-failure:
+              retry:
+                max-attempts: 2
+                delay: "5s"
+              continue: true
+
+          - name: open_jira_ticket
+            type: jira
+            connector-id: "{{ consts.jira_connector_id }}"
+            with:
+              subAction: "pushToService"
+              subActionParams:
+                incident:
+                  summary: "Deployed Block IP: {{ inputs.destination_address }}"
+                  description: "Follow-up required for block rule. IP investigated via ProtectWise hunt; flagged as beacon."
+                  project: "{{ consts.jira_project_key }}"
+                  issuetype: "Task"
+
+  - name: summarize
+    type: console
+    with:
+      message: |
+        ProtectWise investigation complete.
+        hash={{ inputs.file_hash }} positives={{ steps.file_reputation.output.positives | default: 'n/a' }}
+        ip={{ inputs.destination_address }} hunt_summary={{ steps.hunt_ip.output | json | truncate: 200 }}

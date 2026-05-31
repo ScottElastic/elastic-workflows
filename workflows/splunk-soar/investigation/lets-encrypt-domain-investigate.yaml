@@ -1,0 +1,140 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Let's Encrypt — Phishing Domain Investigation"
+description: >
+  Investigates a domain or URL suspected of credential-harvesting phishing.
+  Queries Censys for TLS certificates matching the domain; if every result
+  is issued by Let's Encrypt and there are fewer than 50 hits, screenshots
+  the URLs, runs them through urlscan.io, and queries PassiveTotal whois.
+  Otherwise the playbook bails with a comment explaining why.
+enabled: true
+tags: ["splunk-soar", "investigation", "phishing", "lets-encrypt", "censys", "urlscan", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: domain
+    type: string
+    required: true
+    description: "Domain to investigate (used for Censys queries and whois)."
+  - name: url
+    type: string
+    required: true
+    description: "Full URL to screenshot and scan with urlscan.io."
+  - name: kibana_case_id
+    type: string
+    required: false
+    description: "Optional Kibana case to post the comment to."
+
+consts:
+  censys_endpoint: "https://search.censys.io/api/v1/search/certificates"
+  censys_auth: "Basic CHANGEME"
+  urlscan_endpoint: "https://urlscan.io/api/v1/scan/"
+  urlscan_api_key: "CHANGEME"
+  screenshot_endpoint: "https://api.screenshotmachine.com/"
+  screenshot_api_key: "CHANGEME"
+  passivetotal_endpoint: "https://api.passivetotal.org/v2/whois"
+  passivetotal_auth: "Basic CHANGEME"
+  # Issuer DN used by the original Phantom playbook
+  lets_encrypt_issuer_dn: "C=US, O=Let's Encrypt, CN=Let's Encrypt Authority X3"
+  censys_result_limit: 50
+
+steps:
+  - name: censys_query_certificate
+    type: http
+    with:
+      url: "{{ consts.censys_endpoint }}"
+      method: POST
+      headers:
+        Authorization: "{{ consts.censys_auth }}"
+        Content-Type: "application/json"
+      body:
+        query: "\"{{ inputs.domain }}\""
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: under_result_cap_and_lets_encrypt
+    type: if
+    condition: "({{ steps.censys_query_certificate.output.metadata.count | default: 0 }} <= {{ consts.censys_result_limit }}) and ('{{ steps.censys_query_certificate.output.results[0].parsed_issuer_dn | default: '' }}' == '{{ consts.lets_encrypt_issuer_dn }}')"
+    steps:
+      - name: screenshot_url
+        type: http
+        with:
+          url: "{{ consts.screenshot_endpoint }}"
+          method: GET
+          query:
+            key: "{{ consts.screenshot_api_key }}"
+            url: "{{ inputs.url }}"
+            dimension: "Normal"
+        on-failure:
+          continue: true
+
+      - name: urlscan_url
+        type: http
+        with:
+          url: "{{ consts.urlscan_endpoint }}"
+          method: POST
+          headers:
+            API-Key: "{{ consts.urlscan_api_key }}"
+            Content-Type: "application/json"
+          body:
+            url: "{{ inputs.url }}"
+            visibility: "private"
+        on-failure:
+          continue: true
+
+      - name: passivetotal_whois
+        type: http
+        with:
+          url: "{{ consts.passivetotal_endpoint }}"
+          method: GET
+          headers:
+            Authorization: "{{ consts.passivetotal_auth }}"
+          query:
+            query: "{{ inputs.domain }}"
+        on-failure:
+          continue: true
+
+      - name: build_associated_data
+        type: data.set
+        with:
+          summary: |
+            Censys SSL Cert Information:
+              Issuer DN: {{ steps.censys_query_certificate.output.results[0].parsed_issuer_dn | default: 'n/a' }}
+              Subjects: {{ steps.censys_query_certificate.output.results[0].parsed_subject_dn | default: 'n/a' }}
+
+            PassiveTotal Whois:
+              Organization: {{ steps.passivetotal_whois.output.organization | default: 'n/a' }}
+              Country: {{ steps.passivetotal_whois.output.country | default: 'n/a' }}
+
+      - name: emit_results
+        type: console
+        with:
+          message: "{{ steps.build_associated_data.output.summary }}"
+
+      - name: append_to_case
+        type: if
+        condition: "{{ inputs.kibana_case_id | size }} > 0"
+        steps:
+          - name: add_case_comment
+            type: kibana.addCaseComment
+            with:
+              caseId: "{{ inputs.kibana_case_id }}"
+              comment: "{{ steps.build_associated_data.output.summary }}"
+
+    else:
+      - name: too_many_or_wrong_issuer
+        type: console
+        with:
+          message: |
+            Skipping deep investigation for {{ inputs.domain }}.
+            Censys returned {{ steps.censys_query_certificate.output.metadata.count | default: 0 }} matches,
+            first issuer DN was '{{ steps.censys_query_certificate.output.results[0].parsed_issuer_dn | default: 'unknown' }}'.
+            The playbook only proceeds when results are <= {{ consts.censys_result_limit }}
+            and every issuer matches Let's Encrypt.

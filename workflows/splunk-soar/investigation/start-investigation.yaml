@@ -1,0 +1,115 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Workbook — Start Investigation"
+description: >
+  Lightweight bootstrapper meant to be recommended from a workbook task.
+  Captures the user that launched the workflow, assigns them as case
+  owner, transitions the case status from "new" to "open", marks the
+  current workbook task complete, and bumps the next task into
+  "In Progress". When invoked by automation (rather than a real user)
+  the workflow short-circuits.
+enabled: true
+tags: ["splunk-soar", "investigation", "workbook", "case-management", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: container_id
+    type: string
+    required: true
+    description: "Kibana case identifier."
+  - name: current_status
+    type: string
+    required: false
+    default: "new"
+    description: "Current case status."
+  - name: effective_user
+    type: string
+    required: false
+    description: "Username of the analyst that launched the workflow."
+  - name: effective_user_type
+    type: string
+    required: false
+    default: "user"
+    description: "User type — 'automation' will short-circuit the workflow."
+  - name: current_task_name
+    type: string
+    required: false
+    description: "Name of the workbook task this playbook is recommended from."
+  - name: next_task_name
+    type: string
+    required: false
+    description: "Name of the next workbook task to mark In Progress."
+
+consts:
+  kibana_case_id: "CHANGEME-case-id"
+
+steps:
+  - name: skip_for_automation
+    type: if
+    condition: "{{ inputs.effective_user_type }} != 'automation'"
+    steps:
+      - name: set_owner
+        type: kibana.request
+        with:
+          method: PATCH
+          path: "/api/cases"
+          body:
+            cases:
+              - id: "{{ consts.kibana_case_id }}"
+                assignees:
+                  - uid: "{{ inputs.effective_user | default: 'unknown' }}"
+        on-failure:
+          continue: true
+
+      - name: maybe_promote_to_open
+        type: if
+        condition: "{{ inputs.current_status }} == 'new'"
+        steps:
+          - name: set_status_open
+            type: kibana.request
+            with:
+              method: PATCH
+              path: "/api/cases"
+              body:
+                cases:
+                  - id: "{{ consts.kibana_case_id }}"
+                    status: "open"
+            on-failure:
+              continue: true
+
+      # Workbook tasks have no first-class analogue in Kibana cases yet.
+      # We record the task transition as a comment so analysts can see
+      # the workflow's intent. Replace with a real workbook-task API
+      # call if one becomes available.
+      - name: complete_current_task
+        type: if
+        condition: "{{ inputs.current_task_name | size }} > 0"
+        steps:
+          - name: log_task_complete
+            type: kibana.addCaseComment
+            with:
+              caseId: "{{ consts.kibana_case_id }}"
+              comment: "Workbook task '{{ inputs.current_task_name }}' marked complete by {{ inputs.effective_user | default: 'workflow' }}."
+            on-failure:
+              continue: true
+
+      - name: start_next_task
+        type: if
+        condition: "{{ inputs.next_task_name | size }} > 0"
+        steps:
+          - name: log_next_task_started
+            type: kibana.addCaseComment
+            with:
+              caseId: "{{ consts.kibana_case_id }}"
+              comment: "Workbook task '{{ inputs.next_task_name }}' moved to In Progress."
+            on-failure:
+              continue: true
+
+  - name: log_complete
+    type: console
+    with:
+      message: "start_investigation finished. case={{ inputs.container_id }} user={{ inputs.effective_user | default: 'n/a' }} type={{ inputs.effective_user_type }}"

@@ -1,0 +1,71 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Windows Host — WinRM log4j Sweep (CVE-2021-44228)"
+description: >
+  Walks every filesystem-providing PSDrive on a Windows host and greps the
+  contents of all .jar, .jsp, and .jspx files for the string
+  "JndiLookup.class". Results are emitted as a markdown note that lists the
+  file path and the matching line number for analyst review.
+enabled: true
+tags: ["splunk-soar", "investigation", "log4j", "cve-2021-44228", "winrm", "windows", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: ip_or_hostname
+    type: string
+    required: true
+    description: "Target Windows host to scan for log4j evidence."
+
+consts:
+  winrm_proxy_endpoint: "https://CHANGEME-winrm-proxy.internal"
+  winrm_proxy_auth: "Bearer CHANGEME"
+  # Inline PowerShell that uses Select-String against all .jar/.jsp/.jspx files
+  # on every FileSystem PSDrive and returns JSON: [{LineNumber, Path}, ...].
+  traversal_script: "$ProgressPreference = 'SilentlyContinue'; Get-PSDrive -PSProvider FileSystem | foreach {(gci ($_.Root) -rec -force -include ('*.jsp', '*.jspx', '*.jar') -ea 0 | foreach {select-string \"JndiLookup.class\" $_} | Select-Object -Property LineNumber, Path )} | ConvertTo-Json"
+
+steps:
+  # TODO: replace http stub with a native WinRM connector once available.
+  - name: run_traversal_script
+    type: http
+    with:
+      url: "{{ consts.winrm_proxy_endpoint }}/run-script"
+      method: POST
+      headers:
+        Authorization: "{{ consts.winrm_proxy_auth }}"
+      body:
+        host: "{{ inputs.ip_or_hostname }}"
+        script: "{{ consts.traversal_script }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+      continue: true
+
+  - name: any_results
+    type: if
+    condition: "{{ steps.run_traversal_script.output.std_out | size }} > 0"
+    steps:
+      - name: build_markdown_note
+        type: data.set
+        # The original playbook walked the JSON output and built a markdown
+        # table per host. We preserve the same shape here.
+        with:
+          note_content: |
+            ### Device - {{ inputs.ip_or_hostname }}
+            | Path | LineNumber |
+            | --- | --- |
+            findings={{ steps.run_traversal_script.output.std_out }}
+
+      - name: emit_note
+        type: console
+        with:
+          message: "{{ steps.build_markdown_note.output.note_content }}"
+    else:
+      - name: no_findings_message
+        type: console
+        with:
+          message: "log4j WinRM sweep on {{ inputs.ip_or_hostname }} found no JndiLookup.class matches."

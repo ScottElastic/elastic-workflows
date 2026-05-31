@@ -1,0 +1,134 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Splunk Risk Notable — Preprocess"
+description: >
+  Prepares a Splunk ES risk notable for investigation: marks the notable
+  artifact as evidence, renames the canonical artifact, pins a deep-link
+  to the ES incident-review screen, posts a back-reference comment into
+  the Splunk notable, and updates the case name, description, and
+  severity to mirror the source data.
+enabled: true
+tags: ["splunk-soar", "investigation", "splunk", "risk-notable", "preprocess", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: container_id
+    type: string
+    required: true
+    description: "Kibana case identifier."
+  - name: event_id
+    type: string
+    required: true
+    description: "Splunk ES notable event_id."
+  - name: info_min_time
+    type: string
+    required: false
+    description: "Notable info_min_time (used to construct the ES URL)."
+  - name: risk_object
+    type: string
+    required: false
+    description: "Risk object (user, host)."
+  - name: risk_object_type
+    type: string
+    required: false
+    description: "Risk object type."
+  - name: source
+    type: string
+    required: false
+    description: "Source detection name."
+  - name: urgency
+    type: string
+    required: false
+    description: "Splunk urgency, used as case severity."
+  - name: container_url
+    type: string
+    required: false
+    description: "URL pointing to this case in Kibana."
+
+consts:
+  splunk_endpoint: "https://CHANGEME-splunk.internal:8089"
+  splunk_ui_host: "CHANGEME-splunk-ui"
+  kibana_case_id: "CHANGEME-case-id"
+
+steps:
+  - name: ensure_event_id_present
+    type: if
+    condition: "{{ inputs.event_id | size }} > 0"
+    steps:
+      - name: mark_notable_artifact_evidence
+        type: data.set
+        with:
+          # Original: community/mark_evidence on the artifact. In Elastic
+          # there is no first-class evidence flag, so we record it as a
+          # comment on the case.
+          evidence_note: "Splunk notable artifact for event_id={{ inputs.event_id }} marked as evidence."
+
+      - name: post_evidence_note
+        type: kibana.addCaseComment
+        with:
+          caseId: "{{ consts.kibana_case_id }}"
+          comment: "{{ steps.mark_notable_artifact_evidence.output.evidence_note }}"
+        on-failure:
+          continue: true
+
+      # Compose ES incident-review URL for this notable.
+      - name: build_es_url
+        type: data.set
+        with:
+          es_url: "https://{{ consts.splunk_ui_host }}/en-US/app/SplunkEnterpriseSecuritySuite/incident_review?earliest={{ inputs.info_min_time | default: '0' }}&latest=now&search=event_id%3D{{ inputs.event_id }}"
+
+      - name: pin_es_url
+        type: kibana.addCaseComment
+        with:
+          caseId: "{{ consts.kibana_case_id }}"
+          comment: "Enterprise Security: {{ steps.build_es_url.output.es_url }}"
+        on-failure:
+          continue: true
+
+      - name: build_es_back_reference
+        type: data.set
+        with:
+          note: |
+            Elastic case created: {{ inputs.container_id }}
+            Details: {{ inputs.container_url | default: '(case URL unavailable)' }}
+
+      - name: update_splunk_notable
+        type: http
+        with:
+          url: "{{ consts.splunk_endpoint }}/services/notable_update"
+          method: POST
+          headers:
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "ruleUIDs={{ inputs.event_id }}&comment={{ steps.build_es_back_reference.output.note }}&status=in_progress"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+
+      # Update case metadata to reflect the notable. Elastic Workflows does
+      # not expose a native "update case attributes" step, so we model it
+      # as a kibana.request to the cases API.
+      - name: rename_and_set_severity
+        type: kibana.request
+        with:
+          method: PATCH
+          path: "/api/cases"
+          body:
+            cases:
+              - id: "{{ consts.kibana_case_id }}"
+                title: "{{ inputs.source | default: 'Risk Notable' }}: {{ inputs.risk_object | default: 'unknown' }}"
+                description: "{{ inputs.source | default: 'Splunk Risk Notable' }}"
+                severity: "{{ inputs.urgency | default: 'medium' }}"
+        on-failure:
+          continue: true
+
+  - name: log_complete
+    type: console
+    with:
+      message: "Preprocess complete for event_id {{ inputs.event_id }}."

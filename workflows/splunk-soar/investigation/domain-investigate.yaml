@@ -1,0 +1,113 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Domain — Multi-Source Investigation"
+description: >
+  Looks up a domain across Google Safe Browsing, Cisco Umbrella Investigate,
+  and VirusTotal, then derives a high/low risk verdict using thresholds on
+  Umbrella risk score and VirusTotal malicious count. Emits a normalized
+  verdict and a short note suitable for attaching to a Kibana case.
+enabled: true
+tags: ["splunk-soar", "investigation", "domain", "reputation", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: domain
+    type: string
+    required: true
+    description: "Domain name to investigate (e.g., example.com)."
+
+consts:
+  safe_browsing_endpoint: "https://safebrowsing.googleapis.com/v4/threatMatches:find"
+  safe_browsing_api_key: "CHANGEME"
+  umbrella_endpoint: "https://investigate.api.umbrella.com/domains/risk-score"
+  umbrella_auth: "Bearer CHANGEME"
+  virustotal_connector_id: "CHANGEME-virustotal-connector"
+  # Thresholds matching the Phantom playbook defaults
+  umbrella_risk_threshold: 25
+  virustotal_malicious_threshold: 3
+
+steps:
+  - name: google_safe_browsing_check
+    type: http
+    with:
+      url: "{{ consts.safe_browsing_endpoint }}"
+      method: POST
+      query:
+        key: "{{ consts.safe_browsing_api_key }}"
+      headers:
+        Content-Type: "application/json"
+      body:
+        client:
+          clientId: "elastic-workflows"
+          clientVersion: "1.0"
+        threatInfo:
+          threatTypes:
+            - "MALWARE"
+            - "SOCIAL_ENGINEERING"
+            - "UNWANTED_SOFTWARE"
+            - "POTENTIALLY_HARMFUL_APPLICATION"
+          platformTypes:
+            - "ANY_PLATFORM"
+          threatEntryTypes:
+            - "URL"
+          threatEntries:
+            - url: "{{ inputs.domain }}"
+    on-failure:
+      continue: true
+
+  - name: cisco_umbrella_check
+    type: http
+    with:
+      url: "{{ consts.umbrella_endpoint }}/{{ inputs.domain }}"
+      method: GET
+      headers:
+        Authorization: "{{ consts.umbrella_auth }}"
+    on-failure:
+      continue: true
+
+  # virustotal.scanDomain is the closest first-party action available; if not
+  # configured, swap in an http call to the v3 /domains/{domain} endpoint.
+  - name: virustotal_domain_lookup
+    type: virustotal.scanDomain
+    connector-id: "{{ consts.virustotal_connector_id }}"
+    with:
+      domain: "{{ inputs.domain }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: compute_verdict
+    type: data.set
+    with:
+      umbrella_risk: "{{ steps.cisco_umbrella_check.output.risk_score | default: 0 }}"
+      virustotal_malicious: "{{ steps.virustotal_domain_lookup.output.malicious | default: 0 }}"
+
+  - name: classify_risk
+    type: if
+    condition: "({{ steps.compute_verdict.output.umbrella_risk }} > {{ consts.umbrella_risk_threshold }}) or ({{ steps.compute_verdict.output.virustotal_malicious }} >= {{ consts.virustotal_malicious_threshold }})"
+    steps:
+      - name: high_risk_verdict
+        type: data.set
+        with:
+          verdict: "high_risk"
+    else:
+      - name: low_risk_verdict
+        type: data.set
+        with:
+          verdict: "low_risk"
+
+  - name: emit_note
+    type: console
+    with:
+      message: |
+        Domain investigation: {{ inputs.domain }}
+        Verdict: {{ steps.high_risk_verdict.output.verdict | default: steps.low_risk_verdict.output.verdict }}
+        Umbrella risk_score: {{ steps.compute_verdict.output.umbrella_risk }}
+        VirusTotal malicious votes: {{ steps.compute_verdict.output.virustotal_malicious }}
+        Safe Browsing matches: {{ steps.google_safe_browsing_check.output.matches | size | default: 0 }}

@@ -1,0 +1,210 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Splunk Risk Notable — Auto-Investigate"
+description: >
+  Orchestrates the full risk-notable workflow against Splunk Enterprise
+  Security: imports contributing risk events as artifacts, dispatches
+  per-indicator investigate playbooks, merges duplicates if needed,
+  sums the contributing risk score, and either triggers auto-containment
+  (when the threshold is exceeded) or hands the case back for analyst
+  review. Original implementation orchestrates several child Phantom
+  playbooks; this translation models them as sub-workflow placeholders.
+enabled: true
+tags: ["splunk-soar", "investigation", "splunk", "risk-notable", "orchestration", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: container_id
+    type: string
+    required: true
+    description: "SOAR/Kibana case identifier."
+  - name: event_id
+    type: string
+    required: false
+    description: "Notable event ID from Splunk ES."
+  - name: risk_score_threshold
+    type: number
+    required: false
+    default: 250
+    description: "Risk score that triggers auto-containment."
+  - name: risk_rule_artifacts
+    type: array
+    required: false
+    default: []
+    description: "Pre-collected risk-rule artifacts (cef._total_risk_score values, etc.)."
+
+consts:
+  splunk_endpoint: "https://CHANGEME-splunk.internal:8089"
+  kibana_case_id: "CHANGEME-case-id"
+  # Identifiers of child workflows that this workflow chains. Replace with
+  # the real workflow IDs in your Kibana environment.
+  child_import_workflow: "CHANGEME-risk-notable-import-data"
+  child_preprocess_workflow: "CHANGEME-risk-notable-preprocess"
+  child_auto_merge_workflow: "CHANGEME-risk-notable-auto-merge"
+  child_auto_containment_workflow: "CHANGEME-risk-notable-auto-containment"
+  dispatcher_workflow: "CHANGEME-dispatch-investigate-playbooks"
+
+steps:
+  - name: guard_no_risk_rule_artifacts
+    type: if
+    # Phantom: only proceed when no "risk_rule" artifact exists yet.
+    condition: "{{ inputs.risk_rule_artifacts | size }} == 0"
+    steps:
+      - name: ensure_event_id
+        type: if
+        condition: "{{ inputs.event_id | size }} > 0"
+        steps:
+          # Add Risk Investigation workbook to the case. Modeled as a Kibana
+          # case-comment that records that the workbook was started.
+          - name: add_workbook
+            type: kibana.addCaseComment
+            with:
+              caseId: "{{ consts.kibana_case_id }}"
+              comment: "Risk Investigation workbook started for event {{ inputs.event_id }}."
+            on-failure:
+              continue: true
+
+          - name: start_preprocess_task
+            type: data.set
+            with:
+              task: "Preprocess"
+              status: "in_progress"
+
+          # Chain into preprocess child workflow.
+          - name: run_preprocess
+            type: http
+            with:
+              url: "https://CHANGEME-kibana/api/workflows/{{ consts.child_preprocess_workflow }}/run"
+              method: POST
+              body:
+                inputs:
+                  container_id: "{{ inputs.container_id }}"
+                  event_id: "{{ inputs.event_id }}"
+            on-failure:
+              continue: true
+
+          # Chain into import-data child workflow.
+          - name: run_import_data
+            type: http
+            with:
+              url: "https://CHANGEME-kibana/api/workflows/{{ consts.child_import_workflow }}/run"
+              method: POST
+              body:
+                inputs:
+                  container_id: "{{ inputs.container_id }}"
+                  event_id: "{{ inputs.event_id }}"
+            on-failure:
+              continue: true
+
+          - name: record_preprocess_note
+            type: kibana.addCaseComment
+            with:
+              caseId: "{{ consts.kibana_case_id }}"
+              comment: "{{ steps.run_import_data.output.note_content | default: 'Preprocess note pending.' }}"
+            on-failure:
+              continue: true
+
+          # Switch task to "Investigate" and dispatch tagged child playbooks.
+          - name: start_investigate_task
+            type: data.set
+            with:
+              task: "Investigate"
+              status: "in_progress"
+
+          - name: dispatch_investigations
+            type: http
+            with:
+              url: "https://CHANGEME-kibana/api/workflows/{{ consts.dispatcher_workflow }}/run"
+              method: POST
+              body:
+                inputs:
+                  container_id: "{{ inputs.container_id }}"
+                  tags: ["investigate", "risk_notable"]
+            on-failure:
+              continue: true
+
+          - name: auto_merge
+            type: http
+            with:
+              url: "https://CHANGEME-kibana/api/workflows/{{ consts.child_auto_merge_workflow }}/run"
+              method: POST
+              body:
+                inputs:
+                  container_id: "{{ inputs.container_id }}"
+            on-failure:
+              continue: true
+
+          - name: not_merged_branch
+            type: if
+            condition: "{{ steps.auto_merge.output.merge_result | default: '' }} != 'merged into case'"
+            steps:
+              - name: compute_total_risk_score
+                type: data.set
+                with:
+                  # Original Phantom code sums float values of
+                  # cef._total_risk_score across risk_rule artifacts.
+                  total_score: "${{ inputs.risk_rule_artifacts | map: 'cef._total_risk_score' | sum }}"
+
+              - name: containment_decision
+                type: if
+                condition: "${{ steps.compute_total_risk_score.output.total_score | default: 0 }} >= ${{ inputs.risk_score_threshold }}"
+                steps:
+                  - name: render_verdict_note
+                    type: data.set
+                    with:
+                      title: "[Auto-Generated] Containment Required"
+                      summary: "Risk score {{ steps.compute_total_risk_score.output.total_score }} exceeds threshold {{ inputs.risk_score_threshold }}. Triggering containment."
+
+                  - name: post_verdict
+                    type: kibana.addCaseComment
+                    with:
+                      caseId: "{{ consts.kibana_case_id }}"
+                      comment: "{{ steps.render_verdict_note.output.summary }}"
+                    on-failure:
+                      continue: true
+
+                  - name: trigger_auto_containment
+                    type: http
+                    with:
+                      url: "https://CHANGEME-kibana/api/workflows/{{ consts.child_auto_containment_workflow }}/run"
+                      method: POST
+                      body:
+                        inputs:
+                          container_id: "{{ inputs.container_id }}"
+                    on-failure:
+                      continue: true
+                else:
+                  - name: update_investigate_task
+                    type: kibana.addCaseComment
+                    with:
+                      caseId: "{{ consts.kibana_case_id }}"
+                      comment: "Investigation notes from dispatched playbooks recorded. Risk score below containment threshold."
+                    on-failure:
+                      continue: true
+
+          # If the dispatcher produced any enrichment notes, push them back
+          # to Splunk ES as comments on the notable.
+          - name: update_notable_event
+            type: if
+            condition: "{{ steps.dispatch_investigations.output.sub_playbook_outputs.note_content | default: '' | size }} > 0"
+            steps:
+              - name: splunk_update_event
+                type: http
+                with:
+                  url: "{{ consts.splunk_endpoint }}/services/notable_update"
+                  method: POST
+                  body:
+                    ruleUIDs: "{{ inputs.event_id }}"
+                    comment: "{{ steps.dispatch_investigations.output.sub_playbook_outputs.note_content }}"
+                on-failure:
+                  continue: true
+
+  - name: log_complete
+    type: console
+    with:
+      message: "Auto-investigate complete for container {{ inputs.container_id }}."

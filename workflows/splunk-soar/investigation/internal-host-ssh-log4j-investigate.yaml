@@ -1,0 +1,79 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Linux Host — SSH-based log4j Sweep (CVE-2021-44228)"
+description: >
+  Targeted SSH-based collector for log4j (CVE-2021-44228). Uploads and runs
+  a bash script on the target that captures the Java version, listings of
+  running Java processes (via ps and jps), scans every .jar on disk for the
+  vulnerable JndiLookup.class, and searches .war files for embedded log4j
+  jars. Outputs are zipped and copied back.
+enabled: true
+tags: ["splunk-soar", "investigation", "log4j", "cve-2021-44228", "ssh", "linux", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: ip_or_hostname
+    type: string
+    required: true
+    description: "Target Linux host to inspect for log4j vulnerability evidence."
+
+consts:
+  ssh_proxy_endpoint: "https://CHANGEME-ssh-proxy.internal"
+  ssh_proxy_auth: "Bearer CHANGEME"
+  remote_output_dir: "/tmp"
+  collector_script_name: "splunk_soar_internal_host_ssh_log4j_investigate.sh"
+
+steps:
+  # TODO: replace http stubs with a native SSH connector once available in
+  # Elastic Workflows.
+  - name: upload_log4j_collector
+    type: http
+    with:
+      url: "{{ consts.ssh_proxy_endpoint }}/put-file"
+      method: POST
+      headers:
+        Authorization: "{{ consts.ssh_proxy_auth }}"
+      body:
+        host: "{{ inputs.ip_or_hostname }}"
+        destination: "{{ consts.remote_output_dir }}/{{ consts.collector_script_name }}"
+        script_name: "{{ consts.collector_script_name }}"
+    on-failure:
+      continue: true
+
+  - name: run_log4j_collector
+    type: http
+    with:
+      url: "{{ consts.ssh_proxy_endpoint }}/execute"
+      method: POST
+      headers:
+        Authorization: "{{ consts.ssh_proxy_auth }}"
+      body:
+        host: "{{ inputs.ip_or_hostname }}"
+        command: "bash {{ consts.remote_output_dir }}/{{ consts.collector_script_name }} {{ inputs.ip_or_hostname }}"
+    on-failure:
+      continue: true
+
+  - name: fetch_log4j_output
+    type: http
+    with:
+      url: "{{ consts.ssh_proxy_endpoint }}/get-file"
+      method: POST
+      headers:
+        Authorization: "{{ consts.ssh_proxy_auth }}"
+      body:
+        host: "{{ inputs.ip_or_hostname }}"
+        path: "{{ consts.remote_output_dir }}/{{ inputs.ip_or_hostname }}_ssh_log4j_output.zip"
+    on-failure:
+      continue: true
+
+  - name: investigation_summary
+    type: console
+    with:
+      message: |
+        log4j SSH sweep done for {{ inputs.ip_or_hostname }}.
+        Output zip: {{ steps.fetch_log4j_output.output.path | default: 'not retrieved' }}
+        Outputs include java_environment.csv, jars_with_jndi.csv, wars_with_jars.csv.

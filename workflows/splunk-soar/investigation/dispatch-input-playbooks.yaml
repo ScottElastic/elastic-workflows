@@ -1,0 +1,149 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Dispatcher — Route Indicators to Input Workflows"
+description: >
+  Inspects an incoming case/alert for indicator types and dispatches matching
+  child workflows that accept those indicators. The original SOAR playbook
+  used a community indicator-collect helper plus a playbook discovery API to
+  route data; here we lay out the same logic with placeholders for a Kibana
+  workflow-registry call and downstream workflow invocations.
+enabled: true
+tags: ["splunk-soar", "investigation", "dispatcher", "routing", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: playbook_repo
+    type: array
+    required: false
+    description: "Restrict dispatch to workflows from these repos/sources."
+  - name: playbook_tags
+    type: array
+    required: true
+    description: "Tags that input workflows must carry to be considered."
+  - name: indicator_tags_include
+    type: array
+    required: false
+    description: "Only consider indicators carrying these tags."
+  - name: indicator_tags_exclude
+    type: array
+    required: false
+    description: "Skip indicators carrying these tags."
+  - name: artifact_ids_include
+    type: array
+    required: false
+    description: "Limit to these case/artifact IDs."
+  - name: case_id
+    type: string
+    required: true
+    description: "Source case/alert whose indicators we are routing."
+
+consts:
+  workflow_registry_endpoint: "https://CHANGEME-kibana/api/workflows"
+  workflow_registry_auth: "ApiKey CHANGEME"
+
+steps:
+  - name: validate_inputs
+    type: if
+    # The original playbook rejects the "community" repo and demands at least
+    # one playbook tag. Replicate both checks here.
+    condition: "{{ inputs.playbook_tags | size }} == 0"
+    steps:
+      - name: abort_missing_tags
+        type: console
+        with:
+          message: "ERROR: At least one playbook_tag is required to find candidate workflows."
+
+  - name: reject_community_repo
+    type: if
+    condition: "{{ inputs.playbook_repo | join: ',' | downcase }} contains 'community'"
+    steps:
+      - name: abort_community_repo
+        type: console
+        with:
+          message: "ERROR: Repo 'community' is not allowed for input dispatch."
+
+  # TODO: replace with a Kibana workflow listing call once available.
+  - name: find_matching_workflows
+    type: http
+    with:
+      url: "{{ consts.workflow_registry_endpoint }}"
+      method: GET
+      headers:
+        Authorization: "{{ consts.workflow_registry_auth }}"
+        kbn-xsrf: "true"
+      query:
+        tags: "{{ inputs.playbook_tags | join: ',' }}"
+        type: "input"
+    on-failure:
+      continue: true
+
+  - name: discovered_any_workflows
+    type: if
+    condition: "{{ steps.find_matching_workflows.output.workflows | size }} > 0"
+    steps:
+      # TODO: replace with a Kibana case-indicators retrieval; placeholder
+      # echoes back what would come from community/indicator_collect.
+      - name: collect_indicators
+        type: http
+        with:
+          url: "https://CHANGEME-kibana/api/cases/{{ inputs.case_id }}/indicators"
+          method: GET
+          headers:
+            Authorization: "{{ consts.workflow_registry_auth }}"
+            kbn-xsrf: "true"
+        on-failure:
+          continue: true
+
+      - name: build_dispatch_plan
+        type: data.set
+        # Match indicator data types to the inputs accepted by each candidate
+        # workflow. Each entry in `plan` is { workflow_id, inputs }.
+        with:
+          plan: ${{ steps.find_matching_workflows.output.workflows }}
+          indicators: ${{ steps.collect_indicators.output.indicators }}
+
+      - name: log_plan
+        type: console
+        with:
+          message: |
+            Dispatch plan built with {{ steps.find_matching_workflows.output.workflows | size }} candidate
+            workflows over {{ steps.collect_indicators.output.indicators | size }} indicators.
+
+      - name: launch_each_workflow
+        type: foreach
+        with:
+          items: ${{ steps.find_matching_workflows.output.workflows }}
+        steps:
+          # TODO: Elastic Workflows does not yet expose a synchronous "run
+          # another workflow" primitive; use the execute API when available.
+          - name: launch_child
+            type: http
+            with:
+              url: "{{ consts.workflow_registry_endpoint }}/{{ item.id }}/execute"
+              method: POST
+              headers:
+                Authorization: "{{ consts.workflow_registry_auth }}"
+                kbn-xsrf: "true"
+                Content-Type: "application/json"
+              body:
+                inputs: ${{ steps.collect_indicators.output.indicators }}
+            on-failure:
+              continue: true
+
+          - name: log_launch
+            type: console
+            with:
+              message: "Launched child workflow {{ item.name }} (id={{ item.id }})."
+
+      - name: merge_outputs
+        type: console
+        # The original SOAR playbook merged sub-playbook outputs (verdict,
+        # observable, markdown_report, note_content) into a single object.
+        # Capture that intent as a summary line; downstream callers can
+        # collect each child's output via the workflow execution API.
+        with:
+          message: "Dispatcher complete. Aggregate child outputs from execution records via the Kibana API."

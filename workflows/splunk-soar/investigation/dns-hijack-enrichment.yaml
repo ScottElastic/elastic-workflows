@@ -1,0 +1,176 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "DNS Hijack — Enrichment"
+description: >
+  Enriches a suspected DNS-record-change notable event with attributes from
+  MaxMind, whois, Censys, Malware Domain List, and PassiveTotal. Posts a
+  consolidated comment to Kibana cases and back to Splunk ES as a notable
+  event update so the analyst sees expected vs observed values side by side.
+enabled: true
+tags: ["splunk-soar", "investigation", "dns", "enrichment", "splunk-es", "translated"]
+
+triggers:
+  - type: manual
+  - type: alert
+
+inputs:
+  - name: domain
+    type: string
+    required: true
+    description: "Domain whose DNS record was observed changing."
+  - name: current_answer
+    type: string
+    required: true
+    description: "Currently observed IP address answering for the domain."
+  - name: notable_event_id
+    type: string
+    required: false
+    description: "Splunk ES notable event ID to update with enrichment results."
+  - name: kibana_case_id
+    type: string
+    required: false
+    description: "Optional Kibana case to append the enrichment summary to."
+
+consts:
+  # All four of these still rely on external SaaS lookups; once first-party
+  # connectors are available, swap the http stubs for them.
+  maxmind_endpoint: "https://geoip.maxmind.com/geoip/v2.1/city/"
+  maxmind_auth: "Basic CHANGEME"
+  whois_endpoint: "https://www.whoisxmlapi.com/whoisserver/WhoisService"
+  whois_api_key: "CHANGEME"
+  censys_endpoint: "https://search.censys.io/api/v2/hosts/"
+  censys_auth: "Basic CHANGEME"
+  passivetotal_endpoint: "https://api.passivetotal.org/v2"
+  passivetotal_auth: "Basic CHANGEME"
+  malware_domain_list_endpoint: "https://www.malwaredomainlist.com/mdl.php"
+  splunk_endpoint: "https://CHANGEME-splunk.example.com:8089"
+  splunk_auth: "Bearer CHANGEME"
+
+steps:
+  - name: geolocate_current_answer
+    type: http
+    with:
+      url: "{{ consts.maxmind_endpoint }}{{ inputs.current_answer }}"
+      method: GET
+      headers:
+        Authorization: "{{ consts.maxmind_auth }}"
+    on-failure:
+      continue: true
+
+  - name: whois_ip
+    type: http
+    with:
+      url: "{{ consts.whois_endpoint }}"
+      method: GET
+      query:
+        apiKey: "{{ consts.whois_api_key }}"
+        ipAddress: "{{ inputs.current_answer }}"
+        outputFormat: "JSON"
+    on-failure:
+      continue: true
+
+  - name: censys_ip_lookup
+    type: http
+    with:
+      url: "{{ consts.censys_endpoint }}{{ inputs.current_answer }}"
+      method: GET
+      headers:
+        Authorization: "{{ consts.censys_auth }}"
+    on-failure:
+      continue: true
+
+  - name: tls_certificate_present
+    type: if
+    condition: "{{ steps.censys_ip_lookup.output.result.services | size }} > 0"
+    steps:
+      - name: censys_lookup_certificate
+        type: http
+        with:
+          url: "https://search.censys.io/api/v1/view/certificates/{{ steps.censys_ip_lookup.output.result.services[0].tls.certificates.leaf_fp_sha_256 }}"
+          method: GET
+          headers:
+            Authorization: "{{ consts.censys_auth }}"
+        on-failure:
+          continue: true
+
+  - name: passivetotal_ip_reputation
+    type: http
+    with:
+      url: "{{ consts.passivetotal_endpoint }}/enrichment"
+      method: GET
+      headers:
+        Authorization: "{{ consts.passivetotal_auth }}"
+      query:
+        query: "{{ inputs.current_answer }}"
+    on-failure:
+      continue: true
+
+  - name: passivetotal_domain_reputation
+    type: http
+    with:
+      url: "{{ consts.passivetotal_endpoint }}/enrichment"
+      method: GET
+      headers:
+        Authorization: "{{ consts.passivetotal_auth }}"
+      query:
+        query: "{{ inputs.domain }}"
+    on-failure:
+      continue: true
+
+  - name: malware_domain_list_check
+    type: http
+    with:
+      url: "{{ consts.malware_domain_list_endpoint }}"
+      method: GET
+      query:
+        search: "{{ inputs.domain }}"
+    on-failure:
+      continue: true
+
+  - name: build_summary
+    type: data.set
+    with:
+      summary:
+        domain: "{{ inputs.domain }}"
+        current_answer: "{{ inputs.current_answer }}"
+        geoip: "{{ steps.geolocate_current_answer.output.country.iso_code | default: 'n/a' }}"
+        whois_org: "{{ steps.whois_ip.output.WhoisRecord.registrant.organization | default: 'n/a' }}"
+        cert_issuer_cn: "{{ steps.censys_ip_lookup.output.result.services[0].tls.certificates.leaf_data.issuer.common_name | default: 'n/a' }}"
+        cert_issuer_org: "{{ steps.censys_ip_lookup.output.result.services[0].tls.certificates.leaf_data.issuer.organization | default: 'n/a' }}"
+        passivetotal_ip_classification: "{{ steps.passivetotal_ip_reputation.output.classification | default: 'unclassified' }}"
+        malware_domain_list_hit: "{{ steps.malware_domain_list_check.output.matches | size | default: 0 }}"
+
+  - name: post_to_case
+    type: if
+    condition: "{{ inputs.kibana_case_id | size }} > 0"
+    steps:
+      - name: append_case_comment
+        type: kibana.addCaseComment
+        with:
+          caseId: "{{ inputs.kibana_case_id }}"
+          comment: |
+            DNS hijack enrichment for {{ inputs.domain }} (current answer: {{ inputs.current_answer }})
+            GeoIP: {{ steps.build_summary.output.summary.geoip }}
+            Whois org: {{ steps.build_summary.output.summary.whois_org }}
+            TLS issuer: {{ steps.build_summary.output.summary.cert_issuer_cn }} ({{ steps.build_summary.output.summary.cert_issuer_org }})
+            PassiveTotal IP classification: {{ steps.build_summary.output.summary.passivetotal_ip_classification }}
+            Malware Domain List hits: {{ steps.build_summary.output.summary.malware_domain_list_hit }}
+
+  # TODO: replace with first-party Splunk ES connector when available.
+  - name: update_splunk_notable
+    type: if
+    condition: "{{ inputs.notable_event_id | size }} > 0"
+    steps:
+      - name: splunk_update
+        type: http
+        with:
+          url: "{{ consts.splunk_endpoint }}/services/notable_update"
+          method: POST
+          headers:
+            Authorization: "{{ consts.splunk_auth }}"
+            Content-Type: "application/x-www-form-urlencoded"
+          body: "ruleUIDs={{ inputs.notable_event_id }}&comment=Enrichment+attached"
+        on-failure:
+          continue: true

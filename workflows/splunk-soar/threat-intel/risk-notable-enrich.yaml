@@ -1,0 +1,104 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Risk Notable — Indicator Enrichment Dispatcher"
+description: >
+  Discovers the indicator types present on a risk notable case and
+  delegates enrichment to the matching investigative child workflows.
+  Each child workflow is invoked with the indicator values that match its
+  expected input type, the parent waits for them to finish, and the
+  collected notes are returned.
+enabled: true
+tags: ["splunk-soar", "threat-intel", "risk-notable", "dispatcher", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: case_id
+    type: string
+    required: false
+    description: "Optional case ID for context."
+  - name: indicators
+    type: array
+    required: true
+    description: "List of indicator objects with cef_value and data_types fields, collected from the originating event."
+
+consts:
+  # Map indicator data types to the workflow ID that should enrich them.
+  # Wire each value to a workflow imported into Kibana.
+  investigate_workflows:
+    ip: "CHANGEME-ip-investigate-workflow"
+    domain: "CHANGEME-domain-investigate-workflow"
+    url: "CHANGEME-url-investigate-workflow"
+    hash: "CHANGEME-hash-investigate-workflow"
+    user: "CHANGEME-user-investigate-workflow"
+
+steps:
+  - name: collect_indicators
+    type: data.set
+    with:
+      indicators: ${{ inputs.indicators }}
+
+  - name: gate_on_input
+    type: if
+    condition: "{{ steps.collect_indicators.output.indicators | size }} == 0"
+    steps:
+      - name: nothing_to_enrich
+        type: console
+        with:
+          message: "No indicators received — investigative dispatch skipped."
+
+  - name: per_indicator_dispatch
+    type: foreach
+    with:
+      items: ${{ steps.collect_indicators.output.indicators }}
+    steps:
+      - name: extract_value_and_types
+        type: data.set
+        with:
+          value: "{{ item.cef_value }}"
+          types: ${{ item.data_types }}
+
+      # Walk the data_types array and run the workflow that handles each
+      # one. Skips any type that has no mapping in consts.
+      - name: per_type
+        type: foreach
+        with:
+          items: ${{ steps.extract_value_and_types.output.types }}
+        steps:
+          - name: resolve_target_workflow
+            type: data.set
+            with:
+              workflow_id: "{{ consts.investigate_workflows[item] | default: '' }}"
+
+          - name: launch_child
+            type: if
+            condition: "{{ steps.resolve_target_workflow.output.workflow_id | size }} > 0"
+            steps:
+              # TODO: replace with a native sub-workflow invocation when supported.
+              - name: invoke_workflow
+                type: http
+                with:
+                  url: "/api/workflows/{{ steps.resolve_target_workflow.output.workflow_id }}/run"
+                  method: POST
+                  headers:
+                    kbn-xsrf: "true"
+                    Content-Type: "application/json"
+                  body:
+                    inputs:
+                      indicator: "{{ steps.extract_value_and_types.output.value }}"
+                      indicator_type: "{{ item }}"
+                on-failure:
+                  continue: true
+
+              - name: log_dispatch
+                type: console
+                with:
+                  message: "Dispatched workflow {{ steps.resolve_target_workflow.output.workflow_id }} for {{ item }}={{ steps.extract_value_and_types.output.value }}."
+
+  - name: summary
+    type: console
+    with:
+      message: "Risk notable enrichment dispatched for {{ steps.collect_indicators.output.indicators | size }} indicator(s)."

@@ -1,0 +1,92 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "GreyNoise — IP Enrichment by Severity"
+description: >
+  Branches GreyNoise enrichment depth on the incoming event severity. High
+  severity events get a full IP reputation query; everything else gets a
+  lighter quick lookup. Designed to limit GreyNoise quota use to incidents
+  that warrant it.
+enabled: true
+tags: ["splunk-soar", "threat-intel", "greynoise", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: source_ip
+    type: string
+    required: false
+    description: "Override IP to enrich. Defaults to the alert source address."
+  - name: severity
+    type: string
+    required: false
+    description: "Override severity ('high' triggers full reputation). Defaults to alert severity."
+
+consts:
+  greynoise_base_url: "https://api.greynoise.io/v2"
+  greynoise_api_key: "CHANGEME-greynoise-api-key"
+
+steps:
+  - name: derive_ip
+    type: data.set
+    with:
+      ip: "{{ inputs.source_ip | default: event.alerts[0].source.ip | default: '' }}"
+
+  - name: derive_severity
+    type: data.set
+    with:
+      severity: "{{ inputs.severity | default: event.alerts[0].kibana.alert.severity | default: 'low' | downcase }}"
+
+  - name: route_on_severity
+    type: if
+    condition: "{{ steps.derive_severity.output.severity }} == 'high'"
+    steps:
+      # TODO: swap to native GreyNoise connector for full IP reputation.
+      - name: ip_reputation
+        type: http
+        with:
+          url: "{{ consts.greynoise_base_url }}/noise/context/{{ steps.derive_ip.output.ip }}"
+          method: GET
+          headers:
+            key: "{{ consts.greynoise_api_key }}"
+            Accept: "application/json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+
+      - name: log_reputation
+        type: console
+        with:
+          message: |
+            GreyNoise reputation for {{ steps.derive_ip.output.ip }}:
+            classification={{ steps.ip_reputation.output.classification | default: 'unknown' }}
+            actor={{ steps.ip_reputation.output.actor | default: '' }}
+    else:
+      # TODO: swap to native GreyNoise connector for the quick lookup endpoint.
+      - name: lookup_ip
+        type: http
+        with:
+          url: "{{ consts.greynoise_base_url }}/noise/quick/{{ steps.derive_ip.output.ip }}"
+          method: GET
+          headers:
+            key: "{{ consts.greynoise_api_key }}"
+            Accept: "application/json"
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+
+      - name: log_quick
+        type: console
+        with:
+          message: |
+            GreyNoise quick lookup for {{ steps.derive_ip.output.ip }}:
+            code={{ steps.lookup_ip.output.code | default: 'unknown' }}
+            noise={{ steps.lookup_ip.output.noise | default: false }}
+            riot={{ steps.lookup_ip.output.riot | default: false }}

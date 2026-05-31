@@ -1,0 +1,236 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "Symantec IOC — Sandbox Detonation and Enrichment"
+description: >
+  Detonates a vault file inside Symantec Content Analysis, retrieves the
+  resulting report, then runs multiple reputation queries against the
+  observed indicators in parallel: file hash via VirusTotal and
+  ReversingLabs, URLs via Google Safe Browsing and Symantec DeepSight,
+  domains via OpenDNS Investigate, IPs via Anomali ThreatStream, and
+  URL traffic ranking via the legacy Alexa lookup. All results are folded
+  into a single summary that is attached as work notes on a new
+  ServiceNow incident.
+enabled: true
+tags: ["splunk-soar", "threat-intel", "symantec", "sandbox", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: vault_id
+    type: string
+    required: true
+    description: "Vault ID of the file to detonate."
+
+consts:
+  content_analysis_base: "https://CHANGEME-content-analysis.internal/api"
+  content_analysis_token: "Bearer CHANGEME_TOKEN"
+  servicenow_connector_id: "CHANGEME-servicenow-connector"
+  virustotal_connector_id: "CHANGEME-virustotal-connector"
+  reversinglabs_endpoint: "https://CHANGEME-reversinglabs.example/api/scan"
+  google_safebrowsing_endpoint: "https://safebrowsing.googleapis.com/v4/threatMatches:find"
+  google_safebrowsing_key: "CHANGEME-google-key"
+  deepsight_endpoint: "https://CHANGEME-deepsight.example/url"
+  alexa_endpoint: "https://CHANGEME-alexa.example/lookup"
+  opendns_endpoint: "https://investigate.api.umbrella.com/categorization"
+  opendns_token: "Bearer CHANGEME_OPENDNS_TOKEN"
+  threatstream_endpoint: "https://api.threatstream.com/api/v2/intelligence/"
+  threatstream_token: "CHANGEME-threatstream-token"
+
+steps:
+  - name: input_guard
+    type: if
+    condition: "{{ inputs.vault_id | size }} == 0"
+    steps:
+      - name: missing_vault
+        type: console
+        with:
+          message: "No vault_id supplied — aborting detonation."
+
+  # TODO: replace with the native Symantec Content Analysis connector when shipped.
+  - name: content_analysis_detonate
+    type: http
+    with:
+      url: "{{ consts.content_analysis_base }}/detonate"
+      method: POST
+      headers:
+        Authorization: "{{ consts.content_analysis_token }}"
+        Content-Type: "application/json"
+      body:
+        vault_id: "{{ inputs.vault_id }}"
+        environment: "IntelliVM"
+        priority: "high"
+        source: "Elastic Workflows"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+
+  - name: content_analysis_get_report
+    type: http
+    with:
+      url: "{{ consts.content_analysis_base }}/report/{{ steps.content_analysis_detonate.output.task_id }}"
+      method: GET
+      headers:
+        Authorization: "{{ consts.content_analysis_token }}"
+        Accept: "application/json"
+    on-failure:
+      retry:
+        max-attempts: 3
+        delay: "10s"
+
+  - name: extract_iocs
+    type: data.set
+    with:
+      file_hash: "{{ steps.content_analysis_get_report.output.summary.vault_sha1 | default: '' }}"
+      observed_urls: "{{ steps.content_analysis_get_report.output.data.results.NET | default: [] | map: 'NET_Url.url' }}"
+      observed_hosts: "{{ steps.content_analysis_get_report.output.data.results.NET | default: [] | map: 'NET_Url.host' }}"
+
+  # File hash enrichment — VirusTotal native + ReversingLabs http stub.
+  - name: virustotal_file
+    type: virustotal.scanFileHash
+    connector-id: "{{ consts.virustotal_connector_id }}"
+    with:
+      hash: "{{ steps.extract_iocs.output.file_hash }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  - name: reversinglabs_file
+    type: http
+    with:
+      url: "{{ consts.reversinglabs_endpoint }}"
+      method: POST
+      headers:
+        Content-Type: "application/json"
+      body:
+        hash: "{{ steps.extract_iocs.output.file_hash }}"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "3s"
+      continue: true
+
+  # URL enrichment — iterate over the URLs that appeared in the report.
+  - name: per_url
+    type: foreach
+    with:
+      items: ${{ steps.extract_iocs.output.observed_urls }}
+    steps:
+      - name: google_url_reputation
+        type: http
+        with:
+          url: "{{ consts.google_safebrowsing_endpoint }}?key={{ consts.google_safebrowsing_key }}"
+          method: POST
+          headers:
+            Content-Type: "application/json"
+          body:
+            threatInfo:
+              threatTypes: ["MALWARE", "SOCIAL_ENGINEERING", "UNWANTED_SOFTWARE"]
+              platformTypes: ["ANY_PLATFORM"]
+              threatEntryTypes: ["URL"]
+              threatEntries:
+                - url: "{{ item }}"
+        on-failure:
+          continue: true
+
+      - name: deepsight_url_reputation
+        type: http
+        with:
+          url: "{{ consts.deepsight_endpoint }}"
+          method: POST
+          headers:
+            Content-Type: "application/json"
+          body:
+            url: "{{ item }}"
+        on-failure:
+          continue: true
+
+      - name: alexa_url_rank
+        type: http
+        with:
+          url: "{{ consts.alexa_endpoint }}"
+          method: GET
+          query:
+            url: "{{ item }}"
+        on-failure:
+          continue: true
+
+  # Host enrichment — domains -> OpenDNS, IPs -> ThreatStream.
+  - name: per_host
+    type: foreach
+    with:
+      items: ${{ steps.extract_iocs.output.observed_hosts }}
+    steps:
+      - name: classify_host
+        type: data.set
+        with:
+          looks_like_ip: "{{ item | matches: '^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$' }}"
+
+      - name: enrich_host
+        type: if
+        condition: "{{ steps.classify_host.output.looks_like_ip }}"
+        steps:
+          - name: threatstream_ip_reputation
+            type: http
+            with:
+              url: "{{ consts.threatstream_endpoint }}"
+              method: GET
+              headers:
+                Authorization: "apikey {{ consts.threatstream_token }}"
+                Accept: "application/json"
+              query:
+                value: "{{ item }}"
+                type: "ip"
+            on-failure:
+              continue: true
+        else:
+          - name: opendns_domain_reputation
+            type: http
+            with:
+              url: "{{ consts.opendns_endpoint }}/{{ item }}"
+              method: GET
+              headers:
+                Authorization: "{{ consts.opendns_token }}"
+                Accept: "application/json"
+            on-failure:
+              continue: true
+
+  - name: build_work_notes
+    type: data.set
+    with:
+      work_notes: |
+        Symantec Content Analysis detonation summary
+        ---------------------------------------------
+        File hash: {{ steps.extract_iocs.output.file_hash }}
+        VirusTotal positives: {{ steps.virustotal_file.output.positives | default: 'n/a' }} / {{ steps.virustotal_file.output.total | default: 'n/a' }}
+        ReversingLabs classification: {{ steps.reversinglabs_file.output.classification | default: 'n/a' }}
+        URLs observed: {{ steps.extract_iocs.output.observed_urls | size }}
+        Hosts observed: {{ steps.extract_iocs.output.observed_hosts | size }}
+
+  - name: create_servicenow_incident
+    type: servicenow
+    connector-id: "{{ consts.servicenow_connector_id }}"
+    with:
+      subAction: "pushToService"
+      subActionParams:
+        incident:
+          short_description: "Symantec Content Analysis detonation results"
+          description: "{{ steps.build_work_notes.output.work_notes }}"
+          work_notes: "{{ steps.build_work_notes.output.work_notes }}"
+          urgency: "2"
+          severity: "2"
+          impact: "2"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+
+  - name: log_outcome
+    type: console
+    with:
+      message: "Created ServiceNow incident {{ steps.create_servicenow_incident.output.number | default: 'unknown' }} from detonation report."

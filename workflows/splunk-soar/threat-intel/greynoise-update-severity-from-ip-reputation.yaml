@@ -1,0 +1,81 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "GreyNoise — Severity From IP Reputation"
+description: >
+  Queries GreyNoise IP reputation for the source address and sets severity
+  using the returned classification. Anything that is not flagged as
+  noise (i.e. malicious or unknown) is escalated to high; benign noise is
+  downgraded to low.
+enabled: true
+tags: ["splunk-soar", "threat-intel", "greynoise", "translated"]
+
+triggers:
+  - type: alert
+  - type: manual
+
+inputs:
+  - name: source_ip
+    type: string
+    required: false
+    description: "Override IP to query. Defaults to the alert source address."
+
+consts:
+  greynoise_endpoint: "https://api.greynoise.io/v2/noise/context"
+  greynoise_api_key: "CHANGEME-greynoise-api-key"
+
+steps:
+  - name: derive_ip
+    type: data.set
+    with:
+      ip: "{{ inputs.source_ip | default: event.alerts[0].source.ip | default: '' }}"
+
+  # TODO: replace with native GreyNoise connector when supported.
+  - name: ip_reputation
+    type: http
+    with:
+      url: "{{ consts.greynoise_endpoint }}/{{ steps.derive_ip.output.ip }}"
+      method: GET
+      headers:
+        key: "{{ consts.greynoise_api_key }}"
+        Accept: "application/json"
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: "5s"
+      continue: true
+
+  - name: classify
+    type: if
+    condition: "{{ steps.ip_reputation.output.classification }} == 'malicious'"
+    steps:
+      - name: set_high_malicious
+        type: data.set
+        with:
+          severity: "high"
+          reason: "GreyNoise marked the IP as malicious."
+    else:
+      - name: maybe_unknown
+        type: if
+        condition: "{{ steps.ip_reputation.output.classification }} == 'unknown'"
+        steps:
+          - name: set_high_unknown
+            type: data.set
+            with:
+              severity: "high"
+              reason: "GreyNoise has no determination for this IP — treat with caution."
+        else:
+          - name: set_low_benign
+            type: data.set
+            with:
+              severity: "low"
+              reason: "GreyNoise flagged the IP as common internet noise."
+
+  - name: log_outcome
+    type: console
+    with:
+      message: |
+        IP={{ steps.derive_ip.output.ip }}
+        classification={{ steps.ip_reputation.output.classification | default: 'unavailable' }}
+        new_severity={{ steps.set_high_malicious.output.severity | default: steps.set_high_unknown.output.severity | default: steps.set_low_benign.output.severity }}

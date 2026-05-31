@@ -1,0 +1,96 @@
+# ─────────────────────────────────────────────────────────────────────
+# Translated from a Splunk SOAR community playbook (Apache 2.0).
+# See workflows/splunk-soar/NOTICE for attribution and details.
+# ─────────────────────────────────────────────────────────────────────
+name: "TruSTAR Intelligence Management — Enrich Indicators"
+description: >
+  Pulls indicator reputation from TruSTAR Intelligence Management for a
+  set of supplied indicators, tags any matches with the returned priority
+  score, and emits a concise findings summary. Intended to be invoked as a
+  child workflow by a parent threat-investigation flow.
+enabled: true
+tags: ["splunk-soar", "threat-intel", "trustar", "intelligence-management", "translated"]
+
+triggers:
+  - type: manual
+
+inputs:
+  - name: indicators
+    type: array
+    required: true
+    description: "List of indicator values (IPs, hashes, domains, etc.) to enrich."
+
+consts:
+  trustar_endpoint: "https://api.trustar.co/api/1.3"
+  trustar_auth_header: "Bearer CHANGEME_TRUSTAR_TOKEN"
+  station_search_url: "https://station.trustar.co/browse/search"
+
+steps:
+  - name: per_indicator_enrichment
+    type: foreach
+    with:
+      items: ${{ inputs.indicators }}
+    steps:
+      # TODO: swap to a native TruSTAR / Intelligence Management connector when one ships.
+      - name: indicator_reputation
+        type: http
+        with:
+          url: "{{ consts.trustar_endpoint }}/indicators/metadata"
+          method: GET
+          headers:
+            Authorization: "{{ consts.trustar_auth_header }}"
+            Accept: "application/json"
+          query:
+            value: "{{ item }}"
+            limit: 10000
+        on-failure:
+          retry:
+            max-attempts: 2
+            delay: "5s"
+          continue: true
+
+      - name: capture_indicator_summary
+        type: data.set
+        with:
+          summary:
+            indicator: "{{ item }}"
+            observable_type: "{{ steps.indicator_reputation.output.observable.type | default: 'unknown' }}"
+            priority_score: "{{ steps.indicator_reputation.output.priorityScore | default: 0 }}"
+            safelisted: "{{ steps.indicator_reputation.output.safelisted | default: false }}"
+            station_link: "{{ consts.station_search_url }}?q={{ item | url_encode }}"
+
+      - name: tag_when_found
+        type: if
+        condition: "{{ steps.indicator_reputation.output.priorityScore | default: 0 }} > 0"
+        steps:
+          # TODO: replace with the platform-native indicator tagging API once available.
+          - name: tag_with_priority
+            type: http
+            with:
+              url: "{{ consts.trustar_endpoint }}/tags"
+              method: POST
+              headers:
+                Authorization: "{{ consts.trustar_auth_header }}"
+                Content-Type: "application/json"
+              body:
+                indicator: "{{ item }}"
+                tag: "priority_{{ steps.indicator_reputation.output.priorityScore }}"
+            on-failure:
+              continue: true
+
+      - name: log_indicator
+        type: console
+        with:
+          message: |
+            Indicator={{ item }}
+            type={{ steps.capture_indicator_summary.output.summary.observable_type }}
+            priority={{ steps.capture_indicator_summary.output.summary.priority_score }}
+            safelisted={{ steps.capture_indicator_summary.output.summary.safelisted }}
+            station={{ steps.capture_indicator_summary.output.summary.station_link }}
+
+  - name: build_note
+    type: data.set
+    with:
+      note:
+        title: "TruSTAR indicator enrichment"
+        content: "Enriched {{ inputs.indicators | size }} indicator(s) via TruSTAR. See workflow logs for per-indicator priority scores and Station links."

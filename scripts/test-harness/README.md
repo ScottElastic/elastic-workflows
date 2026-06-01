@@ -11,7 +11,7 @@ account.
 |---|---|
 | `mock_server.py` | Single-process HTTP server that answers for every vendor URL the workflows call (Microsoft Graph, CrowdStrike Falcon, ServiceNow, VirusTotal, Splunk REST, GreyNoise, Recorded Future, Cisco Umbrella, Panorama, Zscaler, AWS, GCP, ReversingLabs, Carbon Black, Vectra, ExtraHop, …) with realistic canned JSON. Catchall returns 200 for anything not specifically handled. |
 | `import_workflows.py` | POSTs every `.yaml` under a directory to a Kibana space's `/api/workflows` endpoint. Writes `imported.json` mapping path → assigned workflow id. |
-| `run_workflows.py` | Reads `imported.json` and triggers each workflow via `/api/workflows/{id}/_execute` with a generic input bundle. Writes `results.json`. |
+| `run_workflows.py` | Reads `imported.json` and triggers each workflow via `/api/workflows/workflow/{id}/run` with a generic input bundle. Writes `results.json`. |
 
 ## Prereqs
 

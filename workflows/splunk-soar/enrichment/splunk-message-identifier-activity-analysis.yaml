@@ -66,8 +66,7 @@ steps:
         steps:
           - name: build_message_observables
             type: foreach
-            with:
-              items: "${{ steps.run_message_query.output.results }}"
+            foreach: "${{ steps.run_message_query.output.results }}"
             steps:
               - name: emit_observable
                 type: data.set

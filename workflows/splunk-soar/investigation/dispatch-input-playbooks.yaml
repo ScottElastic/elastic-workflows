@@ -129,8 +129,7 @@ steps:
 
       - name: launch_each_workflow
         type: foreach
-        with:
-          items: ${{ steps.find_matching_workflows.output.workflows }}
+        foreach: "${{ steps.find_matching_workflows.output.workflows }}"
         steps:
           # TODO: Elastic Workflows does not yet expose a synchronous "run
           # another workflow" primitive; use the execute API when available.

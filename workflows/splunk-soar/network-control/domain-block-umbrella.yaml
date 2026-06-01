@@ -34,8 +34,7 @@ consts:
 steps:
   - name: block_each_domain
     type: foreach
-    with:
-      items: ${{ inputs.domains }}
+    foreach: "${{ inputs.domains }}"
     steps:
       # Submit the domain as a security event. Umbrella accepts the request
       # asynchronously and returns 202 with `{id, disposition}`. Destructive

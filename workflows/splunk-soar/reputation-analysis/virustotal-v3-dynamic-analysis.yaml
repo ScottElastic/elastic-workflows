@@ -42,8 +42,7 @@ steps:
     steps:
       - name: each_url
         type: foreach
-        with:
-          items: ${{ inputs.urls }}
+        foreach: "${{ inputs.urls }}"
         steps:
           - name: detonate_url
             type: http
@@ -111,8 +110,7 @@ steps:
     steps:
       - name: each_file
         type: foreach
-        with:
-          items: ${{ inputs.file_vault_ids }}
+        foreach: "${{ inputs.file_vault_ids }}"
         steps:
           # NOTE: the Phantom action takes a vault_id and resolves to a
           # local file; in Elastic, you supply the SHA-256 (or upload the

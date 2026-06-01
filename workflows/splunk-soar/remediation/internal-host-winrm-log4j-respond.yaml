@@ -44,8 +44,7 @@ steps:
     steps:
       - name: locate_and_delete_per_host
         type: foreach
-        with:
-          items: ${{ inputs.ip_or_hostname }}
+        foreach: "${{ inputs.ip_or_hostname }}"
         steps:
           - name: test_path
             type: http
@@ -92,8 +91,7 @@ steps:
 
   - name: apply_containment
     type: foreach
-    with:
-      items: ${{ steps.dedup_hosts.output.hosts }}
+    foreach: "${{ steps.dedup_hosts.output.hosts }}"
     steps:
       - name: restrict_outbound
         type: if

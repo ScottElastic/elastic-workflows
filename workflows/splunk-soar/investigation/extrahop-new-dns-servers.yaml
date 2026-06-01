@@ -78,8 +78,7 @@ steps:
     steps:
       - name: investigate_each_new_server
         type: foreach
-        with:
-          items: ${{ steps.get_new_dns_servers.output.devices }}
+        foreach: "${{ steps.get_new_dns_servers.output.devices }}"
         steps:
           - name: skip_if_no_ip
             type: if

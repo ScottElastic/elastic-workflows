@@ -72,8 +72,7 @@ steps:
     steps:
       - name: hunt_each_ip
         type: foreach
-        with:
-          items: ${{ inputs.dest_ips }}
+        foreach: "${{ inputs.dest_ips }}"
         steps:
           - name: hunt_ip_phishme
             type: http
@@ -133,8 +132,7 @@ steps:
     steps:
       - name: hunt_each_md5
         type: foreach
-        with:
-          items: ${{ inputs.md5_hashes }}
+        foreach: "${{ inputs.md5_hashes }}"
         steps:
           - name: hunt_file_phishme
             type: http
@@ -192,8 +190,7 @@ steps:
     steps:
       - name: hunt_each_sha256
         type: foreach
-        with:
-          items: ${{ inputs.sha256_hashes }}
+        foreach: "${{ inputs.sha256_hashes }}"
         steps:
           - name: hunt_file_protectwise
             type: http
@@ -240,8 +237,7 @@ steps:
 
       - name: snapshot_each_match
         type: foreach
-        with:
-          items: ${{ steps.matching_vms.output.matches }}
+        foreach: "${{ steps.matching_vms.output.matches }}"
         steps:
           # vSphere REST: POST /api/vcenter/vm/{vm}/snapshot.
           - name: snapshot_vm

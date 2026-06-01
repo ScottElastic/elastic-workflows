@@ -94,8 +94,7 @@ steps:
         steps:
           - name: enrich_ips_seen_during_detonation
             type: foreach
-            with:
-              items: ${{ steps.atd_detonate_file.output.Summary.Ips }}
+            foreach: "${{ steps.atd_detonate_file.output.Summary.Ips }}"
             steps:
               - name: geolocate_ip
                 type: http
@@ -139,8 +138,7 @@ steps:
 
           - name: hunt_each_hash_via_mar
             type: foreach
-            with:
-              items: ${{ steps.atd_detonate_file.output.Summary.Files }}
+            foreach: "${{ steps.atd_detonate_file.output.Summary.Files }}"
             steps:
               - name: opendxl_mar_lookup_hash
                 type: http

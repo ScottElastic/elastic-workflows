@@ -133,8 +133,7 @@ steps:
       # callout address into a Panorama address group. Destructive; fail loud.
       - name: block_callout_ips
         type: foreach
-        with:
-          items: "${{ steps.wildfire_report.output.wildfire.task_info.report.network.UDP | default: steps.wildfire_report.output.wildfire.task_info.report.network.TCP | default: [] }}"
+        foreach: "${{ steps.wildfire_report.output.wildfire.task_info.report.network.UDP | default: steps.wildfire_report.output.wildfire.task_info.report.network.TCP | default: [] }}"
         steps:
           - name: panorama_add_callout_ip
             type: http
@@ -176,8 +175,7 @@ steps:
       # Block child file hashes the sandbox observed the sample creating.
       - name: block_child_hashes
         type: foreach
-        with:
-          items: "${{ steps.wildfire_report.output.wildfire.task_info.report.created_files | default: [] }}"
+        foreach: "${{ steps.wildfire_report.output.wildfire.task_info.report.created_files | default: [] }}"
         steps:
           - name: cb_blacklist_child
             type: http
@@ -268,8 +266,7 @@ steps:
       # Block any IPs the live process is currently talking to.
       - name: block_active_callbacks
         type: foreach
-        with:
-          items: "${{ steps.list_connections.output.process.netconn_complete | default: [] }}"
+        foreach: "${{ steps.list_connections.output.process.netconn_complete | default: [] }}"
         steps:
           - name: panorama_block_active_ip
             type: http

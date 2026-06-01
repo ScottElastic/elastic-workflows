@@ -68,13 +68,11 @@ steps:
 
   - name: build_inverse_events
     type: foreach
-    with:
-      items: ${{ inputs.risk_rules }}
+    foreach: "${{ inputs.risk_rules }}"
     steps:
       - name: per_rule
         type: foreach
-        with:
-          items: ${{ item.risk_events }}
+        foreach: "${{ item.risk_events }}"
         steps:
           - name: build_log_line
             type: data.set

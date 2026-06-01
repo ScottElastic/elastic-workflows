@@ -37,8 +37,7 @@ consts:
 steps:
   - name: process_each_request
     type: foreach
-    with:
-      items: ${{ inputs.requests }}
+    foreach: "${{ inputs.requests }}"
     steps:
       # Only operate on rows tagged "customer_request" as in the source playbook.
       - name: gate_label

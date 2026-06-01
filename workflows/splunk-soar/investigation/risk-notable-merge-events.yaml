@@ -134,8 +134,7 @@ steps:
         steps:
           - name: merge_selected
             type: foreach
-            with:
-              items: "${{ inputs.selected_container_ids }}"
+            foreach: "${{ inputs.selected_container_ids }}"
             steps:
               - name: comment_merge_selection
                 type: kibana.addCaseComment

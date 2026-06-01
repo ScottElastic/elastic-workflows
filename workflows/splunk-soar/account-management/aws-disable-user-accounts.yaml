@@ -39,8 +39,7 @@ consts:
 steps:
   - name: process_each_username
     type: foreach
-    with:
-      items: ${{ inputs.aws_usernames }}
+    foreach: "${{ inputs.aws_usernames }}"
     steps:
       - name: check_allowlist
         type: elasticsearch.search

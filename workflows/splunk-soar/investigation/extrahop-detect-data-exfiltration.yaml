@@ -121,8 +121,7 @@ steps:
 
       - name: lookup_each_external_peer
         type: foreach
-        with:
-          items: ${{ steps.get_client_peers.output.peers }}
+        foreach: "${{ steps.get_client_peers.output.peers }}"
         steps:
           - name: skip_rfc1918
             type: if

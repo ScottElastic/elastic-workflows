@@ -170,8 +170,7 @@ steps:
 
       - name: enrich_remote_ips_from_finding
         type: foreach
-        with:
-          items: ${{ inputs.remote_ips }}
+        foreach: "${{ inputs.remote_ips }}"
         steps:
           # MaxMind GeoIP2 City — GET /geoip/v2.1/city/{ip}. Returns
           # {city, country, continent, location, traits, ...}.

@@ -53,8 +53,7 @@ steps:
       # artifact IDs; here we invoke each vendor workflow directly per URL.
       - name: dispatch_per_url
         type: foreach
-        with:
-          items: ${{ steps.gather_urls.output.urls }}
+        foreach: "${{ steps.gather_urls.output.urls }}"
         steps:
           - name: invoke_panorama_block
             type: http

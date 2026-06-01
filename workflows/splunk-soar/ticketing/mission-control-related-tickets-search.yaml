@@ -111,8 +111,7 @@ steps:
       # workflow, then iterate and apply the closing note + status changes.
       - name: process_tasks
         type: foreach
-        with:
-          items: "${{ steps.get_tasks.output.data | default: [] }}"
+        foreach: "${{ steps.get_tasks.output.data | default: [] }}"
         steps:
           - name: attach_report_note
             type: http

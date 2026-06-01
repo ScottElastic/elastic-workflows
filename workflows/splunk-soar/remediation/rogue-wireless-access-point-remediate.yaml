@@ -150,8 +150,7 @@ steps:
     steps:
       - name: per_escalated_ap
         type: foreach
-        with:
-          items: ${{ steps.enriched_aps.output.aps }}
+        foreach: "${{ steps.enriched_aps.output.aps }}"
         steps:
           - name: maybe_comment
             type: if

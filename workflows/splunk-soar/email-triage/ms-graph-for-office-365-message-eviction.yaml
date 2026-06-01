@@ -45,8 +45,7 @@ steps:
 
   - name: process_each_target
     type: foreach
-    with:
-      items: ${{ inputs.message_id }}
+    foreach: "${{ inputs.message_id }}"
     steps:
       # Microsoft Graph: GET /users/{id|UPN}/messages?$filter=internetMessageId eq '...'
       # https://learn.microsoft.com/en-us/graph/api/user-list-messages

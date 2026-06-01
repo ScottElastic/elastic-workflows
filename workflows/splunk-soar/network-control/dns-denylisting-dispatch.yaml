@@ -58,8 +58,7 @@ steps:
       # vendor workflows once and invoke them by name/ID via the workflows API.
       - name: dispatch_per_domain
         type: foreach
-        with:
-          items: ${{ steps.gather_domains.output.domains }}
+        foreach: "${{ steps.gather_domains.output.domains }}"
         steps:
           - name: invoke_umbrella_block
             type: http

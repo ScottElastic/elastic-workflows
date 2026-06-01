@@ -67,8 +67,7 @@ steps:
       # `comment`, `createdBy.username`, `createdAt`, and `type` (user|alert).
       - name: render_notes_html
         type: foreach
-        with:
-          items: ${{ steps.get_case_comments.output }}
+        foreach: "${{ steps.get_case_comments.output }}"
         steps:
           - name: build_note_fragment
             type: data.set

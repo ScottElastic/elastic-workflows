@@ -99,8 +99,7 @@ steps:
     steps:
       - name: update_notables
         type: foreach
-        with:
-          items: ${{ inputs.notable_event_ids }}
+        foreach: "${{ inputs.notable_event_ids }}"
         steps:
           - name: post_revert_comment
             type: http

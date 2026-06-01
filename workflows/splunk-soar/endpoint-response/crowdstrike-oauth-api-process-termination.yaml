@@ -99,8 +99,7 @@ steps:
 
   - name: terminate_each_pid
     type: foreach
-    with:
-      items: ${{ inputs.pid }}
+    foreach: "${{ inputs.pid }}"
     steps:
       - name: run_kill
         type: http

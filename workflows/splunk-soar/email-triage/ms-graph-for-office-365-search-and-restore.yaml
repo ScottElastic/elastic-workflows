@@ -42,8 +42,7 @@ steps:
 
   - name: restore_each_target
     type: foreach
-    with:
-      items: ${{ inputs.targets }}
+    foreach: "${{ inputs.targets }}"
     steps:
       # Microsoft Graph: GET /users/{id|UPN}/mailFolders/recoverableitemsdeletions/messages
       # https://learn.microsoft.com/en-us/graph/api/user-list-messages

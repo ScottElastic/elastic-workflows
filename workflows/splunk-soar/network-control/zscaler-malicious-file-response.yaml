@@ -122,8 +122,7 @@ steps:
       # before the first "|" — we recreate that here with a foreach + split.
       - name: per_endpoint_actions
         type: foreach
-        with:
-          items: "${{ steps.hunt_file_in_carbonblack.output.results | default: [] }}"
+        foreach: "${{ steps.hunt_file_in_carbonblack.output.results | default: [] }}"
         steps:
           - name: quarantine_device
             type: http

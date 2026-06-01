@@ -55,8 +55,7 @@ steps:
   # Parallel lookups: fan out across users.
   - name: per_user_lookup
     type: foreach
-    with:
-      items: ${{ steps.collect_user_targets.output.users }}
+    foreach: "${{ steps.collect_user_targets.output.users }}"
     steps:
       - name: run_azure_ad_user_lookup
         type: kibana.request
@@ -77,8 +76,7 @@ steps:
   # Fan out across devices.
   - name: per_device_lookup
     type: foreach
-    with:
-      items: ${{ steps.collect_device_targets.output.devices }}
+    foreach: "${{ steps.collect_device_targets.output.devices }}"
     steps:
       - name: run_crowdstrike_device_lookup
         type: kibana.request

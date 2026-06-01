@@ -28,8 +28,7 @@ consts:
 steps:
   - name: each_url
     type: foreach
-    with:
-      items: ${{ inputs.urls }}
+    foreach: "${{ inputs.urls }}"
     steps:
       # TODO: replace with a native ReversingLabs connector when available.
       - name: rl_url_reputation

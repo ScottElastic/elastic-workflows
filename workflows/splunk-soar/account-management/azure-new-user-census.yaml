@@ -77,8 +77,7 @@ steps:
 
   - name: review_each_new_user
     type: foreach
-    with:
-      items: "${{ steps.list_new_users.output.value | default: [] }}"
+    foreach: "${{ steps.list_new_users.output.value | default: [] }}"
     steps:
       - name: build_user_record
         type: data.set

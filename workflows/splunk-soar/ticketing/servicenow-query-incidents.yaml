@@ -77,8 +77,7 @@ steps:
     steps:
       - name: emit_tickets
         type: foreach
-        with:
-          items: ${{ steps.list_snow_tickets.output.result }}
+        foreach: "${{ steps.list_snow_tickets.output.result }}"
         steps:
           - name: log_ticket
             type: console

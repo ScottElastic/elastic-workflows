@@ -122,8 +122,7 @@ steps:
 
       - name: append_baseline
         type: foreach
-        with:
-          items: ${{ steps.derive_new_admins.output.new_admins }}
+        foreach: "${{ steps.derive_new_admins.output.new_admins }}"
         steps:
           - name: index_new_admin
             type: elasticsearch.index

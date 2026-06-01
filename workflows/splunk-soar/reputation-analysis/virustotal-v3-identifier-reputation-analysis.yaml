@@ -46,8 +46,7 @@ steps:
     steps:
       - name: each_url
         type: foreach
-        with:
-          items: ${{ inputs.urls }}
+        foreach: "${{ inputs.urls }}"
         steps:
           - name: vt_url_lookup
             type: http
@@ -93,8 +92,7 @@ steps:
     steps:
       - name: each_domain
         type: foreach
-        with:
-          items: ${{ inputs.domains }}
+        foreach: "${{ inputs.domains }}"
         steps:
           - name: vt_domain_lookup
             type: http
@@ -137,8 +135,7 @@ steps:
     steps:
       - name: each_ip
         type: foreach
-        with:
-          items: ${{ inputs.ips }}
+        foreach: "${{ inputs.ips }}"
         steps:
           - name: vt_ip_lookup
             type: http
@@ -185,8 +182,7 @@ steps:
     steps:
       - name: each_hash
         type: foreach
-        with:
-          items: ${{ inputs.file_hashes }}
+        foreach: "${{ inputs.file_hashes }}"
         steps:
           - name: vt_file_lookup
             type: virustotal.scanFileHash

@@ -44,8 +44,7 @@ steps:
 
   - name: process_each_target
     type: foreach
-    with:
-      items: ${{ inputs.message_id }}
+    foreach: "${{ inputs.message_id }}"
     steps:
       # Microsoft Graph: GET /users/{id|UPN}/mailFolders/recoverableitemsdeletions/messages
       # Uses the well-known folder name "recoverableitemsdeletions".

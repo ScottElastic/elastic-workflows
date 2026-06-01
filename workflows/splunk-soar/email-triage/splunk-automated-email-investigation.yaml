@@ -102,8 +102,7 @@ steps:
       # filter_malicious_indicators: condition_1 — type=url & score>threshold.
       - name: hunt_url_interactions
         type: foreach
-        with:
-          items: ${{ steps.split_related_observables.output.related }}
+        foreach: "${{ steps.split_related_observables.output.related }}"
         steps:
           - name: gate_url
             type: if
@@ -139,8 +138,7 @@ steps:
       # filter_malicious_indicators: condition_2 — type=file & score>threshold.
       - name: hunt_file_interactions
         type: foreach
-        with:
-          items: ${{ steps.split_related_observables.output.related }}
+        foreach: "${{ steps.split_related_observables.output.related }}"
         steps:
           - name: gate_file
             type: if

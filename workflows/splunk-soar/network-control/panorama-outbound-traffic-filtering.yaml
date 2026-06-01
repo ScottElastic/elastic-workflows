@@ -49,8 +49,7 @@ steps:
 
   - name: block_each_url
     type: foreach
-    with:
-      items: ${{ inputs.urls }}
+    foreach: "${{ inputs.urls }}"
     steps:
       # Append the URL as a <member> under the custom URL category's list.
       # action=set is additive — repeated calls with the same value are

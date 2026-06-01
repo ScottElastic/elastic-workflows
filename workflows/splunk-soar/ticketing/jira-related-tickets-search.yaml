@@ -94,8 +94,7 @@ steps:
       # it with the term(s) it could relate to.
       - name: build_observables
         type: foreach
-        with:
-          items: ${{ steps.run_ticket_query.output.issues }}
+        foreach: "${{ steps.run_ticket_query.output.issues }}"
         steps:
           - name: build_ticket_observable
             type: data.set

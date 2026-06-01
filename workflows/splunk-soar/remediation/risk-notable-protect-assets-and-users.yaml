@@ -125,8 +125,7 @@ steps:
   # Dispatch every registered identity workflow with the chosen users.
   - name: launch_identity_workflows
     type: foreach
-    with:
-      items: ${{ inputs.identity_workflows }}
+    foreach: "${{ inputs.identity_workflows }}"
     steps:
       - name: identity_launch
         type: kibana.request
@@ -142,8 +141,7 @@ steps:
 
   - name: launch_asset_workflows
     type: foreach
-    with:
-      items: ${{ inputs.asset_workflows }}
+    foreach: "${{ inputs.asset_workflows }}"
     steps:
       - name: asset_launch
         type: kibana.request

@@ -74,8 +74,7 @@ steps:
 
   - name: process_inactive_candidates
     type: foreach
-    with:
-      items: "${{ steps.list_all_accounts.output.users | default: [] }}"
+    foreach: "${{ steps.list_all_accounts.output.users | default: [] }}"
     steps:
       - name: is_inactive
         type: if

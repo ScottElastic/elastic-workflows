@@ -47,8 +47,7 @@ steps:
     steps:
       - name: each_url
         type: foreach
-        with:
-          items: ${{ inputs.urls }}
+        foreach: "${{ inputs.urls }}"
         steps:
           # TODO: replace with a native Cisco Talos connector when available.
           - name: talos_url_lookup
@@ -93,8 +92,7 @@ steps:
     steps:
       - name: each_domain
         type: foreach
-        with:
-          items: ${{ inputs.domains }}
+        foreach: "${{ inputs.domains }}"
         steps:
           - name: talos_domain_lookup
             type: http
@@ -137,8 +135,7 @@ steps:
     steps:
       - name: each_ip
         type: foreach
-        with:
-          items: ${{ inputs.ips }}
+        foreach: "${{ inputs.ips }}"
         steps:
           - name: talos_ip_lookup
             type: http

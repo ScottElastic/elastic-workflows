@@ -45,8 +45,7 @@ steps:
   # ─── IP enrichment ────────────────────────────────────────────────
   - name: hunt_ips
     type: foreach
-    with:
-      items: ${{ inputs.ips }}
+    foreach: "${{ inputs.ips }}"
     steps:
       - name: trustar_hunt_ip
         type: http
@@ -88,8 +87,7 @@ steps:
   # ─── URL enrichment ───────────────────────────────────────────────
   - name: hunt_urls
     type: foreach
-    with:
-      items: ${{ inputs.urls }}
+    foreach: "${{ inputs.urls }}"
     steps:
       - name: trustar_hunt_url
         type: http
@@ -131,8 +129,7 @@ steps:
   # ─── Domain enrichment via DNS pivot ──────────────────────────────
   - name: hunt_domains
     type: foreach
-    with:
-      items: ${{ inputs.domains }}
+    foreach: "${{ inputs.domains }}"
     steps:
       - name: resolve_via_dns
         type: http
@@ -152,8 +149,7 @@ steps:
 
       - name: per_resolved_ip
         type: foreach
-        with:
-          items: "${{ steps.resolve_via_dns.output.Answer | default: [] }}"
+        foreach: "${{ steps.resolve_via_dns.output.Answer | default: [] }}"
         steps:
           - name: trustar_hunt_resolved_ip
             type: http

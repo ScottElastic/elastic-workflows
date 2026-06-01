@@ -78,8 +78,7 @@ steps:
 
       - name: per_host_dispatch
         type: foreach
-        with:
-          items: ${{ inputs.hosts }}
+        foreach: "${{ inputs.hosts }}"
         steps:
           - name: unix_or_unknown
             type: if

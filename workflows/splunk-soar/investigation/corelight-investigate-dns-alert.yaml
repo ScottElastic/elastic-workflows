@@ -211,8 +211,7 @@ steps:
                 steps:
                   - name: file_reputation_lookups
                     type: foreach
-                    with:
-                      items: ${{ steps.run_file_query.output.results }}
+                    foreach: "${{ steps.run_file_query.output.results }}"
                     steps:
                       - name: virustotal_hash_lookup
                         type: virustotal.scanFileHash

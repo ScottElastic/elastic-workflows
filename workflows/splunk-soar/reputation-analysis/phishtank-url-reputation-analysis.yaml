@@ -29,8 +29,7 @@ consts:
 steps:
   - name: query_each_url
     type: foreach
-    with:
-      items: ${{ inputs.urls }}
+    foreach: "${{ inputs.urls }}"
     steps:
       # PhishTank has no first-party Elastic connector; this is the
       # canonical form-encoded POST against the public API.

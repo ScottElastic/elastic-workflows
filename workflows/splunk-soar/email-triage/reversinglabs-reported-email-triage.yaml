@@ -83,8 +83,7 @@ steps:
 
           - name: detonate_each_attachment
             type: foreach
-            with:
-              items: ${{ steps.get_email_attachments.output.value }}
+            foreach: "${{ steps.get_email_attachments.output.value }}"
             steps:
               # TODO: swap for a native ReversingLabs connector when available.
               # A1000 expects multipart upload at /api/uploads/v2/upload-file;

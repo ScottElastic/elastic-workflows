@@ -75,8 +75,7 @@ steps:
 
   - name: block_each_url
     type: foreach
-    with:
-      items: ${{ inputs.urls }}
+    foreach: "${{ inputs.urls }}"
     steps:
       # ADD_TO_LIST appends to an existing custom category in one call —
       # avoids a full GET/merge/PUT cycle. Destructive change — no

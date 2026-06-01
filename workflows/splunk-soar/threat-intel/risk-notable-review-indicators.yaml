@@ -54,8 +54,7 @@ steps:
   # Build a list of {indicator_id, response} pairs by zipping the two lists.
   - name: pair_responses
     type: foreach
-    with:
-      items: ${{ inputs.indicators }}
+    foreach: "${{ inputs.indicators }}"
     steps:
       - name: pull_response
         type: data.set

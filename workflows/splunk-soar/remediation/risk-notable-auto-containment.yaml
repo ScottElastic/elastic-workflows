@@ -116,8 +116,7 @@ steps:
 
       - name: update_splunk_notables
         type: foreach
-        with:
-          items: ${{ steps.notable_artifacts.output.notable }}
+        foreach: "${{ steps.notable_artifacts.output.notable }}"
         steps:
           - name: update_event
             type: http

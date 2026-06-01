@@ -52,8 +52,7 @@ steps:
     steps:
       - name: per_url
         type: foreach
-        with:
-          items: ${{ inputs.urls }}
+        foreach: "${{ inputs.urls }}"
         steps:
           # TODO: native SAA connector when available.
           - name: detonate_url
@@ -132,8 +131,7 @@ steps:
     steps:
       - name: per_file
         type: foreach
-        with:
-          items: ${{ inputs.vault_ids }}
+        foreach: "${{ inputs.vault_ids }}"
         steps:
           - name: detonate_file
             type: http

@@ -32,8 +32,7 @@ consts:
 steps:
   - name: each_hash
     type: foreach
-    with:
-      items: ${{ inputs.file_hashes }}
+    foreach: "${{ inputs.file_hashes }}"
     steps:
       # TODO: replace with a native ReversingLabs connector when available.
       - name: rl_file_reputation

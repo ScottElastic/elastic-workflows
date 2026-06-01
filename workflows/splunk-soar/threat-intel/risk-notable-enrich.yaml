@@ -56,8 +56,7 @@ steps:
 
   - name: per_indicator_dispatch
     type: foreach
-    with:
-      items: ${{ steps.collect_indicators.output.indicators }}
+    foreach: "${{ steps.collect_indicators.output.indicators }}"
     steps:
       - name: extract_value_and_types
         type: data.set
@@ -69,8 +68,7 @@ steps:
       # one. Skips any type that has no mapping in consts.
       - name: per_type
         type: foreach
-        with:
-          items: ${{ steps.extract_value_and_types.output.types }}
+        foreach: "${{ steps.extract_value_and_types.output.types }}"
         steps:
           - name: resolve_target_workflow
             type: data.set

@@ -47,8 +47,7 @@ steps:
 
   - name: evict_messages
     type: foreach
-    with:
-      items: ${{ inputs.message_id }}
+    foreach: "${{ inputs.message_id }}"
     steps:
       # Gmail API: DELETE /gmail/v1/users/{userId}/messages/{id}
       # https://developers.google.com/gmail/api/reference/rest/v1/users.messages/delete

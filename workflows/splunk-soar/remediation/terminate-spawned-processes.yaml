@@ -32,8 +32,7 @@ consts:
 steps:
   - name: terminate_parents
     type: foreach
-    with:
-      items: ${{ inputs.parent_processes }}
+    foreach: "${{ inputs.parent_processes }}"
     steps:
       # Destructive: terminate the parent process. No continue:true — if the
       # kill fails, the operator needs to see it before we hunt for children.
@@ -75,8 +74,7 @@ steps:
 
       - name: terminate_children
         type: foreach
-        with:
-          items: '${{ steps.find_children.output.results | default: [] }}'
+        foreach: '${{ steps.find_children.output.results | default: [] }}'
         steps:
           # Destructive: terminate each child. No continue:true.
           - name: terminate_child

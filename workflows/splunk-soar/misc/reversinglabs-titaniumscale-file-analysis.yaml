@@ -31,8 +31,7 @@ consts:
 steps:
   - name: detonate_each_file
     type: foreach
-    with:
-      items: ${{ inputs.vault_ids }}
+    foreach: "${{ inputs.vault_ids }}"
     steps:
       # TODO: replace with a native ReversingLabs TitaniumScale connector
       # when one ships. The original SOAR action was "detonate file and get

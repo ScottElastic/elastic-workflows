@@ -62,8 +62,7 @@ steps:
 
       - name: tag_each_identity_match
         type: foreach
-        with:
-          items: '${{ steps.find_identities.output.results | default: [] }}'
+        foreach: '${{ steps.find_identities.output.results | default: [] }}'
         steps:
           - name: tag_identity
             type: http
@@ -106,8 +105,7 @@ steps:
 
       - name: tag_each_asset_match
         type: foreach
-        with:
-          items: '${{ steps.find_assets.output.results | default: [] }}'
+        foreach: '${{ steps.find_assets.output.results | default: [] }}'
         steps:
           - name: tag_asset
             type: http

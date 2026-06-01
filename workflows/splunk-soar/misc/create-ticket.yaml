@@ -73,8 +73,7 @@ steps:
 
   - name: build_indicator_lines
     type: foreach
-    with:
-      items: ${{ steps.filter_indicators.output.filtered }}
+    foreach: "${{ steps.filter_indicators.output.filtered }}"
     steps:
       - name: render_line
         type: data.set

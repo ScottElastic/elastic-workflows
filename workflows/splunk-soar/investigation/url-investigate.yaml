@@ -32,8 +32,7 @@ consts:
 steps:
   - name: per_url
     type: foreach
-    with:
-      items: "${{ inputs.urls }}"
+    foreach: "${{ inputs.urls }}"
     steps:
       - name: indicator_reputation
         type: http

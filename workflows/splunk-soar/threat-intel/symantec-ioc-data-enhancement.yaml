@@ -118,8 +118,7 @@ steps:
   # URL enrichment — iterate over the URLs that appeared in the report.
   - name: per_url
     type: foreach
-    with:
-      items: ${{ steps.extract_iocs.output.observed_urls }}
+    foreach: "${{ steps.extract_iocs.output.observed_urls }}"
     steps:
       - name: google_url_reputation
         type: http
@@ -163,8 +162,7 @@ steps:
   # Host enrichment — domains -> OpenDNS, IPs -> ThreatStream.
   - name: per_host
     type: foreach
-    with:
-      items: ${{ steps.extract_iocs.output.observed_hosts }}
+    foreach: "${{ steps.extract_iocs.output.observed_hosts }}"
     steps:
       - name: classify_host
         type: data.set

@@ -42,8 +42,7 @@ steps:
 
   - name: block_each_domain
     type: foreach
-    with:
-      items: ${{ inputs.domains }}
+    foreach: "${{ inputs.domains }}"
     steps:
       # Cisco Umbrella Enforcement API — POST a security event referencing
       # the destination domain. Umbrella replies with the new event id and

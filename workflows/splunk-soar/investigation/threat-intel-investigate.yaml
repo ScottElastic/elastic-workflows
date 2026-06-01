@@ -67,8 +67,7 @@ steps:
   # Phantom: collect2 of "all_indicators". Already provided via `inputs.indicators`.
   - name: dispatch_per_indicator
     type: foreach
-    with:
-      items: "${{ inputs.indicators }}"
+    foreach: "${{ inputs.indicators }}"
     steps:
       - name: log_dispatch_for_indicator
         type: console
@@ -81,8 +80,7 @@ steps:
       # indicator. The child is expected to return note_title + note_content.
       - name: invoke_child_workflows
         type: foreach
-        with:
-          items: "${{ inputs.child_workflows }}"
+        foreach: "${{ inputs.child_workflows }}"
         steps:
           - name: run_child
             type: http
@@ -116,8 +114,7 @@ steps:
   # pre-populated response array.
   - name: apply_indicator_tags
     type: foreach
-    with:
-      items: "${{ inputs.indicators }}"
+    foreach: "${{ inputs.indicators }}"
     steps:
       - name: pick_response
         type: data.set

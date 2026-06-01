@@ -31,8 +31,7 @@ consts:
 steps:
   - name: per_indicator_enrichment
     type: foreach
-    with:
-      items: ${{ inputs.indicators }}
+    foreach: "${{ inputs.indicators }}"
     steps:
       - name: indicator_reputation
         type: http

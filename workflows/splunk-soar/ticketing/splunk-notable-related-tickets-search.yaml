@@ -72,8 +72,7 @@ steps:
     steps:
       - name: each_notable
         type: foreach
-        with:
-          items: ${{ steps.search_notables.output.results }}
+        foreach: "${{ steps.search_notables.output.results }}"
         steps:
           - name: build_observable
             type: data.set

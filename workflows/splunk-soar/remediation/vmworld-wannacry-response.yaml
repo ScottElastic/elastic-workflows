@@ -38,8 +38,7 @@ consts:
 steps:
   - name: block_c2
     type: foreach
-    with:
-      items: ${{ inputs.source_addresses }}
+    foreach: "${{ inputs.source_addresses }}"
     steps:
       - name: nsx_block_port
         type: http
@@ -76,8 +75,7 @@ steps:
 
   - name: snapshot_vms
     type: foreach
-    with:
-      items: ${{ steps.affected_vms.output.matches }}
+    foreach: "${{ steps.affected_vms.output.matches }}"
     steps:
       - name: snapshot_vm
         type: http
@@ -117,8 +115,7 @@ steps:
     steps:
       - name: quarantine_each_host
         type: foreach
-        with:
-          items: ${{ inputs.source_addresses }}
+        foreach: "${{ inputs.source_addresses }}"
         steps:
           - name: carbonblack_quarantine
             type: http

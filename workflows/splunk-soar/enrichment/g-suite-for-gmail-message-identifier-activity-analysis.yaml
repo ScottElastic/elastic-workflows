@@ -61,8 +61,7 @@ steps:
 
       - name: per_mailbox_search
         type: foreach
-        with:
-          items: "${{ steps.list_mailboxes.output.users | default: [] }}"
+        foreach: "${{ steps.list_mailboxes.output.users | default: [] }}"
         steps:
           # Gmail API: GET /gmail/v1/users/{userId}/messages?q=rfc822msgid:{id}
           # The rfc822msgid: operator finds messages by Internet Message-ID

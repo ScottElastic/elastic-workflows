@@ -32,8 +32,7 @@ consts:
 steps:
   - name: process_targets
     type: foreach
-    with:
-      items: ${{ inputs.targets }}
+    foreach: "${{ inputs.targets }}"
     steps:
       # TODO: replace this http stub with a real WinRM / remote-shell connector
       - name: capture_file_contents

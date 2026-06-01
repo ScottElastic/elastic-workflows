@@ -43,8 +43,7 @@ steps:
 
   - name: test_each_connector
     type: foreach
-    with:
-      items: ${{ inputs.connector_ids }}
+    foreach: "${{ inputs.connector_ids }}"
     steps:
       - name: probe_connector
         type: http

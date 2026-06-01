@@ -50,8 +50,7 @@ steps:
 
   - name: launch_matching_blocks
     type: foreach
-    with:
-      items: ${{ inputs.block_workflows }}
+    foreach: "${{ inputs.block_workflows }}"
     steps:
       # The original Phantom playbook matched indicator types against each
       # block playbook's declared `contains` types and constructed a typed

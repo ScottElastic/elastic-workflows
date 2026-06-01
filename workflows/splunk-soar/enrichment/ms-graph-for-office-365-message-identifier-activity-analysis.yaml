@@ -58,8 +58,7 @@ steps:
 
       - name: per_mailbox_search
         type: foreach
-        with:
-          items: "${{ steps.list_mailboxes.output.value | default: [] }}"
+        foreach: "${{ steps.list_mailboxes.output.value | default: [] }}"
         steps:
           # Microsoft Graph: GET /users/{id|UPN}/messages?$filter=internetMessageId eq '...'
           # https://learn.microsoft.com/en-us/graph/api/user-list-messages

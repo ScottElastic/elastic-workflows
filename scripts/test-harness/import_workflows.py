@@ -34,7 +34,7 @@ def post_workflow(base_url: str, space: str, api_key: str, yaml_text: str):
             "Content-Type": "application/json",
             "Authorization": f"ApiKey {api_key}",
         },
-        data=json.dumps({"yaml": yaml_text}).encode("utf-8"),
+        data=json.dumps({"workflows": [{"yaml": yaml_text}]}).encode("utf-8"),
     )
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
@@ -70,7 +70,9 @@ def main():
         yaml_text = f.read_text()
         status, body = post_workflow(base, args.space, key, yaml_text)
         if 200 <= status < 300:
-            wf_id = body.get("id") or body.get("workflow_id") or body.get("data", {}).get("id")
+            workflows = body.get("workflows", []) if isinstance(body, dict) else []
+            first = workflows[0] if workflows else (body if isinstance(body, dict) else {})
+            wf_id = first.get("id") or first.get("workflow_id")
             print(f"ok    {f}  →  {wf_id}")
             results[str(f)] = {"status": status, "id": wf_id}
             ok += 1

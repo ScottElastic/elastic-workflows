@@ -57,7 +57,7 @@ CANNED_INPUTS = {
 
 
 def trigger(base_url: str, space: str, api_key: str, wf_id: str, inputs: dict):
-    path = f"/s/{space}/api/workflows/{wf_id}/_execute" if space and space != "default" else f"/api/workflows/{wf_id}/_execute"
+    path = f"/s/{space}/api/workflows/workflow/{wf_id}/run" if space and space != "default" else f"/api/workflows/workflow/{wf_id}/run"
     req = urllib.request.Request(
         url=base_url.rstrip("/") + path,
         method="POST",

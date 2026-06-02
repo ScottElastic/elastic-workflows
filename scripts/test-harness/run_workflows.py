@@ -51,7 +51,8 @@ CANNED_INPUTS = {
     "id_orig_h": "10.10.14.22",
     # Host
     "hostname": _HOSTNAME,
-    "ip_or_hostname": _HOSTNAME,
+    "ip_or_hostname": [_HOSTNAME],
+    "ip_or_hostname_str": _HOSTNAME,
     "device_id": "a3f8e2d14c9b4f7e",
     "machine_id": "a3f8e2d14c9b4f7e",
     "is_virtual": False,
@@ -74,7 +75,8 @@ CANNED_INPUTS = {
     # Email
     "internet_message_id": _MSG_ID,
     "network_message_id": "4d2a9f3b1748899200",
-    "message_id": _MSG_ID,
+    "message_id": [_MSG_ID],
+    "email": [_USER, "janalyst@acmecorp.com"],
     "raw_email_body": (
         "From: hr-noreply@acmecorp-invoices.com\r\n"
         "To: jdoe@acmecorp.com\r\n"
@@ -132,8 +134,10 @@ CANNED_INPUTS = {
     "indicator_tags_include": ["malware", "apt", "tor"],
     "indicator_types_exclude": [],
     "indicator_types_include": ["ip", "domain", "hash"],
-    "indicators": [{"type": "ip", "value": _MALICIOUS_IP},
-                   {"type": "hash", "value": _SHA256}],
+    "indicators": [
+        {"cef_value": _MALICIOUS_IP, "data_types": ["ip"], "type": "ip", "value": _MALICIOUS_IP},
+        {"cef_value": _SHA256, "data_types": ["hash"], "type": "hash", "value": _SHA256},
+    ],
     "playbook_repo": [],
     "playbook_tags": ["malware", "endpoint", "phishing"],
     "responses": [],

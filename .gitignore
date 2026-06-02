@@ -19,3 +19,9 @@
 # Backup files
 *.bak
 *~
+
+# Session-specific handoff notes (kept local)
+HANDOFF.md
+
+# LLM mock server response cache (local only, can grow)
+cache/

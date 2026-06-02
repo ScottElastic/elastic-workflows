@@ -97,21 +97,21 @@ steps:
               continue: true
 
           - name: capture_child_note
-            type: kibana.addCaseComment
+            type: kibana.request
             with:
-              # If the parent workflow is run from a case, pass the
-              # caseId via additional inputs; left as a placeholder.
-              caseId: "CHANGEME-case-id"
-              comment: |
-                **{{ steps.run_child.output.note_title | default: 'Threat intel note' }}**
+              method: POST
+              path: "/api/cases/CHANGEME-case-id/comments"
+              body:
+                type: "user"
+                comment: "**{{ steps.run_child.output.note_title | default: 'Threat intel note' }}**"
+                owner: "cases"
 
-                {{ steps.run_child.output.note_content | default: '(no content returned)' }}
             on-failure:
               continue: true
 
-  # Phantom prompt: ask analyst to choose a tag for each indicator and
-  # accept freeform tags. Translated as a foreach that consumes a
-  # pre-populated response array.
+              # Phantom prompt: ask analyst to choose a tag for each indicator and
+              # accept freeform tags. Translated as a foreach that consumes a
+              # pre-populated response array.
   - name: apply_indicator_tags
     type: foreach
     foreach: "${{ inputs.indicators }}"
@@ -132,7 +132,7 @@ steps:
           - name: tag_block
             type: console
             with:
-              message: "Tagging indicator {{ item.value }} with '{{ consts.indicator_tag_block }}'."
+              message: "Tagging indicator {{ item.value }} with {{ consts.indicator_tag_block }}."
 
       - name: preset_tag_safe
         type: if
@@ -141,7 +141,7 @@ steps:
           - name: tag_safe
             type: console
             with:
-              message: "Tagging indicator {{ item.value }} with '{{ consts.indicator_tag_safe }}'."
+              message: "Tagging indicator {{ item.value }} with {{ consts.indicator_tag_safe }}."
 
       - name: apply_freeform_tags
         type: if

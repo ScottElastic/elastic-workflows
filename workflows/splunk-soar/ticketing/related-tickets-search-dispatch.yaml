@@ -127,10 +127,15 @@ steps:
             condition: "{{ inputs.container_id | size }} > 0"
             steps:
               - name: comment_on_case
-                type: kibana.addCaseComment
+                type: kibana.request
                 with:
-                  caseId: "{{ inputs.container_id }}"
-                  comment: "{{ steps.build_merged_report.output.merged_report }}"
+                  method: POST
+                  path: "/api/cases/{{ inputs.container_id }}/comments"
+                  body:
+                    type: "user"
+                    comment: "{{ steps.build_merged_report.output.merged_report }}"
+                    owner: "cases"
+
                 on-failure:
                   continue: true
         else:

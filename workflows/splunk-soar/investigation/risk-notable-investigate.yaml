@@ -61,10 +61,15 @@ steps:
         condition: "{{ inputs.workbook_present }}"
         steps:
           - name: add_workbook
-            type: kibana.addCaseComment
+            type: kibana.request
             with:
-              caseId: "{{ consts.kibana_case_id }}"
-              comment: "Risk Investigation workbook attached."
+              method: POST
+              path: "/api/cases/{{ consts.kibana_case_id }}/comments"
+              body:
+                type: "user"
+                comment: "Risk Investigation workbook attached."
+                owner: "cases"
+
             on-failure:
               continue: true
 
@@ -113,13 +118,15 @@ steps:
         condition: "{{ steps.run_import_data.output.note_title | default: '' | size }} > 0 and {{ steps.run_import_data.output.note_content | default: '' | size }} > 0"
         steps:
           - name: write_import_note
-            type: kibana.addCaseComment
+            type: kibana.request
             with:
-              caseId: "{{ consts.kibana_case_id }}"
-              comment: |
-                **{{ steps.run_import_data.output.note_title }}**
+              method: POST
+              path: "/api/cases/{{ consts.kibana_case_id }}/comments"
+              body:
+                type: "user"
+                comment: "**{{ steps.run_import_data.output.note_title }}**"
+                owner: "cases"
 
-                {{ steps.run_import_data.output.note_content }}
             on-failure:
               continue: true
 
@@ -153,12 +160,14 @@ steps:
         condition: "{{ steps.run_enrich.output.note_title | default: '' | size }} > 0 and {{ steps.run_enrich.output.note_content | default: '' | size }} > 0"
         steps:
           - name: write_enrich_note
-            type: kibana.addCaseComment
+            type: kibana.request
             with:
-              caseId: "{{ consts.kibana_case_id }}"
-              comment: |
-                **{{ steps.run_enrich.output.note_title }}**
+              method: POST
+              path: "/api/cases/{{ consts.kibana_case_id }}/comments"
+              body:
+                type: "user"
+                comment: "**{{ steps.run_enrich.output.note_title }}**"
+                owner: "cases"
 
-                {{ steps.run_enrich.output.note_content }}
             on-failure:
               continue: true

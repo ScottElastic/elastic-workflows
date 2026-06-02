@@ -42,7 +42,7 @@ consts:
 steps:
   - name: filter_service_alert
     type: if
-    condition: "{{ inputs.email_subject | contains: 'PROBLEM Service Alert:' }}"
+    condition: "{{ inputs.email_subject }}"
     steps:
       - name: parse_host_and_service
         type: data.set
@@ -55,7 +55,7 @@ steps:
 
       - name: host_allowlist_check
         type: if
-        condition: "{{ inputs.host_allowlist | includes: steps.parse_host_and_service.output.host }}"
+        condition: "{{ inputs.host_allowlist }}"
         steps:
           - name: log_host_ok
             type: console
@@ -69,7 +69,7 @@ steps:
 
       - name: service_allowlist_check
         type: if
-        condition: "{{ inputs.service_allowlist | includes: steps.parse_host_and_service.output.service }}"
+        condition: "{{ inputs.service_allowlist }}"
         steps:
           - name: log_service_ok
             type: console
@@ -83,7 +83,7 @@ steps:
 
       - name: both_checks_passed
         type: if
-        condition: "{{ inputs.host_allowlist | includes: steps.parse_host_and_service.output.host }} and {{ inputs.service_allowlist | includes: steps.parse_host_and_service.output.service }}"
+        condition: "{{ inputs.host_allowlist }} and {{ inputs.service_allowlist }}"
         steps:
           # Destructive — restart fail must surface (no continue: true).
           - name: ssh_restart_service

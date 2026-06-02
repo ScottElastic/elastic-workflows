@@ -80,27 +80,10 @@ steps:
           detection_types: "${{ steps.get_detections.output.results | map: 'detection_type' | uniq | default: [] }}"
 
       - name: send_notification
-        type: email
-        connector-id: "{{ consts.email_connector_id }}"
+        type: console
         with:
-          to: ["{{ inputs.notify_to }}"]
-          from: "{{ inputs.notify_from }}"
-          subject: "Notification from Vectra via Elastic Workflows"
-          message: |
-            The following host exceeded the threshold and needs review:
+          message: "Email would be sent to: [ | subject: Notification from Vectra via Elastic Workflows"
 
-            Hostname: {{ inputs.hostname }}
-            IP: {{ inputs.host_ip }}
-
-            Detections:
-            {% for t in steps.collect_detection_types.output.detection_types %}
-            - {{ t }}
-            {% endfor %}
-        on-failure:
-          retry:
-            max-attempts: 2
-            delay: "5s"
-          continue: true
     else:
       - name: log_no_action
         type: console

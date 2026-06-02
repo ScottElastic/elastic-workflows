@@ -220,40 +220,35 @@ steps:
             Direct link: {{ steps.build_finding_url.output.finding_url }}
 
       - name: create_jira_ticket
-        type: jira
-        connector-id: "{{ inputs.jira_connector_id }}"
+        type: http
         with:
-          subAction: "pushToService"
-          subActionParams:
-            incident:
+          url: "{{ consts.jira_base | default: 'https://jira.example.com' }}/rest/api/3/issue"
+          method: POST
+          headers:
+            Content-Type: "application/json"
+          body:
+            fields:
               summary: "Security Hub: exposed EC2 instance {{ inputs.instance_id }}"
-              description: "{{ steps.build_notification_body.output.summary }}"
-              priority: "High"
-              issuetype: "Bug"
-              labels:
-                - "security-hub"
-                - "ec2"
-                - "automated"
-        on-failure:
-          retry:
-            max-attempts: 3
-            delay: "5s"
-          continue: true
+              description:
+                type: doc
+                version: 1
+                content:
+                  - type: paragraph
+                    content:
+                      - type: text
+                        text: "{{ steps.build_notification_body.output.summary }}"
 
       - name: notify_instance_owner
-        type: slack
-        connector-id: "{{ inputs.slack_connector_id }}"
+        type: http
         with:
-          message: "{{ steps.build_notification_body.output.summary }}"
-        on-failure:
-          retry:
-            max-attempts: 3
-            delay: "5s"
-          continue: true
+          url: "{{ consts.slack_webhook | default: 'https://hooks.slack.com/services/CHANGEME' }}"
+          method: POST
+          headers:
+            Content-Type: "application/json"
+          body:
+            channel: "#security-alerts"
+            text: "{{ steps.build_notification_body.output.summary }}"
 
-      # The original playbook then issued a 30-minute analyst prompt and on
-      # "Yes" called the EC2 isolation playbook. There is no native interactive
-      # prompt step yet in Elastic Workflows; surface the link and stop.
       - name: prompt_for_isolation
         type: console
         with:

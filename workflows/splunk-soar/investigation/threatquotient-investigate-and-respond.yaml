@@ -97,7 +97,7 @@ steps:
   # Destination IP path.
   - name: dst_branch
     type: if
-    condition: "{{ inputs.destination_address | size }} > 0 and not {{ inputs.internal_ranges | includes: inputs.destination_address }}"
+    condition: "{{ inputs.destination_address | size }} > 0 and not {{ inputs.internal_ranges }}"
     steps:
       - name: dst_ip_reputation_tq
         type: http
@@ -119,16 +119,18 @@ steps:
         condition: "{{ steps.dst_ip_reputation_tq.output.message | default: '' }} == 'SUCCESS'"
         steps:
           - name: dst_ip_reputation_vt
-            type: virustotal.scanIp
-            connector-id: "{{ consts.virustotal_connector_id }}"
+            type: http
             with:
-              ip: "{{ inputs.destination_address }}"
+              url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/ip_addresses/{{ inputs.destination_address }}"
+              method: GET
+              headers:
+                x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
             on-failure:
               continue: true
 
           - name: dst_block_if_active_adversary
             type: if
-            condition: "{{ steps.dst_ip_reputation_tq.output.data | json | contains: 'Active' }}"
+            condition: "{{ steps.dst_ip_reputation_tq.output.data | json }}"
             steps:
               # Panorama XML API: append IP to the dynamic address group.
               # Destructive — no `continue: true` so the analyst sees failures.
@@ -143,7 +145,7 @@ steps:
                     type: "config"
                     action: "set"
                     key: "{{ consts.panorama_api_key }}"
-                    xpath: "/config/shared/address-group/entry[@name='{{ consts.panorama_block_group }}']/static"
+                    xpath: "/config/shared/address-group/entry[@name={{ consts.panorama_block_group }}]/static"
                     element: "<member>{{ inputs.destination_address }}</member>"
                 on-failure:
                   retry:
@@ -184,7 +186,7 @@ steps:
                     type: "config"
                     action: "set"
                     key: "{{ consts.panorama_api_key }}"
-                    xpath: "/config/shared/profiles/custom-url-category/entry[@name='{{ consts.panorama_block_group }}']/list"
+                    xpath: "/config/shared/profiles/custom-url-category/entry[@name={{ consts.panorama_block_group }}]/list"
                     element: "<member>${{ steps.dst_ip_reputation_vt.output.detected_urls | map: 'url' | first }}</member>"
                 on-failure:
                   retry:
@@ -212,7 +214,7 @@ steps:
   # Source IP path (mirror image of destination).
   - name: src_branch
     type: if
-    condition: "{{ inputs.source_address | size }} > 0 and not {{ inputs.internal_ranges | includes: inputs.source_address }}"
+    condition: "{{ inputs.source_address | size }} > 0 and not {{ inputs.internal_ranges }}"
     steps:
       - name: src_ip_reputation_tq
         type: http
@@ -234,16 +236,18 @@ steps:
         condition: "{{ steps.src_ip_reputation_tq.output.message | default: '' }} == 'SUCCESS'"
         steps:
           - name: src_ip_reputation_vt
-            type: virustotal.scanIp
-            connector-id: "{{ consts.virustotal_connector_id }}"
+            type: http
             with:
-              ip: "{{ inputs.source_address }}"
+              url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/ip_addresses/{{ inputs.source_address }}"
+              method: GET
+              headers:
+                x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
             on-failure:
               continue: true
 
           - name: src_block_if_active_adversary
             type: if
-            condition: "{{ steps.src_ip_reputation_tq.output.data | json | contains: 'Active' }}"
+            condition: "{{ steps.src_ip_reputation_tq.output.data | json }}"
             steps:
               - name: block_src_ip
                 type: http
@@ -256,7 +260,7 @@ steps:
                     type: "config"
                     action: "set"
                     key: "{{ consts.panorama_api_key }}"
-                    xpath: "/config/shared/address-group/entry[@name='{{ consts.panorama_block_group }}']/static"
+                    xpath: "/config/shared/address-group/entry[@name={{ consts.panorama_block_group }}]/static"
                     element: "<member>{{ inputs.source_address }}</member>"
                 on-failure:
                   retry:
@@ -295,7 +299,7 @@ steps:
                     type: "config"
                     action: "set"
                     key: "{{ consts.panorama_api_key }}"
-                    xpath: "/config/shared/profiles/custom-url-category/entry[@name='{{ consts.panorama_block_group }}']/list"
+                    xpath: "/config/shared/profiles/custom-url-category/entry[@name={{ consts.panorama_block_group }}]/list"
                     element: "<member>${{ steps.src_ip_reputation_vt.output.detected_urls | map: 'url' | first }}</member>"
                 on-failure:
                   retry:

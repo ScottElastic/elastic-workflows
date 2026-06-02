@@ -16,7 +16,7 @@ tags: ["splunk-soar", "misc", "active-directory", "identity", "translated"]
 
 triggers:
   - type: manual
-  - type: scheduled
+  - type: schedule
     with:
       every: "1h"
 
@@ -102,38 +102,26 @@ steps:
     condition: "{{ steps.derive_new_admins.output.new_admins | size }} > 0"
     steps:
       - name: notify_email
-        type: email
-        connector-id: "{{ consts.email_connector_id }}"
+        type: console
         with:
-          to: ["{{ inputs.notify_to }}"]
-          from: "{{ inputs.notify_from }}"
-          subject: "New {{ inputs.ad_group_name }} group members detected"
-          message: |
-            The track-active-directory-admin-users workflow detected new
-            members of the {{ inputs.ad_group_name }} group:
-            {% for user in steps.derive_new_admins.output.new_admins %}
-            - {{ user }}
-            {% endfor %}
-        on-failure:
-          retry:
-            max-attempts: 3
-            delay: "5s"
-          continue: true
+          message: "Email would be sent to: [ | subject: New {{ inputs.ad_group_name }} group members detected"
 
       - name: append_baseline
         type: foreach
         foreach: "${{ steps.derive_new_admins.output.new_admins }}"
         steps:
           - name: index_new_admin
-            type: elasticsearch.index
+            type: http
             with:
-              index: "{{ consts.baseline_index }}"
-              document:
-                samaccountname: "{{ item }}"
-                added_at: "{{ now }}"
-                source_group: "{{ inputs.ad_group_name }}"
+              url: "{{ consts.elasticsearch_base | default: 'https://CHANGEME-es.elastic-cloud.com' }}/{{ consts.baseline_index }}/_doc"
+              method: POST
+              headers:
+                Content-Type: "application/json"
+                Authorization: "{{ consts.elasticsearch_auth | default: 'ApiKey CHANGEME_ES_KEY' }}"
+              body: "{{ item | json }}"
             on-failure:
               continue: true
+
     else:
       - name: log_no_changes
         type: console

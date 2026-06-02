@@ -66,18 +66,19 @@ steps:
     type: if
     # Any of the related events already a "case"? In Elastic the case
     # association is on a separate object; here we use a stand-in field.
-    condition: "{{ steps.find_related_events.output.hits.hits | map: '_source.container_type' | includes: 'case' }}"
+    condition: "{{ steps.find_related_events.output.hits.hits | map: '_source.container_type' }}"
     steps:
       - name: merge_into_existing_case
-        type: kibana.addCaseComment
+        type: kibana.request
         with:
-          caseId: "{{ consts.kibana_case_id }}"
-          comment: |
-            Auto-merge: container {{ inputs.container_id }} merged into an
-            existing case discovered via shared risk_object
-            '{{ inputs.risk_object }}'.
+          method: POST
+          path: "/api/cases/{{ consts.kibana_case_id }}/comments"
+          body:
+            type: "user"
+            comment: "Auto-merge: container {{ inputs.container_id }} merged into an existing case discovered via shared risk_object {{ inputs.risk_object }}."
         on-failure:
           continue: true
+
 
       - name: set_merge_result_merged
         type: data.set
@@ -91,21 +92,22 @@ steps:
         steps:
           # Promote this container to a case and roll others into it.
           - name: create_case
-            type: kibana.createCaseDefaultSpace
+            type: kibana.request
             with:
-              title: "Risk Notable — auto-merged for {{ inputs.risk_object }}"
-              description: |
-                Auto-created case for risk object {{ inputs.risk_object }}.
-                {{ steps.find_related_events.output.hits.total.value }} related
-                notable(s) merged.
-              tags: ["risk-notable", "auto-merge"]
-              severity: "medium"
-              connector:
-                id: "none"
-                name: "none"
-                type: ".none"
-            on-failure:
-              continue: true
+              method: POST
+              path: "/api/cases"
+              body:
+                title: "Risk Notable — auto-merged for {{ inputs.risk_object }}"
+                description: "{{ inputs.description | default: 'Created by workflow.' }}"
+                connector:
+                  id: "none"
+                  name: "none"
+                  type: ".none"
+                  fields: null
+                settings:
+                  syncAlerts: false
+                owner: "cases"
+                tags: []
 
           - name: set_merge_result_created
             type: data.set

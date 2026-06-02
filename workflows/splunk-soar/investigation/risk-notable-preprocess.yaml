@@ -73,24 +73,34 @@ steps:
           evidence_note: "Splunk notable artifact for event_id={{ inputs.event_id }} marked as evidence."
 
       - name: post_evidence_note
-        type: kibana.addCaseComment
+        type: kibana.request
         with:
-          caseId: "{{ consts.kibana_case_id }}"
-          comment: "{{ steps.mark_notable_artifact_evidence.output.evidence_note }}"
+          method: POST
+          path: "/api/cases/{{ consts.kibana_case_id }}/comments"
+          body:
+            type: "user"
+            comment: "{{ steps.mark_notable_artifact_evidence.output.evidence_note }}"
+            owner: "cases"
+
         on-failure:
           continue: true
 
-      # Compose ES incident-review URL for this notable.
+          # Compose ES incident-review URL for this notable.
       - name: build_es_url
         type: data.set
         with:
           es_url: "https://{{ consts.splunk_ui_host }}/en-US/app/SplunkEnterpriseSecuritySuite/incident_review?earliest={{ inputs.info_min_time | default: '0' }}&latest=now&search=event_id%3D{{ inputs.event_id }}"
 
       - name: pin_es_url
-        type: kibana.addCaseComment
+        type: kibana.request
         with:
-          caseId: "{{ consts.kibana_case_id }}"
-          comment: "Enterprise Security: {{ steps.build_es_url.output.es_url }}"
+          method: POST
+          path: "/api/cases/{{ consts.kibana_case_id }}/comments"
+          body:
+            type: "user"
+            comment: "Enterprise Security: {{ steps.build_es_url.output.es_url }}"
+            owner: "cases"
+
         on-failure:
           continue: true
 

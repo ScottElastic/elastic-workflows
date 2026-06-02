@@ -38,7 +38,7 @@ consts:
 steps:
   - name: route_block
     type: if
-    condition: "'{{ inputs.source_data_identifier }}' == 'vectra_block_request'"
+    condition: "{{ inputs.source_data_identifier }} == 'vectra_block_request'"
     steps:
       - name: block_ip
         type: http
@@ -50,7 +50,7 @@ steps:
           query:
             type: "config"
             action: "set"
-            xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.panw_vsys }}']/address-group/entry[@name='{{ consts.panw_block_group }}']/static"
+            xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name={{ consts.panw_vsys }}]/address-group/entry[@name={{ consts.panw_block_group }}]/static"
             element: "<member>{{ inputs.dvc_ip }}</member>"
             key: "{{ consts.panw_api_key }}"
         on-failure:
@@ -74,7 +74,7 @@ steps:
 
   - name: route_unblock
     type: if
-    condition: "'{{ inputs.source_data_identifier }}' == 'vectra_unblock_request'"
+    condition: "{{ inputs.source_data_identifier }} == 'vectra_unblock_request'"
     steps:
       - name: unblock_ip
         type: http
@@ -86,7 +86,7 @@ steps:
           query:
             type: "config"
             action: "delete"
-            xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.panw_vsys }}']/address-group/entry[@name='{{ consts.panw_block_group }}']/static/member[text()='{{ inputs.dvc_ip }}']"
+            xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name={{ consts.panw_vsys }}]/address-group/entry[@name={{ consts.panw_block_group }}]/static/member[text()={{ inputs.dvc_ip }}]"
             key: "{{ consts.panw_api_key }}"
         on-failure:
           retry:

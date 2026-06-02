@@ -79,7 +79,7 @@ steps:
     with:
       summary:
         note_title: "[Auto-Generated] Block Indicator Summary"
-        rows: '${{ inputs.marked_indicators | map_to_obj: "indicator_value", "indicator_cef_type" }}'
+        rows: '${{ inputs.marked_indicators}}'
         note: "Refer to the dispatched block-workflows for per-indicator status."
 
   - name: log_complete

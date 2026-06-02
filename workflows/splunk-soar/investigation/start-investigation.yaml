@@ -90,10 +90,15 @@ steps:
         condition: "{{ inputs.current_task_name | size }} > 0"
         steps:
           - name: log_task_complete
-            type: kibana.addCaseComment
+            type: kibana.request
             with:
-              caseId: "{{ consts.kibana_case_id }}"
-              comment: "Workbook task '{{ inputs.current_task_name }}' marked complete by {{ inputs.effective_user | default: 'workflow' }}."
+              method: POST
+              path: "/api/cases/{{ consts.kibana_case_id }}/comments"
+              body:
+                type: "user"
+                comment: "Workbook task {{ inputs.current_task_name }} marked complete by {{ inputs.effective_user | default: 'workflow' }}."
+                owner: "cases"
+
             on-failure:
               continue: true
 
@@ -102,10 +107,15 @@ steps:
         condition: "{{ inputs.next_task_name | size }} > 0"
         steps:
           - name: log_next_task_started
-            type: kibana.addCaseComment
+            type: kibana.request
             with:
-              caseId: "{{ consts.kibana_case_id }}"
-              comment: "Workbook task '{{ inputs.next_task_name }}' moved to In Progress."
+              method: POST
+              path: "/api/cases/{{ consts.kibana_case_id }}/comments"
+              body:
+                type: "user"
+                comment: "Workbook task {{ inputs.next_task_name }} moved to In Progress."
+                owner: "cases"
+
             on-failure:
               continue: true
 

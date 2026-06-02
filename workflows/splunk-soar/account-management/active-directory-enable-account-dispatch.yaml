@@ -132,11 +132,12 @@ steps:
     condition: "{{ inputs.kibana_case_id | size }} > 0"
     steps:
       - name: comment_on_case
-        type: kibana.addCaseComment
+        type: kibana.request
         with:
-          caseId: "{{ inputs.kibana_case_id }}"
-          comment: |
-            Account enable dispatch completed for {{ inputs.user }}.
-            ad_ldap={{ steps.dispatch_ad_ldap_unlock.output.status | default: 'unknown' }},
-            azure_ad={{ steps.dispatch_azure_ad_unlock.output.status | default: 'unknown' }},
-            aws_iam={{ steps.dispatch_aws_iam_unlock.output.status | default: 'unknown' }}
+          method: POST
+          path: "/api/cases/{{ inputs.kibana_case_id }}/comments"
+          body:
+            type: "user"
+            comment: "Account enable dispatch completed for {{ inputs.user }}. ad_ldap={{ steps.dispatch_ad_ldap_unlock.output.status | default: 'unknown' }}, azure_ad={{ steps.dispatch_azure_ad_unlock.output.status | default: 'unknown' }}, aws_iam={{ steps.dispatch_aws_iam_unlock.output.status | default: 'unknown' }}"
+            owner: "cases"
+

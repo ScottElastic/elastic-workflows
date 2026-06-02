@@ -68,7 +68,7 @@ steps:
     type: data.set
     with:
       email_vault_items: >-
-        {{ steps.list_vault_items.output.data | where: 'file_name', 'contains', '.eml' }}
+        {{ steps.list_vault_items.output.data }}
 
   # Stand-in for Splunk_Attack_Analyzer_Dynamic_Analysis sub-playbook.
   - name: detonate_in_attack_analyzer
@@ -106,7 +106,7 @@ steps:
         steps:
           - name: gate_url
             type: if
-            condition: "'{{ item.type }}' == 'url' and {{ item.reputation.score_id | default: 0 }} > {{ consts.malicious_score_threshold }}"
+            condition: "{{ item.type }} == 'url' and {{ item.reputation.score_id | default: 0 }} > {{ consts.malicious_score_threshold }}"
             steps:
               # Sub-playbook: Splunk_Identifier_Activity_Analysis (url).
               # /services/search/jobs/export streams results back as soon as
@@ -142,7 +142,7 @@ steps:
         steps:
           - name: gate_file
             type: if
-            condition: "'{{ item.type }}' == 'file' and {{ item.reputation.score_id | default: 0 }} > {{ consts.malicious_score_threshold }}"
+            condition: "{{ item.type }} == 'file' and {{ item.reputation.score_id | default: 0 }} > {{ consts.malicious_score_threshold }}"
             steps:
               # Sub-playbook: Splunk_Identifier_Activity_Analysis (file sha256).
               - name: who_executed_file

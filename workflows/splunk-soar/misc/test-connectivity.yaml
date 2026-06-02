@@ -14,7 +14,7 @@ tags: ["splunk-soar", "misc", "connector-health", "diagnostic", "translated"]
 
 triggers:
   - type: manual
-  - type: scheduled
+  - type: schedule
     with:
       every: "1d"
 

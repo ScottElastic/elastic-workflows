@@ -78,15 +78,9 @@ steps:
           continue: true
 
       - name: notify_admin_with_verdict
-        type: email
-        connector-id: "{{ consts.smtp_connector_id }}"
+        type: console
         with:
-          to: "{{ consts.admin_email }}"
-          from: "{{ consts.email_from }}"
-          subject: "ATD verdict: {{ steps.atd_detonate_file.output.Summary.verdict | default: 'unknown' }}"
-          body: "{{ steps.atd_detonate_file.output.Summary.Verdict.Description | default: 'no description' }}"
-        on-failure:
-          continue: true
+          message: "Email would be sent to: {{ consts.admin_email }} | subject: ATD verdict: {{ steps.atd_detonate_file.output.Summary.verdict | default: 'unknown' }}"
 
       - name: detonation_was_malicious
         type: if
@@ -183,27 +177,20 @@ steps:
                         Please continue to investigate these endpoints as soon as possible.
 
                   - name: create_servicenow_ticket
-                    type: servicenow
-                    connector-id: "{{ consts.servicenow_connector_id }}"
+                    type: http
                     with:
-                      subAction: "pushToService"
-                      subActionParams:
-                        incident:
-                          short_description: "phishing attachment present on endpoints"
-                          description: "{{ steps.build_ticket_body.output.body }}"
-                          impact: "2"
-                          urgency: "2"
-                          severity: "2"
+                      url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
+                      method: POST
+                      headers:
+                        Content-Type: "application/json"
+                        Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
+                      body:
+                        short_description: "phishing attachment present on endpoints"
                     on-failure:
                       continue: true
 
                   - name: email_analyst
-                    type: email
-                    connector-id: "{{ consts.smtp_connector_id }}"
+                    type: console
                     with:
-                      to: "{{ consts.analyst_email }}"
-                      from: "{{ consts.email_from }}"
-                      subject: "phishing attachment present on endpoints"
-                      body: "{{ steps.build_ticket_body.output.body }}"
-                    on-failure:
-                      continue: true
+                      message: "Email would be sent to: {{ consts.analyst_email }} | subject: phishing attachment present on endpoints"
+

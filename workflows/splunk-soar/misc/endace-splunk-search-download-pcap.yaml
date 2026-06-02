@@ -154,11 +154,15 @@ steps:
                 condition: "{{ inputs.kibana_case_id | size }} > 0 and {{ steps.capture_p2p_link.output.p2p_link | size }} > 0"
                 steps:
                   - name: attach_p2p_note
-                    type: kibana.addCaseComment
+                    type: kibana.request
                     with:
-                      caseId: "{{ inputs.kibana_case_id }}"
-                      comment: |
-                        EndaceP2P PCAP link (large download): {{ steps.capture_p2p_link.output.p2p_link }}
+                      method: POST
+                      path: "/api/cases/{{ inputs.kibana_case_id }}/comments"
+                      body:
+                        type: "user"
+                        comment: "EndaceP2P PCAP link (large download): {{ steps.capture_p2p_link.output.p2p_link }}"
+                        owner: "cases"
+
             else:
               # Small enough to download directly.
               - name: download_pcap_small
@@ -184,10 +188,15 @@ steps:
         condition: "{{ inputs.kibana_case_id | size }} > 0"
         steps:
           - name: failed_search_note
-            type: kibana.addCaseComment
+            type: kibana.request
             with:
-              caseId: "{{ inputs.kibana_case_id }}"
-              comment: "EndaceProbe search returned an empty PCAP. Status: {{ steps.query_endace.output.status | default: 'unknown' }}"
+              method: POST
+              path: "/api/cases/{{ inputs.kibana_case_id }}/comments"
+              body:
+                type: "user"
+                comment: "EndaceProbe search returned an empty PCAP. Status: {{ steps.query_endace.output.status | default: 'unknown' }}"
+                owner: "cases"
+
       - name: log_failed_search
         type: console
         with:

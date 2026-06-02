@@ -52,7 +52,7 @@ steps:
         Accept: "application/json"
       query:
         query: "{{ inputs.gnql_query }}"
-        size: 100
+        size: "100"
     on-failure:
       retry:
         max-attempts: 3
@@ -61,7 +61,7 @@ steps:
 
   - name: evaluate_match
     type: if
-    condition: "{{ steps.gnql_query.output.data | map: 'ip' | contains: steps.resolve_target_ip.output.target_ip }}"
+    condition: "{{ steps.gnql_query.output.data | map: 'ip' }}"
     steps:
       - name: set_high_verdict
         type: data.set
@@ -79,10 +79,15 @@ steps:
         condition: "{{ inputs.case_id | size }} > 0"
         steps:
           - name: comment_high
-            type: kibana.addCaseComment
+            type: kibana.request
             with:
-              caseId: "{{ inputs.case_id }}"
-              comment: "GreyNoise GNQL match: IP listed as malicious with .gov reverse DNS. Severity raised to high."
+              method: POST
+              path: "/api/cases/{{ inputs.case_id }}/comments"
+              body:
+                type: "user"
+                comment: "GreyNoise GNQL match: IP listed as malicious with .gov reverse DNS. Severity raised to high."
+                owner: "cases"
+
     else:
       - name: set_low_verdict
         type: data.set

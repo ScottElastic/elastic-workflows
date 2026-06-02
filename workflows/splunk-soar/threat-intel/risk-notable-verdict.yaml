@@ -157,7 +157,7 @@ steps:
                     task_name: "Render Verdict"
                     status: "complete"
                     note_title: "[Auto-Generated] Response Verdict Summary"
-                    note_content: "Launched '{{ inputs.response_choice }}' based on analyst selection."
+                    note_content: "Launched {{ inputs.response_choice }} based on analyst selection."
                 on-failure:
                   continue: true
             else:
@@ -167,7 +167,12 @@ steps:
                   message: "Analyst chose 'Do Nothing' or supplied no selection — verdict recorded with no further action."
         else:
           - name: no_response_options
-            type: kibana.addCaseComment
+            type: kibana.request
             with:
-              caseId: "{{ inputs.case_id }}"
-              comment: "[Auto-Generated] Verdict Error — no response workflows tagged '{{ consts.response_tag }}' were found."
+              method: POST
+              path: "/api/cases/{{ inputs.case_id }}/comments"
+              body:
+                type: "user"
+                comment: "[Auto-Generated] Verdict Error — no response workflows tagged {{ consts.response_tag }} were found."
+                owner: "cases"
+

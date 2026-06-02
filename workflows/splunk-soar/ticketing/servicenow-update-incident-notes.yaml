@@ -91,18 +91,17 @@ steps:
       # Native servicenow connector. correlation_id can be either a SNOW
       # number (INC...) or sys_id; pushToService upserts the comment field.
       - name: update_servicenow
-        type: servicenow
-        connector-id: "{{ consts.servicenow_connector_id }}"
+        type: http
         with:
-          subAction: "pushToService"
-          subActionParams:
-            incident:
-              correlation_id: "{{ steps.resolve_snow_incident.output.snow_incident }}"
-              comments: "{{ steps.assemble_payload.output.comments }}"
+          url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
+          method: POST
+          headers:
+            Content-Type: "application/json"
+            Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
+          body:
+            short_description: "{{ inputs.ticket_title | default: 'Workflow ticket' }}"
         on-failure:
-          retry:
-            max-attempts: 3
-            delay: "5s"
+          continue: true
 
       - name: log_done
         type: console

@@ -108,7 +108,7 @@ steps:
   # either signal.
   - name: is_ransomware
     type: if
-    condition: "{{ steps.detonate_file.output.wildfire.get_verdict_info.verdict | default: '' }} == '1' or {{ steps.wildfire_report.output.wildfire.task_info.report.malware | default: '' | downcase | contains: 'ransom' }}"
+    condition: "{{ steps.detonate_file.output.wildfire.get_verdict_info.verdict | default: '' }} == '1' or {{ steps.wildfire_report.output.wildfire.task_info.report.malware | default: '' | downcase }}"
     steps:
       # Hunt the file in Carbon Black first so the affected sensor/user is
       # known before we run destructive actions. Lookup — continue on failure.
@@ -145,7 +145,7 @@ steps:
               query:
                 type: "config"
                 action: "set"
-                xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.panorama_vsys }}']/address-group/entry[@name='{{ consts.panorama_block_ip_group }}']/static"
+                xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name={{ consts.panorama_vsys }}]/address-group/entry[@name={{ consts.panorama_block_ip_group }}]/static"
                 element: "<member>{{ item.ip | default: item }}</member>"
                 key: "{{ consts.panorama_api_key }}"
             on-failure:
@@ -195,75 +195,77 @@ steps:
                 max-attempts: 3
                 delay: "5s"
 
-      - name: parallel_response
-        type: parallel
-        steps:
-          # Carbon Black process termination. Destructive — fail loud.
-          - name: terminate_process
-            type: http
-            with:
-              url: "{{ consts.carbonblack_endpoint }}/api/v1/process/{{ steps.hunt_file.output.results[0].id | default: '' }}/terminate"
-              method: POST
-              headers:
-                X-Auth-Token: "{{ consts.carbonblack_auth_header }}"
-                Content-Type: "application/json"
-              body:
-                sensor_id: "{{ steps.hunt_file.output.results[0].sensor_id | default: '' }}"
-            on-failure:
-              retry:
-                max-attempts: 3
-                delay: "5s"
+      - name: parallel_response_log
+        type: console
+        with:
+          message: "Running parallel steps sequentially"
+      # Carbon Black process termination. Destructive — fail loud.
+      - name: terminate_process
+        type: http
+        with:
+          url: "{{ consts.carbonblack_endpoint }}/api/v1/process/{{ steps.hunt_file.output.results[0].id | default: '' }}/terminate"
+          method: POST
+          headers:
+            X-Auth-Token: "{{ consts.carbonblack_auth_header }}"
+            Content-Type: "application/json"
+          body:
+            sensor_id: "{{ steps.hunt_file.output.results[0].sensor_id | default: '' }}"
+        on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
 
-          # Carbon Black sensor isolation. Destructive — fail loud.
-          - name: quarantine_device
-            type: http
-            with:
-              url: "{{ consts.carbonblack_endpoint }}/api/v1/sensor/{{ steps.hunt_file.output.results[0].sensor_id | default: '' }}"
-              method: PUT
-              headers:
-                X-Auth-Token: "{{ consts.carbonblack_auth_header }}"
-                Content-Type: "application/json"
-              body:
-                network_isolation_enabled: true
-            on-failure:
-              retry:
-                max-attempts: 3
-                delay: "5s"
+      # Carbon Black sensor isolation. Destructive — fail loud.
+      - name: quarantine_device
+        type: http
+        with:
+          url: "{{ consts.carbonblack_endpoint }}/api/v1/sensor/{{ steps.hunt_file.output.results[0].sensor_id | default: '' }}"
+          method: PUT
+          headers:
+            X-Auth-Token: "{{ consts.carbonblack_auth_header }}"
+            Content-Type: "application/json"
+          body:
+            network_isolation_enabled: true
+        on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
 
-          # AD account disable. Destructive — fail loud.
-          - name: disable_user
-            type: http
-            with:
-              url: "{{ consts.ad_ldap_endpoint }}/disable-user"
-              method: POST
-              headers:
-                Authorization: "{{ consts.ad_ldap_auth_header }}"
-                Content-Type: "application/json"
-              body:
-                username: "{{ steps.hunt_file.output.results[0].username | default: '' }}"
-                reason: "Ransomware detection on host {{ steps.hunt_file.output.results[0].hostname | default: 'unknown' }} (workflow run {{ execution.id }})"
-            on-failure:
-              retry:
-                max-attempts: 3
-                delay: "5s"
+      # AD account disable. Destructive — fail loud.
+      - name: disable_user
+        type: http
+        with:
+          url: "{{ consts.ad_ldap_endpoint }}/disable-user"
+          method: POST
+          headers:
+            Authorization: "{{ consts.ad_ldap_auth_header }}"
+            Content-Type: "application/json"
+          body:
+            username: "{{ steps.hunt_file.output.results[0].username | default: '' }}"
+            reason: "Ransomware detection on host {{ steps.hunt_file.output.results[0].hostname | default: 'unknown' }} (workflow run {{ execution.id }})"
+        on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
 
-          # Enumerate live network connections of the offending process —
-          # lookup, continue on failure.
-          - name: list_connections
-            type: http
-            with:
-              url: "{{ consts.carbonblack_endpoint }}/api/v1/process/{{ steps.hunt_file.output.results[0].id | default: '' }}/event"
-              method: GET
-              headers:
-                X-Auth-Token: "{{ consts.carbonblack_auth_header }}"
-                Accept: "application/json"
-            on-failure:
-              retry:
-                max-attempts: 3
-                delay: "5s"
-              continue: true
+      # Enumerate live network connections of the offending process —
+      # lookup, continue on failure.
+      - name: list_connections
+        type: http
+        with:
+          url: "{{ consts.carbonblack_endpoint }}/api/v1/process/{{ steps.hunt_file.output.results[0].id | default: '' }}/event"
+          method: GET
+          headers:
+            X-Auth-Token: "{{ consts.carbonblack_auth_header }}"
+            Accept: "application/json"
+        on-failure:
+          retry:
+            max-attempts: 3
+            delay: "5s"
+          continue: true
 
-      # Block any IPs the live process is currently talking to.
+    # Block any IPs the live process is currently talking to.
+
       - name: block_active_callbacks
         type: foreach
         foreach: "${{ steps.list_connections.output.process.netconn_complete | default: [] }}"
@@ -278,7 +280,7 @@ steps:
               query:
                 type: "config"
                 action: "set"
-                xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.panorama_vsys }}']/address-group/entry[@name='{{ consts.panorama_block_ip_group }}']/static"
+                xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name={{ consts.panorama_vsys }}]/address-group/entry[@name={{ consts.panorama_block_ip_group }}]/static"
                 element: "<member>{{ item.remote_ip | default: item.ip | default: item }}</member>"
                 key: "{{ consts.panorama_api_key }}"
             on-failure:

@@ -70,7 +70,7 @@ steps:
 
   - name: gate_on_signature
     type: if
-    condition: "{{ steps.derive_destination.output.signature }} == '{{ consts.expected_signature }}'"
+    condition: "{{ steps.derive_destination.output.signature }} == {{ consts.expected_signature }}"
     steps:
       # Splunk context queries. Each one mirrors a `phantom.act("run query")`
       # block from the source playbook. We capture the SPL inline.
@@ -343,16 +343,17 @@ steps:
         condition: "{{ inputs.kibana_case_id | size }} > 0"
         steps:
           - name: post_case_summary
-            type: kibana.addCaseComment
+            type: kibana.request
             with:
-              caseId: "{{ inputs.kibana_case_id }}"
-              comment: |
-                Excessive lockouts enrichment for {{ steps.derive_destination.output.dest }} completed.
-                Splunk searches captured authentication, identity, risk, and rights-change context.
-                WinRM gathered sessions, connections, logged-on users, and processes.
-                Shutdown approved: {{ inputs.approve_shutdown }}.
+              method: POST
+              path: "/api/cases/{{ inputs.kibana_case_id }}/comments"
+              body:
+                type: "user"
+                comment: "Excessive lockouts enrichment for {{ steps.derive_destination.output.dest }} completed. Splunk searches captured authentication, identity, risk, and rights-change context. WinRM gathered sessions, connections, logged-on users, and processes. Shutdown approved: {{ inputs.approve_shutdown }}."
+                owner: "cases"
+
     else:
       - name: log_signature_mismatch
         type: console
         with:
-          message: "Alert signature does not match '{{ consts.expected_signature }}' — exiting."
+          message: "Alert signature does not match {{ consts.expected_signature }} — exiting."

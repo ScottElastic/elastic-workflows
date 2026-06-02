@@ -16,7 +16,7 @@ tags: ["splunk-soar", "remediation", "wireless", "raspberry-pi", "translated"]
 
 triggers:
   - type: manual
-  - type: scheduled
+  - type: schedule
     with:
       every: "15m"
 
@@ -91,7 +91,7 @@ steps:
   - name: parsed_access_points
     type: data.set
     with:
-      aps: ${{ steps.parse_scan.output | parse_json }}
+      aps: ${{ steps.parse_scan.output }}
 
   - name: filter_allowlist
     type: data.set
@@ -142,7 +142,7 @@ steps:
   - name: enriched_aps
     type: data.set
     with:
-      aps: ${{ steps.fuzzy_match.output | parse_json }}
+      aps: ${{ steps.fuzzy_match.output }}
 
   - name: write_findings_to_case
     type: if
@@ -157,28 +157,24 @@ steps:
             condition: "{{ item.is_escalated }} == true"
             steps:
               - name: case_comment
-                type: kibana.addCaseComment
+                type: kibana.request
                 with:
-                  caseId: "{{ inputs.wireless_case_id }}"
-                  comment: |
-                    Suspicious AP detected
-                    mac={{ item.mac_address }}
-                    ESSID={{ item.ESSID }}
-                    signal={{ item.signal_strength }}
-                    matched_rule={{ item.matched_rule }}
+                  method: POST
+                  path: "/api/cases/{{ inputs.wireless_case_id }}/comments"
+                  body:
+                    type: "user"
+                    comment: "Suspicious AP detected mac={{ item.mac_address }} ESSID={{ item.ESSID }} signal={{ item.signal_strength }} matched_rule={{ item.matched_rule }}"
+                    owner: "cases"
 
-      # The original playbook used a manual phantom.task() for an operator
-      # to physically locate the AP. Approximate that with a case comment
-      # asking the assignee to walk the floor.
       - name: assign_operator_task
-        type: kibana.addCaseComment
+        type: kibana.request
         with:
-          caseId: "{{ inputs.wireless_case_id }}"
-          comment: >-
-            Walk the office with the wireless sensor. Use the MAC addresses
-            and signal strengths above to locate each rogue access point.
-            Consider performing a packet capture before unplugging, and
-            bring the device to the SOC for forensics.
+          method: POST
+          path: "/api/cases/{{ inputs.wireless_case_id }}/comments"
+          body:
+            type: "user"
+            comment: "Automated workflow comment."
+            owner: "cases"
 
   - name: final_summary
     type: console

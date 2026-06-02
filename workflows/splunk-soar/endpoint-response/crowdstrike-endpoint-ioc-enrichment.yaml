@@ -119,7 +119,7 @@ steps:
           headers:
             Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
           query:
-            filter: "type:'url'+indicator:'{{ inputs.url }}'"
+            filter: "type:'url'+indicator:{{ inputs.url }}"
         on-failure:
           continue: true
 
@@ -205,8 +205,8 @@ steps:
           headers:
             Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
           query:
-            limit: 1
-            filter: "hostname:'{{ inputs.source_hostname }}'"
+            limit: "1"
+            filter: "hostname:{{ inputs.source_hostname }}"
         on-failure:
           continue: true
 

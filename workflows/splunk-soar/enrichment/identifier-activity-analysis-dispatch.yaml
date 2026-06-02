@@ -81,10 +81,14 @@ steps:
         condition: "{{ inputs.case_id | size }} > 0"
         steps:
           - name: comment_with_report
-            type: kibana.addCaseComment
+            type: kibana.request
             with:
-              caseId: "{{ inputs.case_id }}"
-              comment: "{{ steps.merge_reports.output.merged_report }}"
+              method: POST
+              path: "/api/cases/{{ inputs.case_id }}/comments"
+              body:
+                type: "user"
+                comment: "{{ steps.merge_reports.output.merged_report }}"
+                owner: "cases"
 
       - name: log_dispatch
         type: console

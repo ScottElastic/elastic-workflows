@@ -185,14 +185,16 @@ steps:
         foreach: "${{ inputs.file_hashes }}"
         steps:
           - name: vt_file_lookup
-            type: virustotal.scanFileHash
-            connector-id: "CHANGEME-virustotal-connector"
+            type: http
             with:
-              hash: "{{ item }}"
+              url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/files/{{ item }}"
+              method: GET
+              headers:
+                x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
             on-failure:
               retry:
                 max-attempts: 2
-                delay: "3s"
+                delay: "5s"
               continue: true
 
           - name: build_file_observable

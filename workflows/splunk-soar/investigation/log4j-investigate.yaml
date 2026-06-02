@@ -82,7 +82,7 @@ steps:
         steps:
           - name: unix_or_unknown
             type: if
-            condition: "('{{ item.os_family }}' == 'unix') or ('{{ item.os_family }}' == 'unknown')"
+            condition: "({{ item.os_family }} == 'unix') or ({{ item.os_family }} == 'unknown')"
             steps:
               - name: ssh_general_investigate
                 type: http
@@ -116,7 +116,7 @@ steps:
 
           - name: windows_or_unknown
             type: if
-            condition: "('{{ item.os_family }}' == 'windows') or ('{{ item.os_family }}' == 'unknown')"
+            condition: "({{ item.os_family }} == 'windows') or ({{ item.os_family }} == 'unknown')"
             steps:
               - name: winrm_general_investigate
                 type: http

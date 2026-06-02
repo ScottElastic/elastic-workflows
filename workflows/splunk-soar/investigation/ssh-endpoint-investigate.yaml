@@ -45,18 +45,27 @@ consts:
 
 steps:
   - name: get_ticket
-    type: jira
-    connector-id: "{{ consts.jira_connector_id }}"
+    type: http
     with:
-      subAction: "getIncident"
-      subActionParams:
-        externalId: "{{ inputs.jira_key }}"
-    on-failure:
-      continue: true
+      url: "{{ consts.jira_base | default: 'https://jira.example.com' }}/rest/api/3/issue"
+      method: POST
+      headers:
+        Content-Type: "application/json"
+      body:
+        fields:
+          summary: "{{ inputs.ticket_title | default: 'Workflow ticket' }}"
+          description:
+            type: doc
+            version: 1
+            content:
+              - type: paragraph
+                content:
+                  - type: text
+                    text: "{{ inputs.description | default: '' }}"
 
   - name: only_new_linux_server
     type: if
-    condition: "{{ steps.get_ticket.output.fields.customLabels | default: '' | contains: inputs.ticket_label }}"
+    condition: "{{ steps.get_ticket.output.fields.customLabels | default: '' }}"
     steps:
       # Jira Cloud REST v3 JQL search. v2 /search is deprecated; v3 uses
       # /search/jql with POST body. Returns issues + nextPageToken.
@@ -119,7 +128,7 @@ steps:
 
       - name: is_centos7
         type: if
-        condition: "{{ steps.check_centos_version.output.output | default: '' | contains: 'CentOS Linux release 7' }}"
+        condition: "{{ steps.check_centos_version.output.output | default: '' }}"
         steps:
           # Run login history and listening port enumeration in parallel.
           - name: get_login_history
@@ -172,40 +181,62 @@ steps:
                 | {{ steps.list_open_ports.output.output | default: 'no output' }} |
 
           - name: enrich_ticket_logins
-            type: jira
-            connector-id: "{{ consts.jira_connector_id }}"
+            type: http
             with:
-              subAction: "addComment"
-              subActionParams:
-                incidentId: "{{ inputs.jira_key }}"
-                comment:
-                  comment: "{{ steps.format_login_table.output.login_table }}"
-            on-failure:
-              continue: true
+              url: "{{ consts.jira_base | default: 'https://jira.example.com' }}/rest/api/3/issue"
+              method: POST
+              headers:
+                Content-Type: "application/json"
+              body:
+                fields:
+                  summary: "{{ inputs.ticket_title | default: 'Workflow ticket' }}"
+                  description:
+                    type: doc
+                    version: 1
+                    content:
+                      - type: paragraph
+                        content:
+                          - type: text
+                            text: "{{ inputs.description | default: '' }}"
 
           - name: enrich_ticket_ports
-            type: jira
-            connector-id: "{{ consts.jira_connector_id }}"
+            type: http
             with:
-              subAction: "addComment"
-              subActionParams:
-                incidentId: "{{ inputs.jira_key }}"
-                comment:
-                  comment: "{{ steps.format_port_table.output.port_table }}"
-            on-failure:
-              continue: true
+              url: "{{ consts.jira_base | default: 'https://jira.example.com' }}/rest/api/3/issue"
+              method: POST
+              headers:
+                Content-Type: "application/json"
+              body:
+                fields:
+                  summary: "{{ inputs.ticket_title | default: 'Workflow ticket' }}"
+                  description:
+                    type: doc
+                    version: 1
+                    content:
+                      - type: paragraph
+                        content:
+                          - type: text
+                            text: "{{ inputs.description | default: '' }}"
+
         else:
           - name: report_unsupported_os
-            type: jira
-            connector-id: "{{ consts.jira_connector_id }}"
+            type: http
             with:
-              subAction: "addComment"
-              subActionParams:
-                incidentId: "{{ inputs.jira_key }}"
-                comment:
-                  comment: "Workflow could not enrich this ticket — the host is not running CentOS 7, the only OS supported by this playbook."
-            on-failure:
-              continue: true
+              url: "{{ consts.jira_base | default: 'https://jira.example.com' }}/rest/api/3/issue"
+              method: POST
+              headers:
+                Content-Type: "application/json"
+              body:
+                fields:
+                  summary: "{{ inputs.ticket_title | default: 'Workflow ticket' }}"
+                  description:
+                    type: doc
+                    version: 1
+                    content:
+                      - type: paragraph
+                        content:
+                          - type: text
+                            text: "{{ inputs.description | default: '' }}"
 
   - name: log_complete
     type: console

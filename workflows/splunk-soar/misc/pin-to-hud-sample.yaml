@@ -106,13 +106,12 @@ steps:
     condition: "{{ inputs.kibana_case_id | size }} > 0"
     steps:
       - name: case_comment_summary
-        type: kibana.addCaseComment
+        type: kibana.request
         with:
-          caseId: "{{ inputs.kibana_case_id }}"
-          comment: |
-            Affected IPs: {{ steps.build_summary.output.hud_summary.affected_ips }}
-            Affected users: {{ steps.build_summary.output.hud_summary.affected_users }}
-            Most recent domain: {{ steps.build_summary.output.hud_summary.most_recent_domain }}
-            IOC count: {{ steps.build_summary.output.hud_summary.ioc_count }}
-            Most recent IOC: {{ steps.build_summary.output.hud_summary.most_recent_ioc }}
-            IOC types: {{ steps.build_summary.output.hud_summary.ioc_types | join: ', ' }}
+          method: POST
+          path: "/api/cases/{{ inputs.kibana_case_id }}/comments"
+          body:
+            type: "user"
+            comment: "Affected IPs: {{ steps.build_summary.output.hud_summary.affected_ips }} Affected users: {{ steps.build_summary.output.hud_summary.affected_users }} Most recent domain: {{ steps.build_summary.output.hud_summary.most_recent_domain }} IOC count: {{ steps.build_summary.output.hud_summary.ioc_count }} Most recent IOC: {{ steps.build_summary.output.hud_summary.most_recent_ioc }} IOC types: {{ steps.build_summary.output.hud_summary.ioc_types | join: ', ' }}"
+            owner: "cases"
+

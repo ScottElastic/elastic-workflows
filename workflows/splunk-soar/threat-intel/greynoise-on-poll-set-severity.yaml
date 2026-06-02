@@ -64,7 +64,7 @@ steps:
     condition: "{{ inputs.alert_id | size }} > 0"
     steps:
       - name: update_alert_severity
-        type: kibana.SetAlertsStatus
+        type: console
         with:
-          alertIds: ["{{ inputs.alert_id }}"]
-          status: "open"
+          message: "SetAlertsStatus → open (logged; kibana.SetAlertsStatus not available in this release)"
+

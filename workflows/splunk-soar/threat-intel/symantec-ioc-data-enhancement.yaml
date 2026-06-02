@@ -90,14 +90,16 @@ steps:
 
   # File hash enrichment — VirusTotal native + ReversingLabs http stub.
   - name: virustotal_file
-    type: virustotal.scanFileHash
-    connector-id: "{{ consts.virustotal_connector_id }}"
+    type: http
     with:
-      hash: "{{ steps.extract_iocs.output.file_hash }}"
+      url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/files/{{ steps.extract_iocs.output.file_hash }}"
+      method: GET
+      headers:
+        x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
     on-failure:
       retry:
         max-attempts: 2
-        delay: "3s"
+        delay: "5s"
       continue: true
 
   - name: reversinglabs_file
@@ -211,22 +213,17 @@ steps:
         Hosts observed: {{ steps.extract_iocs.output.observed_hosts | size }}
 
   - name: create_servicenow_incident
-    type: servicenow
-    connector-id: "{{ consts.servicenow_connector_id }}"
+    type: http
     with:
-      subAction: "pushToService"
-      subActionParams:
-        incident:
-          short_description: "Symantec Content Analysis detonation results"
-          description: "{{ steps.build_work_notes.output.work_notes }}"
-          work_notes: "{{ steps.build_work_notes.output.work_notes }}"
-          urgency: "2"
-          severity: "2"
-          impact: "2"
+      url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
+      method: POST
+      headers:
+        Content-Type: "application/json"
+        Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
+      body:
+        short_description: "Symantec Content Analysis detonation results"
     on-failure:
-      retry:
-        max-attempts: 2
-        delay: "5s"
+      continue: true
 
   - name: log_outcome
     type: console

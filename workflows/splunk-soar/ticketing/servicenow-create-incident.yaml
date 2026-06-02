@@ -48,21 +48,17 @@ steps:
         {{ inputs.description | default: event.alerts[0].kibana.alert.reason | default: 'No description available.' }}
 
   - name: create_incident
-    type: servicenow
-    connector-id: "{{ consts.servicenow_connector_id }}"
+    type: http
     with:
-      subAction: "pushToService"
-      subActionParams:
-        incident:
-          short_description: "{{ steps.derive_title.output.title }}"
-          description: "{{ steps.derive_description.output.description }}"
-          urgency: "2"
-          severity: "2"
-          impact: "2"
+      url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
+      method: POST
+      headers:
+        Content-Type: "application/json"
+        Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
+      body:
+        short_description: "{{ steps.derive_title.output.title }}"
     on-failure:
-      retry:
-        max-attempts: 3
-        delay: "5s"
+      continue: true
 
   - name: log_incident_number
     type: console
@@ -74,7 +70,12 @@ steps:
     condition: "{{ inputs.kibana_case_id | size }} > 0"
     steps:
       - name: comment_on_case
-        type: kibana.addCaseComment
+        type: kibana.request
         with:
-          caseId: "{{ inputs.kibana_case_id }}"
-          comment: "ServiceNow incident created: {{ steps.create_incident.output.number }}"
+          method: POST
+          path: "/api/cases/{{ inputs.kibana_case_id }}/comments"
+          body:
+            type: "user"
+            comment: "ServiceNow incident created: {{ steps.create_incident.output.number }}"
+            owner: "cases"
+

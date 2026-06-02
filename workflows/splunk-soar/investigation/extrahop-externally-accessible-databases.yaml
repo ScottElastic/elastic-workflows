@@ -45,7 +45,7 @@ consts:
 steps:
   - name: only_handle_exposed_db
     type: if
-    condition: "'{{ inputs.label }}' == 'publicly_exposed_db'"
+    condition: "{{ inputs.label }} == 'publicly_exposed_db'"
     steps:
       # Internal database side
       - name: get_db_device_info
@@ -195,7 +195,7 @@ steps:
           query:
             type: "config"
             action: "set"
-            xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.pan_vsys }}']/address-group/entry[@name='{{ consts.pan_block_group }}']/static"
+            xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name={{ consts.pan_vsys }}]/address-group/entry[@name={{ consts.pan_block_group }}]/static"
             element: "<member>{{ inputs.client_ip }}</member>"
             key: "{{ consts.pan_api_key }}"
         on-failure:

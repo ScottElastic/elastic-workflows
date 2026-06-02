@@ -65,7 +65,7 @@ steps:
           query:
             type: "config"
             action: "set"
-            xpath: "/config/shared/profiles/custom-url-category/entry[@name='{{ consts.panorama_block_category }}']/list"
+            xpath: "/config/shared/profiles/custom-url-category/entry[@name={{ consts.panorama_block_category }}]/list"
             element: "<member>{{ item }}</member>"
             key: "{{ consts.panorama_api_key }}"
         on-failure:
@@ -130,7 +130,7 @@ steps:
       query:
         type: "commit"
         action: "all"
-        cmd: "<commit-all><shared-policy><device-group><entry name='{{ inputs.device_group }}'/></device-group></shared-policy></commit-all>"
+        cmd: "<commit-all><shared-policy><device-group><entry name={{ inputs.device_group }}/></device-group></shared-policy></commit-all>"
         key: "{{ consts.panorama_api_key }}"
     on-failure:
       retry:

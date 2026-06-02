@@ -82,14 +82,13 @@ steps:
   # virustotal.scanDomain is the closest first-party action available; if not
   # configured, swap in an http call to the v3 /domains/{domain} endpoint.
   - name: virustotal_domain_lookup
-    type: virustotal.scanDomain
-    connector-id: "{{ consts.virustotal_connector_id }}"
+    type: http
     with:
-      domain: "{{ inputs.domain }}"
+      url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/domains/{{ inputs.domain }}"
+      method: GET
+      headers:
+        x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
     on-failure:
-      retry:
-        max-attempts: 2
-        delay: "3s"
       continue: true
 
   - name: compute_verdict

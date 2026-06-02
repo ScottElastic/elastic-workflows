@@ -136,7 +136,7 @@ steps:
 
           - name: task_needs_starting
             type: if
-            condition: "'{{ item.status }}' == 'Pending'"
+            condition: "{{ item.status }} == 'Pending'"
             steps:
               - name: start_task
                 type: http

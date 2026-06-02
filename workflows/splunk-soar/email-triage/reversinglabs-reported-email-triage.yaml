@@ -38,7 +38,7 @@ consts:
 steps:
   - name: gate_on_alert_name
     type: if
-    condition: "'{{ inputs.alert_name | default: consts.expected_alert_name }}' != '{{ consts.expected_alert_name }}'"
+    condition: "{{ inputs.alert_name | default: consts.expected_alert_name }} != {{ consts.expected_alert_name }}"
     steps:
       - name: log_filtered_out
         type: console
@@ -54,7 +54,7 @@ steps:
           headers:
             Authorization: "{{ consts.graph_auth_header }}"
           query:
-            $filter: "contains(subject, '{{ inputs.network_message_id }}')"
+            $filter: "contains(subject, {{ inputs.network_message_id }})"
             $select: "id,subject,from,receivedDateTime,hasAttachments"
             $top: "1"
         on-failure:

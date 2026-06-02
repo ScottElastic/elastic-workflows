@@ -96,4 +96,4 @@ steps:
       - name: log_no_results
         type: console
         with:
-          message: "No related SNOW incidents found for entity '{{ inputs.entity }}'."
+          message: "No related SNOW incidents found for entity {{ inputs.entity }}."

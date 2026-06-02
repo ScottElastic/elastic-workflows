@@ -14,7 +14,7 @@ enabled: true
 tags: ["splunk-soar", "identity", "hygiene", "azure-ad", "entra-id", "census", "translated"]
 
 triggers:
-  - type: scheduled
+  - type: schedule
     with:
       every: "1d"
   - type: manual
@@ -107,16 +107,16 @@ steps:
 
       # Persist artifact to Elasticsearch (Phantom "add artifact" equivalent).
       - name: save_user_artifact
-        type: elasticsearch.index
+        type: http
         with:
-          index: "{{ consts.new_user_index }}"
-          document:
-            name: "New Azure User"
-            label: "user"
-            cef_name: "userPrincipalName"
-            cef_value: "{{ item.userPrincipalName }}"
-            contains: "azure user principal name"
-            user_record: ${{ steps.build_user_record.output.user_record }}
+          url: "{{ consts.elasticsearch_base | default: 'https://CHANGEME-es.elastic-cloud.com' }}/{{ consts.new_user_index }}/_doc"
+          method: POST
+          headers:
+            Content-Type: "application/json"
+            Authorization: "{{ consts.elasticsearch_auth | default: 'ApiKey CHANGEME_ES_KEY' }}"
+          body: "{{ item | json }}"
+        on-failure:
+          continue: true
 
   - name: log_summary
     type: console

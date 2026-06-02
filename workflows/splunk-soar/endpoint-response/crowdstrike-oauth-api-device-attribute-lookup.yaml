@@ -74,8 +74,8 @@ steps:
             Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
             Accept: "application/json"
           query:
-            limit: 10
-            filter: "local_ip:'{{ inputs.device }}',external_ip:'{{ inputs.device }}'"
+            limit: "10"
+            filter: "local_ip:{{ inputs.device }},external_ip:{{ inputs.device }}"
         on-failure:
           retry:
             max-attempts: 3
@@ -121,8 +121,8 @@ steps:
             Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
             Accept: "application/json"
           query:
-            limit: 10
-            filter: "hostname:'{{ inputs.device }}'"
+            limit: "10"
+            filter: "hostname:{{ inputs.device }}"
         on-failure:
           retry:
             max-attempts: 3

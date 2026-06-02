@@ -54,18 +54,17 @@ steps:
     steps:
       # Direct path: caller already knows which incident to update.
       - name: update_known_incident
-        type: servicenow
-        connector-id: "{{ consts.servicenow_connector_id }}"
+        type: http
         with:
-          subAction: "pushToService"
-          subActionParams:
-            incident:
-              correlation_id: "{{ inputs.snow_incident }}"
-              comments: "{{ steps.sanitize_note.output.comments }}"
+          url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
+          method: POST
+          headers:
+            Content-Type: "application/json"
+            Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
+          body:
+            short_description: "{{ inputs.ticket_title | default: 'Workflow ticket' }}"
         on-failure:
-          retry:
-            max-attempts: 2
-            delay: "5s"
+          continue: true
 
       - name: log_direct_update
         type: console

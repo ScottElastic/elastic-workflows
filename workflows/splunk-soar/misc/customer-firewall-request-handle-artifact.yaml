@@ -60,7 +60,7 @@ steps:
                   query:
                     type: "config"
                     action: "set"
-                    xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.pan_vsys }}']/address/entry[@name='ew-block-{{ item.sourceAddress }}']"
+                    xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name={{ consts.pan_vsys }}]/address/entry[@name='ew-block-{{ item.sourceAddress }}']"
                     element: "<ip-netmask>{{ item.sourceAddress }}</ip-netmask><description>Blocked by Elastic Workflows</description>"
                     key: "{{ consts.pan_api_key }}"
                 on-failure:
@@ -77,7 +77,7 @@ steps:
                   query:
                     type: "config"
                     action: "set"
-                    xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.pan_vsys }}']/address-group/entry[@name='{{ consts.pan_block_src_group }}']/static"
+                    xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name={{ consts.pan_vsys }}]/address-group/entry[@name={{ consts.pan_block_src_group }}]/static"
                     element: "<member>ew-block-{{ item.sourceAddress }}</member>"
                     key: "{{ consts.pan_api_key }}"
                 on-failure:
@@ -104,7 +104,7 @@ steps:
                   query:
                     type: "config"
                     action: "set"
-                    xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.pan_vsys }}']/address/entry[@name='ew-block-{{ item.destinationAddress }}']"
+                    xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name={{ consts.pan_vsys }}]/address/entry[@name='ew-block-{{ item.destinationAddress }}']"
                     element: "<ip-netmask>{{ item.destinationAddress }}</ip-netmask><description>Blocked by Elastic Workflows</description>"
                     key: "{{ consts.pan_api_key }}"
                 on-failure:
@@ -121,7 +121,7 @@ steps:
                   query:
                     type: "config"
                     action: "set"
-                    xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.pan_vsys }}']/address-group/entry[@name='{{ consts.pan_block_dst_group }}']/static"
+                    xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name={{ consts.pan_vsys }}]/address-group/entry[@name={{ consts.pan_block_dst_group }}]/static"
                     element: "<member>ew-block-{{ item.destinationAddress }}</member>"
                     key: "{{ consts.pan_api_key }}"
                 on-failure:
@@ -148,7 +148,7 @@ steps:
                   query:
                     type: "config"
                     action: "delete"
-                    xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.pan_vsys }}']/address-group/entry[@name='{{ consts.pan_block_src_group }}']/static/member[text()='ew-block-{{ item.sourceAddress }}']"
+                    xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name={{ consts.pan_vsys }}]/address-group/entry[@name={{ consts.pan_block_src_group }}]/static/member[text()='ew-block-{{ item.sourceAddress }}']"
                     key: "{{ consts.pan_api_key }}"
                 on-failure:
                   retry:
@@ -174,7 +174,7 @@ steps:
                   query:
                     type: "config"
                     action: "delete"
-                    xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.pan_vsys }}']/address-group/entry[@name='{{ consts.pan_block_dst_group }}']/static/member[text()='ew-block-{{ item.destinationAddress }}']"
+                    xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name={{ consts.pan_vsys }}]/address-group/entry[@name={{ consts.pan_block_dst_group }}]/static/member[text()='ew-block-{{ item.destinationAddress }}']"
                     key: "{{ consts.pan_api_key }}"
                 on-failure:
                   retry:

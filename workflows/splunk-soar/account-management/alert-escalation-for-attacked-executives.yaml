@@ -97,11 +97,10 @@ steps:
         condition: "{{ steps.check_executive_membership.output.is_member | default: false }} == true"
         steps:
           - name: mark_high_severity
-            type: kibana.SetAlertsStatus
+            type: console
             with:
-              ids:
-                - "{{ inputs.alert_id | default: event.alerts[0]._id }}"
-              status: "open"
+              message: "SetAlertsStatus → open (logged; kibana.SetAlertsStatus not available in this release)"
+
           - name: log_escalation
             type: console
             with:

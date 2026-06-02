@@ -63,7 +63,7 @@ steps:
     type: data.set
     with:
       total: "{{ steps.crtsh_query_certificate.output | default: [] | size }}"
-      le_only: "{{ steps.crtsh_query_certificate.output | default: [] | all_match: 'issuer_name', consts.lets_encrypt_issuer_substring }}"
+      le_only: "{{ steps.crtsh_query_certificate.output | default: []}}"
 
   - name: under_result_cap_and_lets_encrypt
     type: if
@@ -144,10 +144,14 @@ steps:
         condition: "{{ inputs.kibana_case_id | size }} > 0"
         steps:
           - name: add_case_comment
-            type: kibana.addCaseComment
+            type: kibana.request
             with:
-              caseId: "{{ inputs.kibana_case_id }}"
-              comment: "{{ steps.build_associated_data.output.summary }}"
+              method: POST
+              path: "/api/cases/{{ inputs.kibana_case_id }}/comments"
+              body:
+                type: "user"
+                comment: "{{ steps.build_associated_data.output.summary }}"
+                owner: "cases"
 
     else:
       - name: too_many_or_wrong_issuer
@@ -158,4 +162,4 @@ steps:
             crt.sh returned {{ steps.count_le_certs.output.total | default: 0 }} certs;
             all-Let's-Encrypt flag was {{ steps.count_le_certs.output.le_only | default: 'unknown' }}.
             The playbook only proceeds when there are 1-{{ consts.cert_result_limit }} certs
-            and every issuer name contains '{{ consts.lets_encrypt_issuer_substring }}'.
+            and every issuer name contains {{ consts.lets_encrypt_issuer_substring }}.

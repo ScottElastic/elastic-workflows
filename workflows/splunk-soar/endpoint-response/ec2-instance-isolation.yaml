@@ -140,14 +140,14 @@ steps:
     condition: "{{ inputs.case_id | size }} > 0"
     steps:
       - name: post_comment
-        type: kibana.addCaseComment
+        type: kibana.request
         with:
-          caseId: "{{ inputs.case_id }}"
-          comment: |
-            EC2 instance {{ inputs.instance_id }} ({{ inputs.region }}) isolated.
-            Before SGs: {{ steps.build_change_comment.output.summary.before_groups | json }}
-            After SGs:  {{ steps.build_change_comment.output.summary.after_groups | json }}
-            Applied isolation SG: {{ inputs.isolation_security_group }}
+          method: POST
+          path: "/api/cases/{{ inputs.case_id }}/comments"
+          body:
+            type: "user"
+            comment: "EC2 instance {{ inputs.instance_id }} ({{ inputs.region }}) isolated. Before SGs: {{ steps.build_change_comment.output.summary.before_groups | json }} After SGs:  {{ steps.build_change_comment.output.summary.after_groups | json }} Applied isolation SG: {{ inputs.isolation_security_group }}"
+            owner: "cases"
 
   - name: log_outcome
     type: console

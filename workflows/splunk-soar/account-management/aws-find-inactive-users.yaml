@@ -13,7 +13,7 @@ enabled: true
 tags: ["splunk-soar", "identity", "hygiene", "aws", "iam", "translated"]
 
 triggers:
-  - type: scheduled
+  - type: schedule
     with:
       every: "1d"
   - type: manual
@@ -102,17 +102,16 @@ steps:
           # Equivalent Phantom custom function: `community/artifact_create`.
           # We persist the inactive-user record to an Elasticsearch index.
           - name: save_unused_account_observable
-            type: elasticsearch.index
+            type: http
             with:
-              index: "{{ consts.inactive_users_index }}"
-              document:
-                name: "Unused AWS Account"
-                label: "user"
-                cef_field: "awsUserName"
-                cef_value: "{{ item.UserName }}"
-                cef_data_type: "aws iam user name"
-                password_last_used: "{{ item.PasswordLastUsed }}"
-                user_detail: ${{ steps.get_unused_account_info.output }}
+              url: "{{ consts.elasticsearch_base | default: 'https://CHANGEME-es.elastic-cloud.com' }}/{{ consts.inactive_users_index }}/_doc"
+              method: POST
+              headers:
+                Content-Type: "application/json"
+                Authorization: "{{ consts.elasticsearch_auth | default: 'ApiKey CHANGEME_ES_KEY' }}"
+              body: "{{ item | json }}"
+            on-failure:
+              continue: true
 
   - name: dispatch_bulk_disable
     type: http

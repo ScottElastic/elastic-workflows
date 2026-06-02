@@ -95,7 +95,7 @@ steps:
     steps:
       - name: restrict_outbound
         type: if
-        condition: '{{ inputs.containment_action }} == "Restrict Outbound Traffic"'
+        condition: '"{{ inputs.containment_action }}" == "Restrict Outbound Traffic"'
         steps:
           # Destructive (host containment) — fail loud.
           - name: new_firewall_rule
@@ -115,7 +115,7 @@ steps:
 
       - name: shutdown_host
         type: if
-        condition: '{{ inputs.containment_action }} == "Shutdown"'
+        condition: '"{{ inputs.containment_action }}" == "Shutdown"'
         steps:
           # Destructive — fail loud.
           - name: force_shutdown
@@ -135,7 +135,7 @@ steps:
 
       - name: block_and_shutdown
         type: if
-        condition: '{{ inputs.containment_action }} == "Restrict Outbound Traffic and Shutdown"'
+        condition: '"{{ inputs.containment_action }}" == "Restrict Outbound Traffic and Shutdown"'
         steps:
           # Destructive — fail loud.
           - name: rule_then_shutdown

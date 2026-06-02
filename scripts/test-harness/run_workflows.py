@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import urllib.request
@@ -75,7 +76,13 @@ CANNED_INPUTS = {
     # Email
     "internet_message_id": _MSG_ID,
     "network_message_id": "4d2a9f3b1748899200",
+    # message_id and ip_or_hostname conflict across workflows (string vs array).
+    # _str variants are used when the workflow declares type: string.
+    # _arr variants (the default keys) are used when type: array.
     "message_id": [_MSG_ID],
+    "message_id_str": _MSG_ID,
+    "ip_or_hostname": [_HOSTNAME],
+    "ip_or_hostname_str": _HOSTNAME,
     "email": [_USER, "janalyst@acmecorp.com"],
     "raw_email_body": (
         "From: hr-noreply@acmecorp-invoices.com\r\n"
@@ -144,6 +151,89 @@ CANNED_INPUTS = {
 }
 
 
+# Inputs with the same name but different types across workflows. When a
+# workflow declares type: string we pick the _str variant; otherwise array.
+_TYPE_VARIANTS: dict[str, dict[str, object]] = {
+    "message_id":    {"string": CANNED_INPUTS["message_id_str"], "array": CANNED_INPUTS["message_id"]},
+    "ip_or_hostname": {"string": CANNED_INPUTS["ip_or_hostname_str"], "array": CANNED_INPUTS["ip_or_hostname"]},
+}
+
+# Indicator schemas differ per workflow. Map top-level input name to the
+# element shape expected by workflows that declare a required indicators input.
+_INDICATOR_SCHEMAS: dict[str, list] = {
+    # risk-notable-* expect {cef_value, data_types}
+    "default": [
+        {"cef_value": _MALICIOUS_IP, "data_types": ["ip"], "type": "ip", "value": _MALICIOUS_IP},
+        {"cef_value": _SHA256, "data_types": ["hash"], "type": "hash", "value": _SHA256},
+    ],
+    # create-ticket and similar expect {value, type, tags}
+    "ticket": [
+        {"value": _MALICIOUS_IP, "type": "ip", "tags": ["malicious", "tor"], "artifact_id": "art-001", "severity": "high"},
+        {"value": _SHA256, "type": "hash", "tags": ["malware"], "artifact_id": "art-002", "severity": "critical"},
+    ],
+}
+
+
+def _parse_input_schema(yaml_path: str) -> dict[str, str]:
+    """Return {input_name: declared_type} by light regex parsing of the YAML."""
+    schema: dict[str, str] = {}
+    try:
+        text = Path(yaml_path).read_text()
+    except OSError:
+        return schema
+    # Find the inputs: block (stops at next top-level key)
+    m = re.search(r"^inputs:(.*?)^(?:consts|steps|triggers|enabled|name|description|tags)\b",
+                  text, re.MULTILINE | re.DOTALL)
+    if not m:
+        return schema
+    block = m.group(1)
+    current_name = None
+    for line in block.splitlines():
+        name_m = re.match(r"^\s+-\s+name:\s+(\S+)", line)
+        if name_m:
+            current_name = name_m.group(1)
+        elif current_name:
+            type_m = re.match(r"^\s+type:\s+(\S+)", line)
+            if type_m:
+                schema[current_name] = type_m.group(1)
+    return schema
+
+
+def build_inputs(yaml_path: str) -> dict:
+    """Return a CANNED_INPUTS copy with type-appropriate values for this workflow."""
+    schema = _parse_input_schema(yaml_path)
+    inputs = dict(CANNED_INPUTS)
+    name_hint = Path(yaml_path).name
+
+    for name, variants in _TYPE_VARIANTS.items():
+        declared = schema.get(name)
+        if declared and declared in variants:
+            inputs[name] = variants[declared]
+
+    # For indicators: use ticket schema if create-ticket, else default cef_value schema
+    if "indicators" in schema:
+        if "ticket" in name_hint or "create" in name_hint:
+            inputs["indicators"] = _INDICATOR_SCHEMAS["ticket"]
+        else:
+            inputs["indicators"] = _INDICATOR_SCHEMAS["default"]
+
+    # Workflow-specific overrides for inputs whose values must match
+    # an expected constant in the YAML (not derivable from schema alone).
+    if "vectra" in name_hint:
+        inputs["source_data_identifier"] = "vectra_block_request"
+    if "recorded-future-correlation" in name_hint:
+        # rule_name is compared against consts.expected_rule_name — use empty string
+        # so the condition evaluates false and the workflow skips, rather than
+        # injecting a space-containing string that breaks the condition expression.
+        inputs["rule_name"] = ""
+
+    # Drop internal helper keys that workflows don't declare
+    inputs.pop("message_id_str", None)
+    inputs.pop("ip_or_hostname_str", None)
+
+    return inputs
+
+
 def trigger(base_url: str, space: str, api_key: str, wf_id: str, inputs: dict):
     path = f"/s/{space}/api/workflows/workflow/{wf_id}/run" if space and space != "default" else f"/api/workflows/workflow/{wf_id}/run"
     req = urllib.request.Request(
@@ -188,7 +278,8 @@ def main():
     ok = 0
     fail = 0
     for path, wf_id in targets:
-        status, body = trigger(base, args.space, key, wf_id, CANNED_INPUTS)
+        inputs = build_inputs(path)
+        status, body = trigger(base, args.space, key, wf_id, inputs)
         if 200 <= status < 300:
             run_status = body.get("status") or body.get("data", {}).get("status") or "completed"
             print(f"ok    {path}  →  {run_status}")

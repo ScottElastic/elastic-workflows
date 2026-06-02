@@ -53,7 +53,7 @@ consts:
 steps:
   - name: route_block
     type: if
-    condition: '"{{ inputs.source_data_identifier }}" contains "vectra_block_request"'
+    condition: '"{{ inputs.source_data_identifier }}" == "vectra_block_request"'
     steps:
       - name: snapshot_if_vm
         type: if
@@ -131,7 +131,7 @@ steps:
 
   - name: route_unblock
     type: if
-    condition: '"{{ inputs.source_data_identifier }}" contains "vectra_unblock_request"'
+    condition: '"{{ inputs.source_data_identifier }}" == "vectra_unblock_request"'
     steps:
       - name: unblock_ip
         type: http

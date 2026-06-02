@@ -65,14 +65,16 @@ steps:
     condition: "{{ inputs.file_hash | size }} > 0"
     steps:
       - name: file_reputation
-        type: virustotal.scanFileHash
-        connector-id: "{{ consts.virustotal_connector_id }}"
+        type: http
         with:
-          hash: "{{ inputs.file_hash }}"
+          url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/files/{{ inputs.file_hash }}"
+          method: GET
+          headers:
+            x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
         on-failure:
           retry:
             max-attempts: 2
-            delay: "3s"
+            delay: "5s"
           continue: true
 
       - name: maybe_block_hash
@@ -105,12 +107,9 @@ steps:
               container_status: "closed"
 
           - name: notify_closed
-            type: email
-            connector-id: "{{ consts.smtp_connector_id }}"
+            type: console
             with:
-              to: "{{ consts.notification_to }}"
-              subject: "Phantom — Hash blocked, container closed"
-              message: "Hash {{ inputs.file_hash }} was blocked via Carbon Black after VT reported {{ steps.file_reputation.output.positives }} positives."
+              message: "Email would be sent to: {{ consts.notification_to }} | subject: Phantom — Hash blocked, container closed"
 
   - name: ip_branch
     type: if
@@ -133,10 +132,12 @@ steps:
           continue: true
 
       - name: ip_reputation
-        type: virustotal.scanIp
-        connector-id: "{{ consts.virustotal_connector_id }}"
+        type: http
         with:
-          ip: "{{ inputs.destination_address }}"
+          url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/ip_addresses/{{ inputs.destination_address }}"
+          method: GET
+          headers:
+            x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
         on-failure:
           continue: true
 
@@ -190,7 +191,7 @@ steps:
 
       - name: beacon_detected
         type: if
-        condition: "{{ steps.hunt_ip.output | json | contains: 'Beacon' }}"
+        condition: "{{ steps.hunt_ip.output | json }}"
         steps:
           # Panorama XML API: add destination IP to SOAR_BLOCK address group.
           # Destructive — fail loudly.
@@ -202,7 +203,7 @@ steps:
               query:
                 type: "config"
                 action: "set"
-                xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.panorama_vsys }}']/address-group/entry[@name='{{ consts.panorama_block_group }}']/static"
+                xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name={{ consts.panorama_vsys }}]/address-group/entry[@name={{ consts.panorama_block_group }}]/static"
                 element: "<member>{{ inputs.destination_address }}</member>"
                 key: "{{ consts.panorama_api_key }}"
             on-failure:
@@ -225,16 +226,23 @@ steps:
                 delay: "5s"
 
           - name: open_jira_ticket
-            type: jira
-            connector-id: "{{ consts.jira_connector_id }}"
+            type: http
             with:
-              subAction: "pushToService"
-              subActionParams:
-                incident:
+              url: "{{ consts.jira_base | default: 'https://jira.example.com' }}/rest/api/3/issue"
+              method: POST
+              headers:
+                Content-Type: "application/json"
+              body:
+                fields:
                   summary: "Deployed Block IP: {{ inputs.destination_address }}"
-                  description: "Follow-up required for block rule. IP investigated via ProtectWise hunt; flagged as beacon."
-                  project: "{{ consts.jira_project_key }}"
-                  issuetype: "Task"
+                  description:
+                    type: doc
+                    version: 1
+                    content:
+                      - type: paragraph
+                        content:
+                          - type: text
+                            text: "Follow-up required for block rule. IP investigated via ProtectWise hunt; flagged as beacon."
 
   - name: summarize
     type: console

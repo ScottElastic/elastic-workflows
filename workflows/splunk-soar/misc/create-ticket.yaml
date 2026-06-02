@@ -97,21 +97,17 @@ steps:
         {% endfor %}
 
   - name: create_ticket
-    type: servicenow
-    connector-id: "{{ consts.servicenow_connector_id }}"
+    type: http
     with:
-      subAction: "pushToService"
-      subActionParams:
-        incident:
-          short_description: "{{ inputs.ticket_title }}"
-          description: "{{ steps.compose_ticket_description.output.ticket_body }}"
-          urgency: "2"
-          severity: "2"
-          impact: "2"
+      url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
+      method: POST
+      headers:
+        Content-Type: "application/json"
+        Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
+      body:
+        short_description: "{{ inputs.ticket_title }}"
     on-failure:
-      retry:
-        max-attempts: 3
-        delay: "5s"
+      continue: true
 
   - name: log_ticket_id
     type: console

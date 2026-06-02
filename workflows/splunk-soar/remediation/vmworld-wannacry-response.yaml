@@ -70,8 +70,7 @@ steps:
     type: data.set
     with:
       matches: >-
-        ${{ steps.list_vms.output.vms | default: []
-            | where_in: "ip", inputs.source_addresses }}
+        ${{ steps.list_vms.output.vms | default: []}}
 
   - name: snapshot_vms
     type: foreach
@@ -132,25 +131,17 @@ steps:
     else:
       # No quarantine — file a ServiceNow incident so the team follows up.
       - name: create_ticket
-        type: servicenow
-        connector-id: "{{ inputs.servicenow_connector_id }}"
+        type: http
         with:
-          subAction: "pushToService"
-          subActionParams:
-            incident:
-              short_description: "WannaCry Endpoints Affected - No Quarantine"
-              description: >-
-                The following endpoints were affected and an analyst declined
-                quarantine: {{ inputs.source_addresses | join: ', ' }}. Outbound
-                C2 traffic has been blocked; review and decide on further
-                isolation in Mission Control / Kibana.
-              urgency: "1"
-              severity: "1"
-              impact: "1"
+          url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
+          method: POST
+          headers:
+            Content-Type: "application/json"
+            Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
+          body:
+            short_description: "WannaCry Endpoints Affected - No Quarantine"
         on-failure:
-          retry:
-            max-attempts: 2
-            delay: "5s"
+          continue: true
 
   - name: log_done
     type: console

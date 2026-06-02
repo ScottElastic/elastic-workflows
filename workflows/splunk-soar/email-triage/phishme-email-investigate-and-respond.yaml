@@ -73,7 +73,7 @@ consts:
 steps:
   - name: gate_on_severity
     type: if
-    condition: "'{{ inputs.severity | default: '' }}' == 'high'"
+    condition: "{{ inputs.severity | default: '' }} == 'high'"
     steps:
       # Cofense Intelligence: GET /apiv1/threat/malware/{id}.
       - name: get_phishme_report
@@ -92,36 +92,30 @@ steps:
 
       # Create the ServiceNow incident that subsequent blocks update.
       - name: create_servicenow_incident
-        type: servicenow
-        connector-id: "{{ consts.servicenow_connector_id }}"
+        type: http
         with:
-          subAction: "pushToService"
-          subActionParams:
-            incident:
-              short_description: "PhishMe high-severity threat {{ inputs.phishme_threat_id }}"
-              description: "{{ steps.get_phishme_report.output.description | default: 'PhishMe report unavailable.' }}"
-              urgency: "1"
-              severity: "1"
-              impact: "1"
+          url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
+          method: POST
+          headers:
+            Content-Type: "application/json"
+            Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
+          body:
+            short_description: "PhishMe high-severity threat {{ inputs.phishme_threat_id }}"
         on-failure:
-          retry:
-            max-attempts: 2
-            delay: "5s"
           continue: true
 
-      # ── IP track ────────────────────────────────────────────────
       - name: ip_track
         type: if
         condition: "{{ inputs.destination_ip | size }} > 0"
         steps:
           # phantom asset: virustotal — "ip reputation".
           - name: ip_reputation
-            type: virustotal.scanIp
-            connector-id: "{{ consts.virustotal_connector_id }}"
+            type: http
             with:
-              subAction: "ipReputation"
-              subActionParams:
-                ip: "{{ inputs.destination_ip }}"
+              url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/ip_addresses/{{ inputs.destination_ip }}"
+              method: GET
+              headers:
+                x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
             on-failure:
               continue: true
 
@@ -138,7 +132,7 @@ steps:
                   query:
                     type: "config"
                     action: "set"
-                    xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name='{{ consts.pan_vsys }}']/address-group/entry[@name='{{ consts.pan_block_group }}']/static"
+                    xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name={{ consts.pan_vsys }}]/address-group/entry[@name={{ consts.pan_block_group }}]/static"
                     element: "<member>{{ inputs.destination_ip }}</member>"
                     key: "{{ consts.pan_api_key }}"
                 on-failure:
@@ -147,29 +141,29 @@ steps:
                     delay: "5s"
 
               - name: note_ip_block_to_servicenow
-                type: servicenow
-                connector-id: "{{ consts.servicenow_connector_id }}"
+                type: http
                 with:
-                  subAction: "addComment"
-                  subActionParams:
-                    incident:
-                      id: "{{ steps.create_servicenow_incident.output.number }}"
-                    comment: "Blocked IP {{ inputs.destination_ip }}. Source IP observed: {{ inputs.source_ip | default: 'unknown' }}."
+                  url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
+                  method: POST
+                  headers:
+                    Content-Type: "application/json"
+                    Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
+                  body:
+                    short_description: "{{ inputs.ticket_title | default: 'Workflow ticket' }}"
                 on-failure:
                   continue: true
 
-      # ── Domain track ────────────────────────────────────────────
       - name: domain_track
         type: if
         condition: "{{ inputs.destination_domain | size }} > 0"
         steps:
           - name: domain_reputation
-            type: virustotal.scanDomain
-            connector-id: "{{ consts.virustotal_connector_id }}"
+            type: http
             with:
-              subAction: "domainReputation"
-              subActionParams:
-                domain: "{{ inputs.destination_domain }}"
+              url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/domains/{{ inputs.destination_domain }}"
+              method: GET
+              headers:
+                x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
             on-failure:
               continue: true
 
@@ -204,30 +198,35 @@ steps:
                     delay: "5s"
 
               - name: note_domain_block_to_servicenow
-                type: servicenow
-                connector-id: "{{ consts.servicenow_connector_id }}"
+                type: http
                 with:
-                  subAction: "addComment"
-                  subActionParams:
-                    incident:
-                      id: "{{ steps.create_servicenow_incident.output.number }}"
-                    comment: "Blocked domain {{ inputs.destination_domain }}. Source IP observed: {{ inputs.source_ip | default: 'unknown' }}."
+                  url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
+                  method: POST
+                  headers:
+                    Content-Type: "application/json"
+                    Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
+                  body:
+                    short_description: "{{ inputs.ticket_title | default: 'Workflow ticket' }}"
                 on-failure:
                   continue: true
 
-      # ── URL track ───────────────────────────────────────────────
       - name: url_track
         type: if
         condition: "{{ inputs.destination_url | size }} > 0"
         steps:
           - name: url_reputation
-            type: virustotal.scanUrl
-            connector-id: "{{ consts.virustotal_connector_id }}"
+            type: http
             with:
-              subAction: "urlReputation"
-              subActionParams:
-                url: "{{ inputs.destination_url }}"
+              url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/urls"
+              method: POST
+              headers:
+                x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
+                Content-Type: "application/x-www-form-urlencoded"
+              body: "url={{ inputs.destination_url }}"
             on-failure:
+              retry:
+                max-attempts: 2
+                delay: "5s"
               continue: true
 
           - name: url_actionable
@@ -253,30 +252,33 @@ steps:
                     delay: "5s"
 
               - name: note_url_block_to_servicenow
-                type: servicenow
-                connector-id: "{{ consts.servicenow_connector_id }}"
+                type: http
                 with:
-                  subAction: "addComment"
-                  subActionParams:
-                    incident:
-                      id: "{{ steps.create_servicenow_incident.output.number }}"
-                    comment: "Blocked URL {{ inputs.destination_url }}. Source IP observed: {{ inputs.source_ip | default: 'unknown' }}."
+                  url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
+                  method: POST
+                  headers:
+                    Content-Type: "application/json"
+                    Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
+                  body:
+                    short_description: "{{ inputs.ticket_title | default: 'Workflow ticket' }}"
                 on-failure:
                   continue: true
 
-      # ── File hash track ─────────────────────────────────────────
       - name: hash_track
         type: if
         condition: "{{ inputs.file_hash_md5 | size }} > 0"
         steps:
           - name: hash_reputation
-            type: virustotal.scanFileHash
-            connector-id: "{{ consts.virustotal_connector_id }}"
+            type: http
             with:
-              subAction: "fileReputation"
-              subActionParams:
-                hash: "{{ inputs.file_hash_md5 }}"
+              url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/files/{{ inputs.file_hash_md5 }}"
+              method: GET
+              headers:
+                x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
             on-failure:
+              retry:
+                max-attempts: 2
+                delay: "5s"
               continue: true
 
           - name: hash_actionable
@@ -319,20 +321,18 @@ steps:
                   continue: true
 
               - name: note_hash_actions_to_servicenow
-                type: servicenow
-                connector-id: "{{ consts.servicenow_connector_id }}"
+                type: http
                 with:
-                  subAction: "addComment"
-                  subActionParams:
-                    incident:
-                      id: "{{ steps.create_servicenow_incident.output.number }}"
-                    comment: |
-                      Blocked hash {{ inputs.file_hash_md5 }} in EDR.
-                      Hosts seen running the file: {{ steps.hunt_hash_in_edr.output.results | size | default: 0 }}.
+                  url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
+                  method: POST
+                  headers:
+                    Content-Type: "application/json"
+                    Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
+                  body:
+                    short_description: "{{ inputs.ticket_title | default: 'Workflow ticket' }}"
                 on-failure:
                   continue: true
 
-      # Container finalization: set severity high and close.
       - name: finalize_container
         type: data.set
         with:
@@ -357,12 +357,12 @@ steps:
         condition: "{{ inputs.destination_ip | size }} > 0"
         steps:
           - name: ip_reputation_only
-            type: virustotal.scanIp
-            connector-id: "{{ consts.virustotal_connector_id }}"
+            type: http
             with:
-              subAction: "ipReputation"
-              subActionParams:
-                ip: "{{ inputs.destination_ip }}"
+              url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/ip_addresses/{{ inputs.destination_ip }}"
+              method: GET
+              headers:
+                x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
             on-failure:
               continue: true
 
@@ -371,12 +371,12 @@ steps:
         condition: "{{ inputs.destination_domain | size }} > 0"
         steps:
           - name: domain_reputation_only
-            type: virustotal.scanDomain
-            connector-id: "{{ consts.virustotal_connector_id }}"
+            type: http
             with:
-              subAction: "domainReputation"
-              subActionParams:
-                domain: "{{ inputs.destination_domain }}"
+              url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/domains/{{ inputs.destination_domain }}"
+              method: GET
+              headers:
+                x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
             on-failure:
               continue: true
 
@@ -385,13 +385,18 @@ steps:
         condition: "{{ inputs.destination_url | size }} > 0"
         steps:
           - name: url_reputation_only
-            type: virustotal.scanUrl
-            connector-id: "{{ consts.virustotal_connector_id }}"
+            type: http
             with:
-              subAction: "urlReputation"
-              subActionParams:
-                url: "{{ inputs.destination_url }}"
+              url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/urls"
+              method: POST
+              headers:
+                x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
+                Content-Type: "application/x-www-form-urlencoded"
+              body: "url={{ inputs.destination_url }}"
             on-failure:
+              retry:
+                max-attempts: 2
+                delay: "5s"
               continue: true
 
       - name: hash_only
@@ -399,11 +404,15 @@ steps:
         condition: "{{ inputs.file_hash_md5 | size }} > 0"
         steps:
           - name: hash_reputation_only
-            type: virustotal.scanFileHash
-            connector-id: "{{ consts.virustotal_connector_id }}"
+            type: http
             with:
-              subAction: "fileReputation"
-              subActionParams:
-                hash: "{{ inputs.file_hash_md5 }}"
+              url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/files/{{ inputs.file_hash_md5 }}"
+              method: GET
+              headers:
+                x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
             on-failure:
+              retry:
+                max-attempts: 2
+                delay: "5s"
               continue: true
+

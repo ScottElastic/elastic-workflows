@@ -104,22 +104,15 @@ steps:
             condition: "{{ steps.invoke_panorama_block.output.workflowRunId | default: steps.invoke_panorama_block.output.id | default: '' | size }} > 0 or {{ steps.invoke_zscaler_block.output.workflowRunId | default: steps.invoke_zscaler_block.output.id | default: '' | size }} > 0"
             steps:
               - name: write_blocked_tag
-                type: elasticsearch.index
+                type: http
                 with:
-                  index: "{{ consts.indicator_index }}"
-                  document:
-                    indicator: "{{ item }}"
-                    type: "url"
-                    tags: ["blocked"]
-                    source: "Elastic Workflows / URL Outbound Filtering Dispatch"
-                    workflow_run: "{{ execution.id }}"
-                    panorama_run_id: "{{ steps.invoke_panorama_block.output.workflowRunId | default: steps.invoke_panorama_block.output.id | default: 'n/a' }}"
-                    zscaler_run_id: "{{ steps.invoke_zscaler_block.output.workflowRunId | default: steps.invoke_zscaler_block.output.id | default: 'n/a' }}"
-                    "@timestamp": "{{ now }}"
+                  url: "{{ consts.elasticsearch_base | default: 'https://CHANGEME-es.elastic-cloud.com' }}/{{ consts.indicator_index }}/_doc"
+                  method: POST
+                  headers:
+                    Content-Type: "application/json"
+                    Authorization: "{{ consts.elasticsearch_auth | default: 'ApiKey CHANGEME_ES_KEY' }}"
+                  body: "{{ item | json }}"
                 on-failure:
-                  retry:
-                    max-attempts: 3
-                    delay: "5s"
                   continue: true
 
       - name: build_summary
@@ -143,13 +136,15 @@ steps:
         condition: "{{ inputs.kibana_case_id | size }} > 0"
         steps:
           - name: comment_on_case
-            type: kibana.addCaseComment
+            type: kibana.request
             with:
-              caseId: "{{ inputs.kibana_case_id }}"
-              comment: |
-                URL Outbound Filtering Dispatch completed.
-                URLs processed: {{ steps.gather_urls.output.urls | size }}
-                Run ID: {{ execution.id }}
+              method: POST
+              path: "/api/cases/{{ inputs.kibana_case_id }}/comments"
+              body:
+                type: "user"
+                comment: "URL Outbound Filtering Dispatch completed. URLs processed: {{ steps.gather_urls.output.urls | size }} Run ID: {{ execution.id }}"
+                owner: "cases"
+
     else:
       - name: log_no_urls
         type: console

@@ -85,7 +85,6 @@ steps:
                 "confidence":"low" | "medium" | "high"
               }
           output_schema: object
-          timeout: "60m"
 
       - name: on_approval
         type: if

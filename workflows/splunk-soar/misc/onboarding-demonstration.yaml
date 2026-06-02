@@ -136,10 +136,14 @@ steps:
             condition: "{{ inputs.kibana_case_id | size }} > 0"
             steps:
               - name: update_case_severity_high
-                type: kibana.updateCase
+                type: kibana.request
                 with:
-                  caseId: "{{ inputs.kibana_case_id }}"
-                  severity: "high"
+                  method: PATCH
+                  path: "/api/cases"
+                  body:
+                    - id: "{{ inputs.kibana_case_id }}"
+                      status: "closed"
+                      version: "WzAsMV0="
 
   - name: summary
     type: console

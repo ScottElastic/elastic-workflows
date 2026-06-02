@@ -64,14 +64,19 @@ steps:
           # Add Risk Investigation workbook to the case. Modeled as a Kibana
           # case-comment that records that the workbook was started.
           - name: add_workbook
-            type: kibana.addCaseComment
+            type: kibana.request
             with:
-              caseId: "{{ consts.kibana_case_id }}"
-              comment: "Risk Investigation workbook started for event {{ inputs.event_id }}."
+              method: POST
+              path: "/api/cases/{{ consts.kibana_case_id }}/comments"
+              body:
+                type: "user"
+                comment: "Risk Investigation workbook started for event {{ inputs.event_id }}."
+                owner: "cases"
+
             on-failure:
               retry:
-                max-attempts: 2
-                delay: "5s"
+              max-attempts: 2
+              delay: "5s"
               continue: true
 
           - name: start_preprocess_task
@@ -113,17 +118,22 @@ steps:
               continue: true
 
           - name: record_preprocess_note
-            type: kibana.addCaseComment
+            type: kibana.request
             with:
-              caseId: "{{ consts.kibana_case_id }}"
-              comment: "{{ steps.run_import_data.output.note_content | default: 'Preprocess note pending.' }}"
+              method: POST
+              path: "/api/cases/{{ consts.kibana_case_id }}/comments"
+              body:
+                type: "user"
+                comment: "{{ steps.run_import_data.output.note_content | default: 'Preprocess note pending.' }}"
+                owner: "cases"
+
             on-failure:
               retry:
-                max-attempts: 2
-                delay: "5s"
+              max-attempts: 2
+              delay: "5s"
               continue: true
 
-          # Switch task to "Investigate" and dispatch tagged child playbooks.
+              # Switch task to "Investigate" and dispatch tagged child playbooks.
           - name: start_investigate_task
             type: data.set
             with:
@@ -181,14 +191,19 @@ steps:
                       summary: "Risk score {{ steps.compute_total_risk_score.output.total_score }} exceeds threshold {{ inputs.risk_score_threshold }}. Triggering containment."
 
                   - name: post_verdict
-                    type: kibana.addCaseComment
+                    type: kibana.request
                     with:
-                      caseId: "{{ consts.kibana_case_id }}"
-                      comment: "{{ steps.render_verdict_note.output.summary }}"
+                      method: POST
+                      path: "/api/cases/{{ consts.kibana_case_id }}/comments"
+                      body:
+                        type: "user"
+                        comment: "{{ steps.render_verdict_note.output.summary }}"
+                        owner: "cases"
+
                     on-failure:
                       retry:
-                        max-attempts: 2
-                        delay: "5s"
+                      max-attempts: 2
+                      delay: "5s"
                       continue: true
 
                   - name: trigger_auto_containment
@@ -207,18 +222,23 @@ steps:
                         delay: "5s"
                 else:
                   - name: update_investigate_task
-                    type: kibana.addCaseComment
+                    type: kibana.request
                     with:
-                      caseId: "{{ consts.kibana_case_id }}"
-                      comment: "Investigation notes from dispatched playbooks recorded. Risk score below containment threshold."
+                      method: POST
+                      path: "/api/cases/{{ consts.kibana_case_id }}/comments"
+                      body:
+                        type: "user"
+                        comment: "Investigation notes from dispatched playbooks recorded. Risk score below containment threshold."
+                        owner: "cases"
+
                     on-failure:
                       retry:
-                        max-attempts: 2
-                        delay: "5s"
+                      max-attempts: 2
+                      delay: "5s"
                       continue: true
 
-          # If the dispatcher produced any enrichment notes, push them back
-          # to Splunk ES as comments on the notable.
+                      # If the dispatcher produced any enrichment notes, push them back
+                      # to Splunk ES as comments on the notable.
           - name: update_notable_event
             type: if
             condition: "{{ steps.dispatch_investigations.output.sub_playbook_outputs.note_content | default: '' | size }} > 0"

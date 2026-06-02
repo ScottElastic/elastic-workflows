@@ -49,24 +49,18 @@ steps:
   # Native servicenow connector → ServiceNow Table API POST /api/now/table/incident.
   # The connector handles auth (Basic or OAuth) and returns {number, sys_id, ...}.
   - name: create_snow_ticket
-    type: servicenow
-    connector-id: "{{ consts.servicenow_connector_id }}"
+    type: http
     with:
-      subAction: "pushToService"
-      subActionParams:
-        incident:
-          short_description: "{{ steps.derive_payload.output.short_description }}"
-          description: "{{ steps.derive_payload.output.description }}"
-          correlation_id: "{{ inputs.finding_id }}"
-          correlation_display: "Elastic Security Finding"
+      url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
+      method: POST
+      headers:
+        Content-Type: "application/json"
+        Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
+      body:
+        short_description: "{{ steps.derive_payload.output.short_description }}"
     on-failure:
-      retry:
-        max-attempts: 3
-        delay: "5s"
+      continue: true
 
-  # If a Kibana case was supplied, mirror the SNOW number into a customField
-  # so subsequent workflows (e.g. servicenow-update-incident-notes) can find
-  # it without re-querying SNOW.
   - name: have_case
     type: if
     condition: "{{ inputs.case_id | size }} > 0"
@@ -91,10 +85,15 @@ steps:
           continue: true
 
       - name: add_audit_comment
-        type: kibana.addCaseComment
+        type: kibana.request
         with:
-          caseId: "{{ inputs.case_id }}"
-          comment: "ServiceNow incident created: {{ steps.create_snow_ticket.output.number | default: 'unknown' }} (sys_id={{ steps.create_snow_ticket.output.pushedDate | default: '' }})"
+          method: POST
+          path: "/api/cases/{{ inputs.case_id }}/comments"
+          body:
+            type: "user"
+            comment: "ServiceNow incident created: {{ steps.create_snow_ticket.output.number | default: 'unknown' }} (sys_id={{ steps.create_snow_ticket.output.pushedDate | default: '' }})"
+            owner: "cases"
+
         on-failure:
           continue: true
 

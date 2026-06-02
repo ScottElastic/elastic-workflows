@@ -86,10 +86,14 @@ steps:
         condition: "{{ inputs.case_id | size }} > 0"
         steps:
           - name: comment_case_with_summary
-            type: kibana.addCaseComment
+            type: kibana.request
             with:
-              caseId: "{{ inputs.case_id }}"
-              comment: "Dynamic analysis dispatch complete. Plan: {{ steps.ai_dispatch_decision.output.plan | json | default: '[]' }}"
+              method: POST
+              path: "/api/cases/{{ inputs.case_id }}/comments"
+              body:
+                type: "user"
+                comment: "Dynamic analysis dispatch complete. Plan: {{ steps.ai_dispatch_decision.output.plan | json | default: '[]' }}"
+                owner: "cases"
 
       - name: log_dispatch
         type: console

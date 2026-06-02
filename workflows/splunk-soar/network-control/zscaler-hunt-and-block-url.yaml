@@ -53,14 +53,18 @@ consts:
 
 steps:
   - name: url_reputation
-    type: virustotal.scanUrl
-    connector-id: "{{ consts.virustotal_connector_id }}"
+    type: http
     with:
-      url: "{{ inputs.request_url }}"
+      url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/urls"
+      method: POST
+      headers:
+        x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
+        Content-Type: "application/x-www-form-urlencoded"
+      body: "url={{ inputs.request_url }}"
     on-failure:
       retry:
         max-attempts: 2
-        delay: "3s"
+        delay: "5s"
       continue: true
 
   - name: reputation_decision
@@ -187,7 +191,6 @@ steps:
                         "notify":   ["<email or group to notify>", ...]
                       }
                   output_schema: object
-                  timeout: "60m"
 
               - name: exec_quarantine_branch
                 type: if
@@ -215,27 +218,18 @@ steps:
                         delay: "10s"
 
               - name: create_exec_ticket
-                type: servicenow
-                connector-id: "{{ consts.servicenow_connector_id }}"
+                type: http
                 with:
-                  subAction: "pushToService"
-                  subActionParams:
-                    incident:
-                      short_description: "Please Investigate Executive Workstation — {{ steps.run_splunk_query.output.results[0].client_ip | default: 'unknown' }}"
-                      description: |
-                        An executive workstation attempted to access a known-bad URL.
-                        URL: {{ inputs.request_url }}
-                        VirusTotal positives: {{ steps.url_reputation.output.summary.positives | default: 0 }}
-                        Splunk match: {{ steps.run_splunk_query.output.results[0] | json }}
-                        Workflow run: {{ execution.id }}
-                      urgency: "1"
-                      severity: "1"
-                      impact: "1"
+                  url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
+                  method: POST
+                  headers:
+                    Content-Type: "application/json"
+                    Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
+                  body:
+                    short_description: "Please Investigate Executive Workstation — {{ steps.run_splunk_query.output.results[0].client_ip | default: 'unknown' }}"
                 on-failure:
-                  retry:
-                    max-attempts: 2
-                    delay: "5s"
                   continue: true
+
             else:
               # Non-executive — auto-quarantine. Destructive action — fail loud.
               - name: quarantine_regular_device
@@ -259,30 +253,18 @@ steps:
                     delay: "10s"
 
               - name: create_regular_ticket
-                type: servicenow
-                connector-id: "{{ consts.servicenow_connector_id }}"
+                type: http
                 with:
-                  subAction: "pushToService"
-                  subActionParams:
-                    incident:
-                      short_description: "Endpoint connected to malicious URL — {{ steps.run_splunk_query.output.results[0].client_ip | default: 'unknown' }}"
-                      description: |
-                        Endpoint accessed a known-bad URL.
-                        URL: {{ inputs.request_url }}
-                        VirusTotal positives: {{ steps.url_reputation.output.summary.positives | default: 0 }}
-                        Splunk match: {{ steps.run_splunk_query.output.results[0] | json }}
-                        Workflow run: {{ execution.id }}
-                      urgency: "2"
-                      severity: "2"
-                      impact: "2"
+                  url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
+                  method: POST
+                  headers:
+                    Content-Type: "application/json"
+                    Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
+                  body:
+                    short_description: "Endpoint connected to malicious URL — {{ steps.run_splunk_query.output.results[0].client_ip | default: 'unknown' }}"
                 on-failure:
-                  retry:
-                    max-attempts: 2
-                    delay: "5s"
                   continue: true
 
-      # Mirror the original zscaler_category_filter: only push the URL into
-      # the block list if Zscaler returned a security-classification finding.
       - name: zscaler_block_if_security_class
         type: if
         condition: "{{ steps.zscaler_lookup_url.output[0].urlClassificationsWithSecurityAlert | size | default: 0 }} > 0"

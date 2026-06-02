@@ -66,11 +66,10 @@ steps:
     condition: "{{ steps.lookup_test_machine.output.hits.total.value }} > 0"
     steps:
       - name: deescalate_known_test_ip
-        type: kibana.SetAlertsStatus
+        type: console
         with:
-          ids:
-            - "{{ inputs.alert_id | default: event.alerts[0]._id }}"
-          status: "acknowledged"
+          message: "SetAlertsStatus → acknowledged (logged; kibana.SetAlertsStatus not available in this release)"
+
       - name: log_known_test
         type: console
         with:
@@ -94,32 +93,39 @@ steps:
             condition: "{{ inputs.is_test_machine }} == true"
             steps:
               - name: add_to_test_machine_list
-                type: elasticsearch.index
+                type: http
                 with:
-                  index: "{{ consts.test_machine_ip_index }}"
-                  document:
-                    ip: "{{ steps.derive_source_address.output.source_ip }}"
-                    added_by: "workflow"
-                    added_at: "{{ execution.id }}"
+                  url: "{{ consts.elasticsearch_base | default: 'https://CHANGEME-es.elastic-cloud.com' }}/{{ consts.test_machine_ip_index }}/_doc"
+                  method: POST
+                  headers:
+                    Content-Type: "application/json"
+                    Authorization: "{{ consts.elasticsearch_auth | default: 'ApiKey CHANGEME_ES_KEY' }}"
+                  body: "{{ item | json }}"
+                on-failure:
+                  continue: true
+
               - name: deescalate_new_test_ip
-                type: kibana.SetAlertsStatus
+                type: console
                 with:
-                  ids:
-                    - "{{ inputs.alert_id | default: event.alerts[0]._id }}"
-                  status: "acknowledged"
+                  message: "SetAlertsStatus → acknowledged (logged; kibana.SetAlertsStatus not available in this release)"
+
               - name: log_new_test
                 type: console
                 with:
                   message: "{{ steps.derive_source_address.output.source_ip }} added to test_machine_ips and alert de-escalated."
             else:
               - name: add_to_non_test_list
-                type: elasticsearch.index
+                type: http
                 with:
-                  index: "{{ consts.non_test_machine_ip_index }}"
-                  document:
-                    ip: "{{ steps.derive_source_address.output.source_ip }}"
-                    added_by: "workflow"
-                    added_at: "{{ execution.id }}"
+                  url: "{{ consts.elasticsearch_base | default: 'https://CHANGEME-es.elastic-cloud.com' }}/{{ consts.non_test_machine_ip_index }}/_doc"
+                  method: POST
+                  headers:
+                    Content-Type: "application/json"
+                    Authorization: "{{ consts.elasticsearch_auth | default: 'ApiKey CHANGEME_ES_KEY' }}"
+                  body: "{{ item | json }}"
+                on-failure:
+                  continue: true
+
               - name: log_recorded_non_test
                 type: console
                 with:

@@ -47,7 +47,7 @@ consts:
 steps:
   - name: gate_on_rule_name
     type: if
-    condition: "'{{ inputs.rule_name }}' == '{{ consts.expected_rule_name }}'"
+    condition: "{{ inputs.rule_name }} == {{ consts.expected_rule_name }}"
     steps:
       - name: validate_inputs
         type: if
@@ -130,7 +130,7 @@ steps:
 
       - name: execute_block
         type: if
-        condition: '{{ steps.ai_decision.output.verdict | default: "" | upcase }} == "YES"'
+        condition: '{{ steps.ai_decision.output.verdict | default: '' | upcase }} == "YES"'
         steps:
           # Destructive — no `continue: true`. If the firewall call fails,
           # we want the workflow to halt so the analyst is notified.

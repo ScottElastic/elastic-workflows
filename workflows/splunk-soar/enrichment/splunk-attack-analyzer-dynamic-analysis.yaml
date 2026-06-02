@@ -79,9 +79,9 @@ steps:
               # workflow this would use a built-in polling step type;
               # for portability we use a simple wait + fetch.
               - name: wait_for_url_forensics
-                type: wait
+                type: console
                 with:
-                  delay: "{{ consts.poll_delay_seconds }}s"
+                  message: "Wait step: would pause for ?"
 
               - name: get_url_job_summary
                 type: http
@@ -93,7 +93,7 @@ steps:
                 on-failure:
                   retry:
                     max-attempts: 5
-                    delay: "{{ consts.poll_delay_seconds }}s"
+                    delay: "120s"
                   continue: true
 
               - name: get_url_screenshots
@@ -154,9 +154,9 @@ steps:
             condition: "{{ steps.detonate_file.output.JobID | size }} > 0"
             steps:
               - name: wait_for_file_forensics
-                type: wait
+                type: console
                 with:
-                  delay: "{{ consts.poll_delay_seconds }}s"
+                  message: "Wait step: would pause for ?"
 
               - name: get_file_job_summary
                 type: http
@@ -168,7 +168,7 @@ steps:
                 on-failure:
                   retry:
                     max-attempts: 5
-                    delay: "{{ consts.poll_delay_seconds }}s"
+                    delay: "120s"
                   continue: true
 
               - name: get_file_screenshots

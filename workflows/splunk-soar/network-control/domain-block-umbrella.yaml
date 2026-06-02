@@ -71,23 +71,17 @@ steps:
           # Records a "blocked" tag against the indicator. Tag writes are
           # bookkeeping — safe to continue on failure.
           - name: write_indicator_tag
-            type: elasticsearch.index
+            type: http
             with:
-              index: "{{ consts.indicator_index }}"
-              document:
-                indicator: "{{ item }}"
-                type: "domain"
-                tags: ["blocked"]
-                source: "Cisco Umbrella"
-                umbrella_event_id: "{{ steps.cisco_umbrella_block_domain.output.id }}"
-                disposition: "{{ steps.cisco_umbrella_block_domain.output.disposition | default: 'unknown' }}"
-                workflow_run: "{{ execution.id }}"
-                "@timestamp": "{{ now }}"
+              url: "{{ consts.elasticsearch_base | default: 'https://CHANGEME-es.elastic-cloud.com' }}/{{ consts.indicator_index }}/_doc"
+              method: POST
+              headers:
+                Content-Type: "application/json"
+                Authorization: "{{ consts.elasticsearch_auth | default: 'ApiKey CHANGEME_ES_KEY' }}"
+              body: "{{ item | json }}"
             on-failure:
-              retry:
-                max-attempts: 3
-                delay: "5s"
               continue: true
+
           - name: log_tagged
             type: console
             with:

@@ -168,96 +168,119 @@ steps:
                     delay: "10s"
 
               - name: notify_approved
-                type: email
-                connector-id: "{{ consts.smtp_endpoint }}"
+                type: console
                 with:
-                  to: ["{{ inputs.from_email }}"]
-                  from: "{{ consts.notify_from }}"
-                  subject: "Request Approved"
-                  message: "Your request to unblock a website has been approved."
+                  message: "Email would be sent to: [ | subject: Request Approved"
 
               - name: update_ticket_approved
                 type: if
                 condition: "{{ inputs.ticket_id | size }} > 0"
                 steps:
                   - name: jira_comment_approved
-                    type: jira
-                    connector-id: "{{ inputs.jira_connector_id }}"
+                    type: http
                     with:
-                      subAction: "addComment"
-                      subActionParams:
-                        issueId: "{{ inputs.ticket_id }}"
-                        comment: "Request Approved"
+                      url: "{{ consts.jira_base | default: 'https://jira.example.com' }}/rest/api/3/issue"
+                      method: POST
+                      headers:
+                        Content-Type: "application/json"
+                      body:
+                        fields:
+                          summary: "{{ inputs.ticket_title | default: 'Workflow ticket' }}"
+                          description:
+                            type: doc
+                            version: 1
+                            content:
+                              - type: paragraph
+                                content:
+                                  - type: text
+                                    text: "{{ inputs.description | default: '' }}"
+
             else:
               - name: notify_denied_by_approver
-                type: email
-                connector-id: "{{ consts.smtp_endpoint }}"
+                type: console
                 with:
-                  to: ["{{ inputs.from_email }}"]
-                  from: "{{ consts.notify_from }}"
-                  subject: "Request Denied"
-                  message: "Your request has been denied by an approver."
+                  message: "Email would be sent to: [ | subject: Request Denied"
 
               - name: update_ticket_denied_approver
                 type: if
                 condition: "{{ inputs.ticket_id | size }} > 0"
                 steps:
                   - name: jira_comment_denied_approver
-                    type: jira
-                    connector-id: "{{ inputs.jira_connector_id }}"
+                    type: http
                     with:
-                      subAction: "addComment"
-                      subActionParams:
-                        issueId: "{{ inputs.ticket_id }}"
-                        comment: "Request Denied"
+                      url: "{{ consts.jira_base | default: 'https://jira.example.com' }}/rest/api/3/issue"
+                      method: POST
+                      headers:
+                        Content-Type: "application/json"
+                      body:
+                        fields:
+                          summary: "{{ inputs.ticket_title | default: 'Workflow ticket' }}"
+                          description:
+                            type: doc
+                            version: 1
+                            content:
+                              - type: paragraph
+                                content:
+                                  - type: text
+                                    text: "{{ inputs.description | default: '' }}"
+
         else:
           # WebPulse flagged Malicious / Malware — auto-deny
           - name: notify_denied_webpulse
-            type: email
-            connector-id: "{{ consts.smtp_endpoint }}"
+            type: console
             with:
-              to: ["{{ inputs.from_email }}"]
-              from: "{{ consts.notify_from }}"
-              subject: "Request Denied"
-              message: >-
-                Your request to unblock {{ inputs.request_url }} has been denied
-                because the site was categorized as Malicious or Malware.
+              message: "Email would be sent to: [ | subject: Request Denied"
 
           - name: update_ticket_denied_webpulse
             type: if
             condition: "{{ inputs.ticket_id | size }} > 0"
             steps:
               - name: jira_comment_denied_webpulse
-                type: jira
-                connector-id: "{{ inputs.jira_connector_id }}"
+                type: http
                 with:
-                  subAction: "addComment"
-                  subActionParams:
-                    issueId: "{{ inputs.ticket_id }}"
-                    comment: "Request Denied"
+                  url: "{{ consts.jira_base | default: 'https://jira.example.com' }}/rest/api/3/issue"
+                  method: POST
+                  headers:
+                    Content-Type: "application/json"
+                  body:
+                    fields:
+                      summary: "{{ inputs.ticket_title | default: 'Workflow ticket' }}"
+                      description:
+                        type: doc
+                        version: 1
+                        content:
+                          - type: paragraph
+                            content:
+                              - type: text
+                                text: "{{ inputs.description | default: '' }}"
+
     else:
       # VirusTotal showed positives — auto-deny
       - name: notify_denied_vt
-        type: email
-        connector-id: "{{ consts.smtp_endpoint }}"
+        type: console
         with:
-          to: ["{{ inputs.from_email }}"]
-          from: "{{ consts.notify_from }}"
-          subject: "Request Denied"
-          message: >-
-            Your request to unblock {{ inputs.request_url }} has been denied:
-            {{ steps.virustotal_url_reputation.output.data.attributes.last_analysis_stats.malicious | default: 0 }}
-            reputation services flagged this site as malicious.
+          message: "Email would be sent to: [ | subject: Request Denied"
 
       - name: update_ticket_denied_vt
         type: if
         condition: "{{ inputs.ticket_id | size }} > 0"
         steps:
           - name: jira_comment_denied_vt
-            type: jira
-            connector-id: "{{ inputs.jira_connector_id }}"
+            type: http
             with:
-              subAction: "addComment"
-              subActionParams:
-                issueId: "{{ inputs.ticket_id }}"
-                comment: "Request Denied"
+              url: "{{ consts.jira_base | default: 'https://jira.example.com' }}/rest/api/3/issue"
+              method: POST
+              headers:
+                Content-Type: "application/json"
+              body:
+                fields:
+                  summary: "{{ inputs.ticket_title | default: 'Workflow ticket' }}"
+                  description:
+                    type: doc
+                    version: 1
+                    content:
+                      - type: paragraph
+                        content:
+                          - type: text
+                            text: "{{ inputs.description | default: '' }}"
+

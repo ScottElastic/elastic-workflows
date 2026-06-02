@@ -120,7 +120,7 @@ steps:
   - name: parse_selection
     type: data.set
     with:
-      selection: ${{ steps.ai_select_entities.output | parse_json }}
+      selection: ${{ steps.ai_select_entities.output }}
 
   # Dispatch every registered identity workflow with the chosen users.
   - name: launch_identity_workflows

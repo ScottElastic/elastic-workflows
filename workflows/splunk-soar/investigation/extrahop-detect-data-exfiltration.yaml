@@ -44,7 +44,7 @@ consts:
 steps:
   - name: only_handle_exfil_label
     type: if
-    condition: "'{{ inputs.label }}' == 'data_exfiltration'"
+    condition: "{{ inputs.label }} == 'data_exfiltration'"
     steps:
       # POST /devices/search resolves the device by IPv4 address.
       - name: get_device_info
@@ -126,7 +126,7 @@ steps:
           - name: skip_rfc1918
             type: if
             # Process only external IPs (NOT in 10/8, 172.16/12, 192.168/16).
-            condition: "not (('{{ item.ipaddr4 }}' contains_prefix '10.') or ('{{ item.ipaddr4 }}' contains_prefix '192.168.') or ('{{ item.ipaddr4 }}' contains_prefix '172.16.') or ('{{ item.ipaddr4 }}' contains_prefix '172.17.') or ('{{ item.ipaddr4 }}' contains_prefix '172.18.') or ('{{ item.ipaddr4 }}' contains_prefix '172.19.') or ('{{ item.ipaddr4 }}' contains_prefix '172.2') or ('{{ item.ipaddr4 }}' contains_prefix '172.30.') or ('{{ item.ipaddr4 }}' contains_prefix '172.31.'))"
+            condition: "not (({{ item.ipaddr4 }} contains_prefix '10.') or ({{ item.ipaddr4 }} contains_prefix '192.168.') or ({{ item.ipaddr4 }} contains_prefix '172.16.') or ({{ item.ipaddr4 }} contains_prefix '172.17.') or ({{ item.ipaddr4 }} contains_prefix '172.18.') or ({{ item.ipaddr4 }} contains_prefix '172.19.') or ({{ item.ipaddr4 }} contains_prefix '172.2') or ({{ item.ipaddr4 }} contains_prefix '172.30.') or ({{ item.ipaddr4 }} contains_prefix '172.31.'))"
             steps:
               # Anomali ThreatStream: GET /api/v2/intelligence/ with apikey auth.
               # See https://www.anomali.com/resources/threatstream-api.

@@ -78,7 +78,7 @@ steps:
             type: data.set
             with:
               line: >-
-                {{ item.timestamp }}, risk_score="{{ (item.total_risk_score | divided_by: item.event_count) | times: -1 }}",
+                {{ item.timestamp }}, risk_score="{{ (item.total_risk_score }}",
                 risk_event_id="{{ item.id }}",
                 risk_object="{{ item.risk_object }}",
                 risk_object_type="{{ item.risk_object_type }}",

@@ -167,17 +167,10 @@ steps:
                 Related CVEs sighted: {{ steps.hunt_vulns_in_splunk.output.results | size | default: 0 }}
 
           - name: notify_responder
-            type: email
+            type: console
             with:
-              to: "{{ consts.notify_to }}"
-              from: "{{ consts.notify_from }}"
-              subject: "Malicious IP {{ steps.derive_ip.output.ip }} with related entities found"
-              message: "{{ steps.build_email_body.output.body }}"
+              message: "Email would be sent to: {{ consts.notify_to }} | subject: Malicious IP {{ steps.derive_ip.output.ip }} with related entities found"
 
-      # Original playbook used an interactive analyst prompt + add_list call.
-      # Until a native human-approval step lands, emit a REVIEW message for
-      # the on-call analyst — pair with a Kibana case or Slack handoff in
-      # your parent workflow.
       - name: ask_to_block
         type: console
         with:

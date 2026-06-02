@@ -57,7 +57,6 @@ steps:
               Yes
               No
             Do not include explanation, punctuation, or whitespace.
-          timeout: "60m"
 
       - name: on_approval
         type: if
@@ -98,14 +97,17 @@ steps:
                     delay: "5s"
                   continue: true
               - name: add_to_baseline
-                type: elasticsearch.index
+                type: http
                 with:
-                  index: "{{ consts.infected_endpoints_index }}"
-                  document:
-                    source_address: "{{ inputs.source_address }}"
-                    first_seen: "{{ now }}"
+                  url: "{{ consts.elasticsearch_base | default: 'https://CHANGEME-es.elastic-cloud.com' }}/{{ consts.infected_endpoints_index }}/_doc"
+                  method: POST
+                  headers:
+                    Content-Type: "application/json"
+                    Authorization: "{{ consts.elasticsearch_auth | default: 'ApiKey CHANGEME_ES_KEY' }}"
+                  body: "{{ item | json }}"
                 on-failure:
                   continue: true
+
             else:
               # Already on the list — file a reinfection ticket.
               - name: create_reinfection_ticket
@@ -130,7 +132,12 @@ steps:
     condition: "{{ inputs.kibana_case_id | size }} > 0"
     steps:
       - name: kibana_close
-        type: kibana.updateCase
+        type: kibana.request
         with:
-          caseId: "{{ inputs.kibana_case_id }}"
-          status: "closed"
+          method: PATCH
+          path: "/api/cases"
+          body:
+            - id: "{{ inputs.kibana_case_id }}"
+              status: "closed"
+              version: "WzAsMV0="
+

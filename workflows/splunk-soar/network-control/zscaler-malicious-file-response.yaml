@@ -52,17 +52,18 @@ steps:
     steps:
       # Leg 1: VirusTotal reputation on the MD5.
       - name: file_reputation
-        type: virustotal.scanFileHash
-        connector-id: "{{ consts.virustotal_connector_id }}"
+        type: http
         with:
-          hash: "{{ inputs.file_hash_md5 }}"
+          url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/files/{{ inputs.file_hash_md5 }}"
+          method: GET
+          headers:
+            x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
         on-failure:
           retry:
             max-attempts: 2
-            delay: "3s"
+            delay: "5s"
           continue: true
 
-      # Leg 2: Block hash future-execution in Carbon Black Response.
       - name: block_hash_in_carbonblack
         type: http
         with:
@@ -192,33 +193,16 @@ steps:
       # templates and pushed to ServiceNow. We collapse to one concise
       # incident with the same essential context.
       - name: create_servicenow_ticket
-        type: servicenow
-        connector-id: "{{ consts.servicenow_connector_id }}"
+        type: http
         with:
-          subAction: "pushToService"
-          subActionParams:
-            incident:
-              short_description: "Malicious MD5 Found on Endpoint(s) — {{ inputs.file_hash_md5 }}"
-              description: |
-                Zscaler patient-zero response summary (Elastic Workflow).
-
-                Actions performed:
-                1. Pulled VirusTotal reputation for the MD5.
-                2. Queried Splunk Zscaler proxy logs for the affected user.
-                3. Blocked future executions of this hash in Carbon Black Response.
-                4. Quarantined endpoints on which the file was detected.
-
-                MD5: {{ inputs.file_hash_md5 }}
-                VirusTotal positives: {{ steps.file_reputation.output.summary.positives | default: 0 }}
-                Endpoints touched: {{ steps.hunt_file_in_carbonblack.output.results | size | default: 0 }}
-                Workflow run: {{ execution.id }}
-              urgency: "2"
-              severity: "2"
-              impact: "2"
+          url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
+          method: POST
+          headers:
+            Content-Type: "application/json"
+            Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
+          body:
+            short_description: "Malicious MD5 Found on Endpoint(s) — {{ inputs.file_hash_md5 }}"
         on-failure:
-          retry:
-            max-attempts: 2
-            delay: "5s"
           continue: true
 
       - name: log_response_summary
@@ -233,4 +217,4 @@ steps:
       - name: log_skipped
         type: console
         with:
-          message: "Artifact name '{{ inputs.artifact_name }}' did not match the Zscaler alert filter; skipping response."
+          message: "Artifact name {{ inputs.artifact_name }} did not match the Zscaler alert filter; skipping response."

@@ -214,14 +214,16 @@ steps:
                     foreach: "${{ steps.run_file_query.output.results }}"
                     steps:
                       - name: virustotal_hash_lookup
-                        type: virustotal.scanFileHash
-                        connector-id: "{{ consts.virustotal_connector_id }}"
+                        type: http
                         with:
-                          hash: "{{ item.sha1 }}"
+                          url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/files/{{ item.sha1 }}"
+                          method: GET
+                          headers:
+                            x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
                         on-failure:
                           retry:
                             max-attempts: 2
-                            delay: "3s"
+                            delay: "5s"
                           continue: true
 
                       - name: log_vt_hit

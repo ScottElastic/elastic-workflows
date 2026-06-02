@@ -78,16 +78,15 @@ steps:
         condition: "{{ inputs.case_id | size }} > 0"
         steps:
           - name: case_block_note
-            type: kibana.addCaseComment
+            type: kibana.request
             with:
-              caseId: "{{ inputs.case_id }}"
-              comment: |
-                Block stage complete.
-                title={{ steps.run_block.output.note_title | default: 'block result' }}
-                content={{ steps.run_block.output.note_content | default: 'see workflow output' }}
+              method: POST
+              path: "/api/cases/{{ inputs.case_id }}/comments"
+              body:
+                type: "user"
+                comment: "Block stage complete. title={{ steps.run_block.output.note_title | default: 'block result' }} content={{ steps.run_block.output.note_content | default: 'see workflow output' }}"
+                owner: "cases"
 
-  # Protect-assets-and-users adjusts identity/asset state — retry then
-  # fail loud rather than silently swallow.
   - name: run_protect
     type: kibana.request
     with:
@@ -105,13 +104,14 @@ steps:
     condition: "{{ inputs.case_id | size }} > 0"
     steps:
       - name: case_protect_note
-        type: kibana.addCaseComment
+        type: kibana.request
         with:
-          caseId: "{{ inputs.case_id }}"
-          comment: |
-            Protect stage complete.
-            title={{ steps.run_protect.output.note_title | default: 'protect result' }}
-            content={{ steps.run_protect.output.note_content | default: 'see workflow output' }}
+          method: POST
+          path: "/api/cases/{{ inputs.case_id }}/comments"
+          body:
+            type: "user"
+            comment: "Protect stage complete. title={{ steps.run_protect.output.note_title | default: 'protect result' }} content={{ steps.run_protect.output.note_content | default: 'see workflow output' }}"
+            owner: "cases"
 
   - name: log_done
     type: console

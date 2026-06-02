@@ -55,14 +55,17 @@ steps:
         condition: "{{ steps.check_allowlist.output.hits.total.value }} > 0"
         steps:
           - name: tag_allowlisted_indicator
-            type: elasticsearch.index
+            type: http
             with:
-              index: "{{ consts.allowlist_index }}"
-              document:
-                username: "{{ item }}"
-                tags:
-                  - "aws_inactive_user_allowlist"
-                source: "workflow"
+              url: "{{ consts.elasticsearch_base | default: 'https://CHANGEME-es.elastic-cloud.com' }}/{{ consts.allowlist_index }}/_doc"
+              method: POST
+              headers:
+                Content-Type: "application/json"
+                Authorization: "{{ consts.elasticsearch_auth | default: 'ApiKey CHANGEME_ES_KEY' }}"
+              body: "{{ item | json }}"
+            on-failure:
+              continue: true
+
           - name: log_skip_allowlisted
             type: console
             with:

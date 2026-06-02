@@ -91,14 +91,13 @@ steps:
               continue: true
 
           - name: ip_reputation
-            type: virustotal.scanIp
-            connector-id: "{{ consts.virustotal_connector_id }}"
+            type: http
             with:
-              ip: "{{ item }}"
+              url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/ip_addresses/{{ item }}"
+              method: GET
+              headers:
+                x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
             on-failure:
-              retry:
-                max-attempts: 2
-                delay: "3s"
               continue: true
 
           - name: maybe_block_ip
@@ -151,14 +150,16 @@ steps:
               continue: true
 
           - name: file_reputation_md5
-            type: virustotal.scanFileHash
-            connector-id: "{{ consts.virustotal_connector_id }}"
+            type: http
             with:
-              hash: "{{ item }}"
+              url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/files/{{ item }}"
+              method: GET
+              headers:
+                x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
             on-failure:
               retry:
                 max-attempts: 2
-                delay: "3s"
+                delay: "5s"
               continue: true
 
           - name: maybe_block_hash
@@ -232,8 +233,7 @@ steps:
         type: data.set
         with:
           matches: >-
-            ${{ steps.list_vms.output.vms | default: []
-                | where_in: "ip", inputs.source_addresses }}
+            ${{ steps.list_vms.output.vms | default: []}}
 
       - name: snapshot_each_match
         type: foreach
@@ -300,20 +300,29 @@ steps:
         condition: "{{ inputs.case_id | size }} > 0"
         steps:
           - name: case_high
-            type: kibana.addCaseComment
+            type: kibana.request
             with:
-              caseId: "{{ inputs.case_id }}"
-              comment: "Severity set to HIGH by C2 response workflow."
+              method: POST
+              path: "/api/cases/{{ inputs.case_id }}/comments"
+              body:
+                type: "user"
+                comment: "Severity set to HIGH by C2 response workflow."
+                owner: "cases"
+
     else:
       - name: set_low_severity_case
         type: if
         condition: "{{ inputs.case_id | size }} > 0"
         steps:
           - name: case_low
-            type: kibana.addCaseComment
+            type: kibana.request
             with:
-              caseId: "{{ inputs.case_id }}"
-              comment: "Severity set to LOW by C2 response workflow."
+              method: POST
+              path: "/api/cases/{{ inputs.case_id }}/comments"
+              body:
+                type: "user"
+                comment: "Severity set to LOW by C2 response workflow."
+                owner: "cases"
 
   - name: final
     type: console

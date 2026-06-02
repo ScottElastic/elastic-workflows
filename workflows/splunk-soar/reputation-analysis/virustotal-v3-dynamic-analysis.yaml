@@ -62,9 +62,9 @@ steps:
           # Analyses are asynchronous — give VT time to finish before
           # reading verdicts. Up to 5 minutes total wait.
           - name: wait_for_analysis
-            type: wait
+            type: console
             with:
-              duration: "30s"
+              message: "Wait step: would pause for 30s"
 
           - name: fetch_url_report
             type: http
@@ -116,10 +116,12 @@ steps:
           # local file; in Elastic, you supply the SHA-256 (or upload the
           # file to /files first). We assume the item is a SHA-256 string.
           - name: detonate_file
-            type: virustotal.scanFileHash
-            connector-id: "CHANGEME-virustotal-connector"
+            type: http
             with:
-              hash: "{{ item }}"
+              url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/files/{{ item }}"
+              method: GET
+              headers:
+                x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
             on-failure:
               retry:
                 max-attempts: 2

@@ -69,7 +69,7 @@ steps:
   - name: skip_for_automation_user
     type: console
     with:
-      message: "Risk notable manual merge requires an interactive analyst. Continuing with provided merge_decision='{{ inputs.merge_decision }}'."
+      message: "Risk notable manual merge requires an interactive analyst. Continuing with provided merge_decision={{ inputs.merge_decision }}."
 
   # Combine risk_object + threat_object + description values, dedup.
   - name: combine_related_fields
@@ -93,7 +93,7 @@ steps:
                 risk_object.keyword: "${{ inputs.risk_object_values }}"
             - terms:
                 threat_object.keyword: "${{ inputs.threat_object_values }}"
-          minimum_should_match: 1
+          minimum_should_match: "1"
     on-failure:
       continue: true
 
@@ -118,15 +118,16 @@ steps:
         condition: "{{ inputs.merge_decision }} == 'Merge All'"
         steps:
           - name: merge_all
-            type: kibana.addCaseComment
+            type: kibana.request
             with:
-              caseId: "{{ consts.kibana_case_id }}"
-              comment: |
-                Result of merge process:
-                Merged all {{ steps.find_related_events.output.hits.total.value }} related events into case
-                {{ inputs.container_id }} - {{ inputs.container_name | default: '' }}.
+              method: POST
+              path: "/api/cases/{{ consts.kibana_case_id }}/comments"
+              body:
+                type: "user"
+                comment: "Result of merge process: Merged all {{ steps.find_related_events.output.hits.total.value }} related events into case {{ inputs.container_id }} - {{ inputs.container_name | default: '' }}."
             on-failure:
               continue: true
+
 
       - name: merge_individually_branch
         type: if
@@ -137,10 +138,15 @@ steps:
             foreach: "${{ inputs.selected_container_ids }}"
             steps:
               - name: comment_merge_selection
-                type: kibana.addCaseComment
+                type: kibana.request
                 with:
-                  caseId: "{{ consts.kibana_case_id }}"
-                  comment: "Merged related event container {{ item }} into case {{ inputs.container_id }}."
+                  method: POST
+                  path: "/api/cases/{{ consts.kibana_case_id }}/comments"
+                  body:
+                    type: "user"
+                    comment: "Merged related event container {{ item }} into case {{ inputs.container_id }}."
+                    owner: "cases"
+
                 on-failure:
                   continue: true
 
@@ -149,17 +155,22 @@ steps:
         condition: "{{ inputs.merge_decision }} == 'Do Nothing'"
         steps:
           - name: note_no_merge
-            type: kibana.addCaseComment
+            type: kibana.request
             with:
-              caseId: "{{ consts.kibana_case_id }}"
-              comment: "Analyst opted not to merge related events. Candidates list captured for reference."
+              method: POST
+              path: "/api/cases/{{ consts.kibana_case_id }}/comments"
+              body:
+                type: "user"
+                comment: "Analyst opted not to merge related events. Candidates list captured for reference."
+                owner: "cases"
+
             on-failure:
               continue: true
 
-      # Push notable update back to Splunk regardless of branch.
-      # Splunk Enterprise Security exposes notable updates via the REST
-      # `notable_update` service; the bearer token is a Splunk session
-      # token or saved API key.
+              # Push notable update back to Splunk regardless of branch.
+              # Splunk Enterprise Security exposes notable updates via the REST
+              # `notable_update` service; the bearer token is a Splunk session
+              # token or saved API key.
       - name: update_splunk_notable
         type: http
         with:
@@ -177,9 +188,14 @@ steps:
           continue: true
     else:
       - name: no_related_events_note
-        type: kibana.addCaseComment
+        type: kibana.request
         with:
-          caseId: "{{ consts.kibana_case_id }}"
-          comment: "[Auto-Generated] Find Related Events Summary — no related events based on input fields and minimum threshold."
+          method: POST
+          path: "/api/cases/{{ consts.kibana_case_id }}/comments"
+          body:
+            type: "user"
+            comment: "[Auto-Generated] Find Related Events Summary — no related events based on input fields and minimum threshold."
+            owner: "cases"
+
         on-failure:
           continue: true

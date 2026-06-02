@@ -126,20 +126,17 @@ steps:
           # Create artifact-shaped documents in Elasticsearch. The original
           # playbook uses community/artifact_create.
           - name: index_risk_artifacts
-            type: elasticsearch.index
+            type: http
             with:
-              index: "soar-risk-artifacts"
-              document:
-                container_id: "{{ inputs.container_id }}"
-                event_id: "{{ inputs.event_id }}"
-                label: "risk_rule"
-                severity: "informational"
-                artifacts: "${{ steps.parse_risk_results.output }}"
+              url: "{{ consts.elasticsearch_base | default: 'https://CHANGEME-es.elastic-cloud.com' }}/soar-risk-artifacts/_doc"
+              method: POST
+              headers:
+                Content-Type: "application/json"
+                Authorization: "{{ consts.elasticsearch_auth | default: 'ApiKey CHANGEME_ES_KEY' }}"
+              body: "{{ item | json }}"
             on-failure:
               continue: true
 
-          # Group the parsed artifacts by MITRE ATT&CK tactic and technique
-          # and emit a markdown summary.
           - name: build_mitre_summary
             type: ai.prompt
             connector-id: "CHANGEME-llm-connector"

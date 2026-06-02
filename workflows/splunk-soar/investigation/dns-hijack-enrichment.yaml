@@ -177,18 +177,15 @@ steps:
     condition: "{{ inputs.kibana_case_id | size }} > 0"
     steps:
       - name: append_case_comment
-        type: kibana.addCaseComment
+        type: kibana.request
         with:
-          caseId: "{{ inputs.kibana_case_id }}"
-          comment: |
-            DNS hijack enrichment for {{ inputs.domain }} (current answer: {{ inputs.current_answer }})
-            GeoIP: {{ steps.build_summary.output.summary.geoip }}
-            Whois org: {{ steps.build_summary.output.summary.whois_org }}
-            TLS issuer: {{ steps.build_summary.output.summary.cert_issuer_cn }} ({{ steps.build_summary.output.summary.cert_issuer_org }})
-            PassiveTotal IP classification: {{ steps.build_summary.output.summary.passivetotal_ip_classification }}
-            Malware Domain List hits: {{ steps.build_summary.output.summary.malware_domain_list_hit }}
+          method: POST
+          path: "/api/cases/{{ inputs.kibana_case_id }}/comments"
+          body:
+            type: "user"
+            comment: "DNS hijack enrichment for {{ inputs.domain }} (current answer: {{ inputs.current_answer }}) GeoIP: {{ steps.build_summary.output.summary.geoip }} Whois org: {{ steps.build_summary.output.summary.whois_org }} TLS issuer: {{ steps.build_summary.output.summary.cert_issuer_cn }} ({{ steps.build_summary.output.summary.cert_issuer_org }}) PassiveTotal IP classification: {{ steps.build_summary.output.summary.passivetotal_ip_classification }} Malware Domain List hits: {{ steps.build_summary.output.summary.malware_domain_list_hit }}"
+            owner: "cases"
 
-  # TODO: replace with first-party Splunk ES connector when available.
   - name: update_splunk_notable
     type: if
     condition: "{{ inputs.notable_event_id | size }} > 0"

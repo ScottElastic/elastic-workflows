@@ -66,15 +66,25 @@ steps:
         condition: "{{ inputs.kibana_case_id | size }} > 0"
         steps:
           - name: success_comment
-            type: kibana.addCaseComment
+            type: kibana.request
             with:
-              caseId: "{{ inputs.kibana_case_id }}"
-              comment: "Commvault data aging disabled for {{ inputs.client_name }}."
+              method: POST
+              path: "/api/cases/{{ inputs.kibana_case_id }}/comments"
+              body:
+                type: "user"
+                comment: "Commvault data aging disabled for {{ inputs.client_name }}."
+                owner: "cases"
+
           - name: close_case
-            type: kibana.updateCase
+            type: kibana.request
             with:
-              caseId: "{{ inputs.kibana_case_id }}"
-              status: "closed"
+              method: PATCH
+              path: "/api/cases"
+              body:
+                - id: "{{ inputs.kibana_case_id }}"
+                  status: "closed"
+                  version: "WzAsMV0="
+
     else:
       - name: log_failure
         type: console
@@ -85,7 +95,12 @@ steps:
         condition: "{{ inputs.kibana_case_id | size }} > 0"
         steps:
           - name: failure_comment
-            type: kibana.addCaseComment
+            type: kibana.request
             with:
-              caseId: "{{ inputs.kibana_case_id }}"
-              comment: "Commvault data aging change for {{ inputs.client_name }} did not complete successfully."
+              method: POST
+              path: "/api/cases/{{ inputs.kibana_case_id }}/comments"
+              body:
+                type: "user"
+                comment: "Commvault data aging change for {{ inputs.client_name }} did not complete successfully."
+                owner: "cases"
+

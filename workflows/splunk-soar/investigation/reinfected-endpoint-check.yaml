@@ -42,7 +42,7 @@ steps:
     steps:
       - name: classify
         type: if
-        condition: "{{ inputs.infected_endpoints | includes: inputs.source_address }}"
+        condition: "{{ inputs.infected_endpoints }}"
         steps:
           - name: build_repeat_summary
             type: data.set
@@ -50,33 +50,30 @@ steps:
               summary: "Repeat offender endpoint detected: {{ inputs.source_address }}. Matched against infected_endpoints list."
 
           - name: ticket_repeat
-            type: servicenow
-            connector-id: "{{ consts.servicenow_connector_id }}"
+            type: http
             with:
-              subAction: "pushToService"
-              subActionParams:
-                incident:
-                  short_description: "Reinfected Endpoint Instance"
-                  description: "{{ steps.build_repeat_summary.output.summary }}"
-                  urgency: "2"
+              url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
+              method: POST
+              headers:
+                Content-Type: "application/json"
+                Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
+              body:
+                short_description: "Reinfected Endpoint Instance"
             on-failure:
-              retry:
-                max-attempts: 3
-                delay: "5s"
               continue: true
+
         else:
           # First-time infection: add to list, then file ticket.
           - name: append_to_list
-            type: elasticsearch.index
+            type: http
             with:
-              index: "{{ consts.list_index }}"
-              document:
-                source_address: "{{ inputs.source_address }}"
-                added_at: "{{ now }}"
+              url: "{{ consts.elasticsearch_base | default: 'https://CHANGEME-es.elastic-cloud.com' }}/{{ consts.list_index }}/_doc"
+              method: POST
+              headers:
+                Content-Type: "application/json"
+                Authorization: "{{ consts.elasticsearch_auth | default: 'ApiKey CHANGEME_ES_KEY' }}"
+              body: "{{ item | json }}"
             on-failure:
-              retry:
-                max-attempts: 3
-                delay: "5s"
               continue: true
 
           - name: build_new_summary
@@ -85,19 +82,16 @@ steps:
               summary: "New infected endpoint added to tracking list: {{ inputs.source_address }}."
 
           - name: ticket_new
-            type: servicenow
-            connector-id: "{{ consts.servicenow_connector_id }}"
+            type: http
             with:
-              subAction: "pushToService"
-              subActionParams:
-                incident:
-                  short_description: "New Infected Endpoints"
-                  description: "{{ steps.build_new_summary.output.summary }}"
-                  urgency: "2"
+              url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
+              method: POST
+              headers:
+                Content-Type: "application/json"
+                Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
+              body:
+                short_description: "New Infected Endpoints"
             on-failure:
-              retry:
-                max-attempts: 3
-                delay: "5s"
               continue: true
 
   - name: log_complete

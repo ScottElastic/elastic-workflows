@@ -58,8 +58,8 @@ steps:
       headers:
         Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
       query:
-        limit: 1
-        filter: "hostname:'{{ inputs.device }}',device_id:'{{ inputs.device }}'"
+        limit: "1"
+        filter: "hostname:{{ inputs.device }},device_id:{{ inputs.device }}"
     on-failure:
       retry:
         max-attempts: 3

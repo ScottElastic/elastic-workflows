@@ -88,10 +88,14 @@ steps:
         condition: "{{ inputs.case_id | size }} > 0"
         steps:
           - name: post_owner_reminder
-            type: kibana.addCaseComment
+            type: kibana.request
             with:
-              caseId: "{{ inputs.case_id }}"
-              comment: "Please assign a case owner before performing response actions."
+              method: POST
+              path: "/api/cases/{{ inputs.case_id }}/comments"
+              body:
+                type: "user"
+                comment: "Please assign a case owner before performing response actions."
+                owner: "cases"
 
   - name: triage_summary
     type: ai.prompt
@@ -125,8 +129,8 @@ steps:
       headers:
         Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
       query:
-        limit: 1
-        filter: "hostname:'{{ inputs.device }}',device_id:'{{ inputs.device }}'"
+        limit: "1"
+        filter: "hostname:{{ inputs.device }},device_id:{{ inputs.device }}"
     on-failure:
       continue: true
 
@@ -213,7 +217,7 @@ steps:
             Content-Type: "application/json"
           body:
             base_command: "rm"
-            command_string: "rm '{{ inputs.file_path }}'"
+            command_string: "rm {{ inputs.file_path }}"
             session_id: "{{ steps.open_rtr_session.output.resources[0].session_id | default: '' }}"
         on-failure:
           continue: true

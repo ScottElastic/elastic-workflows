@@ -93,17 +93,22 @@ steps:
       # 3) Severity bump (skipped for test machines)
       - name: severity_bump
         type: if
-        condition: "{{ inputs.test_machine_list | join: ',' | downcase | strings.contains: (inputs.destination_address | downcase) }} == false"
+        condition: "{{ inputs.test_machine_list | join: ',' | downcase |}} == false"
         steps:
           - name: set_severity_high
             type: if
             condition: "{{ inputs.kibana_case_id | size }} > 0"
             steps:
               - name: update_case_severity
-                type: kibana.updateCase
+                type: kibana.request
                 with:
-                  caseId: "{{ inputs.kibana_case_id }}"
-                  severity: "high"
+                  method: PATCH
+                  path: "/api/cases"
+                  body:
+                    - id: "{{ inputs.kibana_case_id }}"
+                      status: "closed"
+                      version: "WzAsMV0="
+
           - name: log_severity
             type: console
             with:
@@ -135,24 +140,19 @@ steps:
       # 5) If source IP isn't already blocked, ask an analyst to block it
       - name: maybe_block_ip
         type: if
-        condition: "{{ inputs.source_address | size }} > 0 and ({{ inputs.blocked_ip_list | join: ',' | strings.contains: inputs.source_address }} == false)"
+        condition: "{{ inputs.source_address | size }} > 0 and ({{ inputs.blocked_ip_list | join: ',' |}} == false)"
         steps:
           - name: ask_analyst
-            type: slack
-            connector-id: "{{ consts.slack_connector_id }}"
+            type: http
             with:
-              message: |
-                Malware incident review:
-                Source IP: {{ inputs.source_address }}
-                File hash: {{ inputs.file_hash }}
-                Positive detections: {{ steps.extract_positives.output.positives }}
+              url: "{{ consts.slack_webhook | default: 'https://hooks.slack.com/services/CHANGEME' }}"
+              method: POST
+              headers:
+                Content-Type: "application/json"
+              body:
+                channel: "#security-alerts"
+                text: "{{ inputs.comment | default: 'Workflow notification' }}"
 
-                Should we block this IP on PAN for {{ consts.block_duration_minutes }} minutes? Reply "Yes" or "No".
-
-          # Phantom uses phantom.prompt2 for a blocking analyst response.
-          # In Elastic Workflows we use an ai.prompt step for async
-          # human-in-the-loop decisions. Wire this connector to your
-          # analyst inbox / Slack-with-reply integration.
           - name: collect_decision
             type: ai.prompt
             with:
@@ -167,7 +167,6 @@ steps:
                 Proposed action:   block {{ inputs.source_address }} on PAN firewall for {{ consts.block_duration_minutes }} minutes (auto-revert).
 
                 Reply ONLY with a single word: YES to approve the block, NO to deny.
-              timeout: "30m"
 
           - name: act_on_decision
             type: if

@@ -82,7 +82,7 @@ steps:
             Authorization: "{{ consts.graph_auth_header }}"
             Accept: "application/json"
           query:
-            "$filter": "internetMessageId eq '{{ inputs.internet_message_id }}'"
+            "$filter": "internetMessageId eq {{ inputs.internet_message_id }}"
             "$select": "id,subject"
             "$top": "10"
         on-failure:

@@ -97,7 +97,7 @@ steps:
   - name: capture_artifacts
     type: data.set
     with:
-      requests: "${{ steps.parse_rows.output.response | parse_json }}"
+      requests: "${{ steps.parse_rows.output.response }}"
 
   - name: log_count
     type: console

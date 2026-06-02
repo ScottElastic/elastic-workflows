@@ -120,7 +120,12 @@ steps:
     condition: "{{ inputs.case_id | size }} > 0"
     steps:
       - name: comment_on_case
-        type: kibana.addCaseComment
+        type: kibana.request
         with:
-          caseId: "{{ inputs.case_id }}"
-          comment: "Undo-containment dispatched. Assets={{ steps.partition_indicators.output.asset_indicators | size }}, Identities={{ steps.partition_indicators.output.identity_indicators | size }}"
+          method: POST
+          path: "/api/cases/{{ inputs.case_id }}/comments"
+          body:
+            type: "user"
+            comment: "Undo-containment dispatched. Assets={{ steps.partition_indicators.output.asset_indicators | size }}, Identities={{ steps.partition_indicators.output.identity_indicators | size }}"
+            owner: "cases"
+

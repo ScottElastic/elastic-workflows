@@ -43,7 +43,7 @@ steps:
             Accept: "application/json"
           query:
             value: "{{ item }}"
-            limit: 10000
+            limit: "10000"
         on-failure:
           retry:
             max-attempts: 3

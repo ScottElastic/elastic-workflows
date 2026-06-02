@@ -90,24 +90,17 @@ steps:
             condition: "{{ steps.invoke_umbrella_block.output.workflowRunId | default: steps.invoke_umbrella_block.output.id | default: '' | size }} > 0"
             steps:
               - name: write_blocked_tag
-                type: elasticsearch.index
+                type: http
                 with:
-                  index: "{{ consts.indicator_index }}"
-                  document:
-                    indicator: "{{ item }}"
-                    type: "domain"
-                    tags: ["blocked"]
-                    source: "Elastic Workflows / DNS Denylisting Dispatch"
-                    workflow_run: "{{ execution.id }}"
-                    vendor_run_id: "{{ steps.invoke_umbrella_block.output.workflowRunId | default: steps.invoke_umbrella_block.output.id | default: 'unknown' }}"
-                    "@timestamp": "{{ now }}"
+                  url: "{{ consts.elasticsearch_base | default: 'https://CHANGEME-es.elastic-cloud.com' }}/{{ consts.indicator_index }}/_doc"
+                  method: POST
+                  headers:
+                    Content-Type: "application/json"
+                    Authorization: "{{ consts.elasticsearch_auth | default: 'ApiKey CHANGEME_ES_KEY' }}"
+                  body: "{{ item | json }}"
                 on-failure:
-                  retry:
-                    max-attempts: 3
-                    delay: "5s"
                   continue: true
 
-      # Replaces the SOAR markdown report template with a brief summary.
       - name: build_summary
         type: data.set
         with:
@@ -131,13 +124,15 @@ steps:
         condition: "{{ inputs.kibana_case_id | size }} > 0"
         steps:
           - name: comment_on_case
-            type: kibana.addCaseComment
+            type: kibana.request
             with:
-              caseId: "{{ inputs.kibana_case_id }}"
-              comment: |
-                DNS Denylisting Dispatch completed.
-                Domains processed: {{ steps.gather_domains.output.domains | size }}
-                Run ID: {{ execution.id }}
+              method: POST
+              path: "/api/cases/{{ inputs.kibana_case_id }}/comments"
+              body:
+                type: "user"
+                comment: "DNS Denylisting Dispatch completed. Domains processed: {{ steps.gather_domains.output.domains | size }} Run ID: {{ execution.id }}"
+                owner: "cases"
+
     else:
       - name: log_no_domains
         type: console

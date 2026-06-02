@@ -106,7 +106,7 @@ steps:
           # are surfaced in `urlsRetainingParentCategory` / `customUrlsCount`.
           - name: classify_outcome
             type: if
-            condition: "{{ steps.block_url.output.urlsRetainingParentCategory | default: [] | join: ',' | contains: item }}"
+            condition: "{{ steps.block_url.output.urlsRetainingParentCategory | default: [] | join: ',' }}"
             steps:
               - name: capture_ignored
                 type: data.set

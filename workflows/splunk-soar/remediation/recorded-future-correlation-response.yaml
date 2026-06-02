@@ -47,7 +47,7 @@ consts:
 steps:
   - name: gate_on_rule_name
     type: if
-    condition: '"{{ inputs.rule_name }}" == "{{ consts.expected_rule_name }}"'
+    condition: "'{{ inputs.rule_name }}' == '{{ consts.expected_rule_name }}'"
     steps:
       - name: validate_inputs
         type: if

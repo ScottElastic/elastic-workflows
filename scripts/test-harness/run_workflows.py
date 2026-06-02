@@ -158,18 +158,24 @@ _TYPE_VARIANTS: dict[str, dict[str, object]] = {
     "ip_or_hostname": {"string": CANNED_INPUTS["ip_or_hostname_str"], "array": CANNED_INPUTS["ip_or_hostname"]},
 }
 
-# Indicator schemas differ per workflow. Map top-level input name to the
-# element shape expected by workflows that declare a required indicators input.
+# Indicator schemas differ per workflow. Keyed by workflow name hint.
 _INDICATOR_SCHEMAS: dict[str, list] = {
-    # risk-notable-* expect {cef_value, data_types}
-    "default": [
-        {"cef_value": _MALICIOUS_IP, "data_types": ["ip"], "type": "ip", "value": _MALICIOUS_IP},
-        {"cef_value": _SHA256, "data_types": ["hash"], "type": "hash", "value": _SHA256},
+    # risk-notable-enrich expects {cef_value, data_types} only
+    "enrich": [
+        {"cef_value": _MALICIOUS_IP, "data_types": ["ip"]},
+        {"cef_value": _SHA256, "data_types": ["hash"]},
     ],
-    # create-ticket and similar expect {value, type, tags}
-    "ticket": [
-        {"value": _MALICIOUS_IP, "type": "ip", "tags": ["malicious", "tor"], "artifact_id": "art-001", "severity": "high"},
-        {"value": _SHA256, "type": "hash", "tags": ["malware"], "artifact_id": "art-002", "severity": "critical"},
+    # risk-notable-review-indicators expects {indicator_id, indicator_value, indicator_tags}
+    "review": [
+        {"indicator_id": "ind-001", "indicator_value": _MALICIOUS_IP, "indicator_tags": ["malicious", "tor"]},
+        {"indicator_id": "ind-002", "indicator_value": _SHA256, "indicator_tags": ["malware", "critical"]},
+    ],
+    # create-ticket and similar: optional, use empty to avoid schema mismatch
+    "ticket": [],
+    # generic fallback
+    "default": [
+        {"cef_value": _MALICIOUS_IP, "data_types": ["ip"]},
+        {"cef_value": _SHA256, "data_types": ["hash"]},
     ],
 }
 
@@ -210,10 +216,16 @@ def build_inputs(yaml_path: str) -> dict:
         if declared and declared in variants:
             inputs[name] = variants[declared]
 
-    # For indicators: use ticket schema if create-ticket, else default cef_value schema
+    # For indicators: select schema based on workflow name
     if "indicators" in schema:
         if "ticket" in name_hint or "create" in name_hint:
             inputs["indicators"] = _INDICATOR_SCHEMAS["ticket"]
+        elif "review" in name_hint:
+            inputs["indicators"] = _INDICATOR_SCHEMAS["review"]
+            # responses must match indicators length
+            inputs["responses"] = ["Block"] * len(_INDICATOR_SCHEMAS["review"])
+        elif "enrich" in name_hint:
+            inputs["indicators"] = _INDICATOR_SCHEMAS["enrich"]
         else:
             inputs["indicators"] = _INDICATOR_SCHEMAS["default"]
 

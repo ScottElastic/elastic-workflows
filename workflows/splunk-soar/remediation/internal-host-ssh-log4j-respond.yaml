@@ -107,7 +107,7 @@ steps:
     steps:
       - name: restrict_outbound
         type: if
-        condition: '{{ inputs.containment_action }} == "Restrict Outbound Traffic"'
+        condition: '"{{ inputs.containment_action }}" == "Restrict Outbound Traffic"'
         steps:
           # Destructive (host containment) — fail loud.
           - name: iptables_drop
@@ -127,7 +127,7 @@ steps:
 
       - name: shutdown_host
         type: if
-        condition: '{{ inputs.containment_action }} == "Shutdown"'
+        condition: '"{{ inputs.containment_action }}" == "Shutdown"'
         steps:
           # Destructive — fail loud.
           - name: shutdown_now
@@ -147,7 +147,7 @@ steps:
 
       - name: block_and_shutdown
         type: if
-        condition: '{{ inputs.containment_action }} == "Restrict Outbound Traffic and Shutdown"'
+        condition: '"{{ inputs.containment_action }}" == "Restrict Outbound Traffic and Shutdown"'
         steps:
           # Destructive — fail loud.
           - name: drop_then_shutdown

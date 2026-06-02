@@ -70,8 +70,8 @@ def main():
         yaml_text = f.read_text()
         status, body = post_workflow(base, args.space, key, yaml_text)
         if 200 <= status < 300:
-            workflows = body.get("workflows", []) if isinstance(body, dict) else []
-            first = workflows[0] if workflows else (body if isinstance(body, dict) else {})
+            created = body.get("created", []) if isinstance(body, dict) else []
+            first = created[0] if created else (body if isinstance(body, dict) else {})
             wf_id = first.get("id") or first.get("workflow_id")
             print(f"ok    {f}  →  {wf_id}")
             results[str(f)] = {"status": status, "id": wf_id}

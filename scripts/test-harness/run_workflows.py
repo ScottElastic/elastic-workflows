@@ -203,6 +203,7 @@ def build_inputs(yaml_path: str) -> dict:
     """Return a CANNED_INPUTS copy with type-appropriate values for this workflow."""
     schema = _parse_input_schema(yaml_path)
     inputs = dict(CANNED_INPUTS)
+    name_hint = Path(yaml_path).name
 
     for name, variants in _TYPE_VARIANTS.items():
         declared = schema.get(name)
@@ -211,7 +212,6 @@ def build_inputs(yaml_path: str) -> dict:
 
     # For indicators: use ticket schema if create-ticket, else default cef_value schema
     if "indicators" in schema:
-        name_hint = Path(yaml_path).name
         if "ticket" in name_hint or "create" in name_hint:
             inputs["indicators"] = _INDICATOR_SCHEMAS["ticket"]
         else:

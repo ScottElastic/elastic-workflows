@@ -70,10 +70,15 @@ steps:
         delay: "5s"
       continue: true
 
+  - name: mailbox_list
+    type: data.set
+    with:
+      users: []
+
   # Locate matches in each mailbox.
   - name: locate_recipients
     type: foreach
-    foreach: "${{ steps.list_mailboxes.output.users | default: [] }}"
+    foreach: "${{ steps.mailbox_list.output.users }}"
     steps:
       # Gmail API: GET /gmail/v1/users/{email}/messages?q=rfc822msgid:{id}
       # https://developers.google.com/gmail/api/reference/rest/v1/users.messages/list

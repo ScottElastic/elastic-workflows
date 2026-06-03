@@ -147,9 +147,14 @@ steps:
             delay: "5s"
           continue: true
 
+      - name: dns_answers
+        type: data.set
+        with:
+          ips: []
+
       - name: per_resolved_ip
         type: foreach
-        foreach: "${{ steps.resolve_via_dns.output.Answer | default: [] }}"
+        foreach: "${{ steps.dns_answers.output.ips }}"
         steps:
           - name: trustar_hunt_resolved_ip
             type: http

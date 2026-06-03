@@ -123,7 +123,7 @@ steps:
           # not have first-class array indexing in our schema, so we
           # rely on the analyst aligning the response order with the
           # indicator order.
-          response: "${{ inputs.tagging_responses[forloop.index0] | default: {} }}"
+          response: "${{ inputs.tagging_responses[forloop.index0] | default: '' }}"
 
       - name: preset_tag_block
         type: if

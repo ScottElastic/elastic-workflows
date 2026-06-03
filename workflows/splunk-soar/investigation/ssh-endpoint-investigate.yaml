@@ -36,7 +36,8 @@ consts:
   jira_connector_id: "CHANGEME-jira-connector"
   # Jira Cloud REST API base + Basic auth header (base64 of email:api_token).
   # Used for JQL search since the Kibana jira connector doesn't expose search.
-  jira_base_url: "https://CHANGEME.atlassian.net"
+  jira_base: "https://CHANGEME-jira.internal"
+  jira_base_url: "https://CHANGEME-jira.internal"
   jira_auth_header: "Basic CHANGEME_BASE64_EMAIL_TOKEN"
   # SSH execution stub. No native Elastic SSH connector yet — point this at
   # your in-house remote-execution proxy / Ansible Tower / Rundeck endpoint.
@@ -47,7 +48,7 @@ steps:
   - name: get_ticket
     type: http
     with:
-      url: "{{ consts.jira_base | default: 'https://jira.example.com' }}/rest/api/3/issue"
+      url: "{{ consts.jira_base | default: 'https://CHANGEME-jira.internal' }}/rest/api/3/issue"
       method: POST
       headers:
         Content-Type: "application/json"
@@ -183,7 +184,7 @@ steps:
           - name: enrich_ticket_logins
             type: http
             with:
-              url: "{{ consts.jira_base | default: 'https://jira.example.com' }}/rest/api/3/issue"
+              url: "{{ consts.jira_base | default: 'https://CHANGEME-jira.internal' }}/rest/api/3/issue"
               method: POST
               headers:
                 Content-Type: "application/json"
@@ -202,7 +203,7 @@ steps:
           - name: enrich_ticket_ports
             type: http
             with:
-              url: "{{ consts.jira_base | default: 'https://jira.example.com' }}/rest/api/3/issue"
+              url: "{{ consts.jira_base | default: 'https://CHANGEME-jira.internal' }}/rest/api/3/issue"
               method: POST
               headers:
                 Content-Type: "application/json"
@@ -222,7 +223,7 @@ steps:
           - name: report_unsupported_os
             type: http
             with:
-              url: "{{ consts.jira_base | default: 'https://jira.example.com' }}/rest/api/3/issue"
+              url: "{{ consts.jira_base | default: 'https://CHANGEME-jira.internal' }}/rest/api/3/issue"
               method: POST
               headers:
                 Content-Type: "application/json"

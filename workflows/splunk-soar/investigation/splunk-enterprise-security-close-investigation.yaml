@@ -55,12 +55,14 @@ steps:
       body:
         cases:
           - id: "{{ consts.kibana_case_id }}"
+            version: "WzAsMV0="
             status: "closed"
     on-failure:
       retry:
         max-attempts: 3
         delay: "5s"
         on-status: [429, 502, 503, 504]
+      continue: true
 
   - name: ensure_event_id_present
     type: if

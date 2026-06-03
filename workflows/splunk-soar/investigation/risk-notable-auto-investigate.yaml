@@ -75,8 +75,8 @@ steps:
 
             on-failure:
               retry:
-              max-attempts: 2
-              delay: "5s"
+                max-attempts: 2
+                delay: "5s"
               continue: true
 
           - name: start_preprocess_task
@@ -129,8 +129,8 @@ steps:
 
             on-failure:
               retry:
-              max-attempts: 2
-              delay: "5s"
+                max-attempts: 2
+                delay: "5s"
               continue: true
 
               # Switch task to "Investigate" and dispatch tagged child playbooks.
@@ -202,8 +202,8 @@ steps:
 
                     on-failure:
                       retry:
-                      max-attempts: 2
-                      delay: "5s"
+                        max-attempts: 2
+                        delay: "5s"
                       continue: true
 
                   - name: trigger_auto_containment
@@ -233,8 +233,8 @@ steps:
 
                     on-failure:
                       retry:
-                      max-attempts: 2
-                      delay: "5s"
+                        max-attempts: 2
+                        delay: "5s"
                       continue: true
 
                       # If the dispatcher produced any enrichment notes, push them back

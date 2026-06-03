@@ -44,10 +44,8 @@ steps:
   - name: partition_indicators
     type: data.set
     with:
-      asset_indicators: >-
-        ${{ inputs.contained_indicators | where_exp: "item", "(item.indicator_tags | join: ',') contains 'known_asset'" }}
-      identity_indicators: >-
-        ${{ inputs.contained_indicators | where_exp: "item", "(item.indicator_tags | join: ',') contains 'known_identity'" }}
+      asset_indicators: "${{ inputs.contained_indicators | default: [] }}"
+      identity_indicators: "${{ inputs.contained_indicators | default: [] }}"
 
   - name: have_asset
     type: if

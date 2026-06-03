@@ -69,7 +69,7 @@ steps:
   - name: filter_indicators
     type: data.set
     with:
-      filtered: "{{ inputs.indicators }}"
+      filtered: "${{ inputs.indicators | default: [] }}"
 
   - name: build_indicator_lines
     type: foreach

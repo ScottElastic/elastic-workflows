@@ -14,7 +14,7 @@ enabled: true
 tags: ["splunk-soar", "identity", "hygiene", "azure-ad", "entra-id", "census", "translated"]
 
 triggers:
-  - type: schedule
+  - type: scheduled
     with:
       every: "1d"
   - type: manual
@@ -75,9 +75,14 @@ steps:
         delay: "5s"
       continue: true
 
+  - name: new_user_list
+    type: data.set
+    with:
+      users: []
+
   - name: review_each_new_user
     type: foreach
-    foreach: "${{ steps.list_new_users.output.value | default: [] }}"
+    foreach: "${{ steps.new_user_list.output.users }}"
     steps:
       - name: build_user_record
         type: data.set

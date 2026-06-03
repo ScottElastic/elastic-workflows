@@ -279,10 +279,10 @@ steps:
         Otherwise classify LOW.
 
         Evidence:
-          VirusTotal IP last result: {{ steps.ip_reputation.output | default: {} | json | truncate: 1500 }}
-          VirusTotal MD5 last result: {{ steps.file_reputation_md5.output | default: {} | json | truncate: 1500 }}
-          PhishMe IP last result: {{ steps.hunt_ip_phishme.output | default: {} | json | truncate: 1500 }}
-          ProtectWise hash last result: {{ steps.hunt_file_protectwise.output | default: {} | json | truncate: 1500 }}
+          VirusTotal IP last result: {{ steps.ip_reputation.output | default: '' | json | truncate: 1500 }}
+          VirusTotal MD5 last result: {{ steps.file_reputation_md5.output | default: '' | json | truncate: 1500 }}
+          PhishMe IP last result: {{ steps.hunt_ip_phishme.output | default: '' | json | truncate: 1500 }}
+          ProtectWise hash last result: {{ steps.hunt_file_protectwise.output | default: '' | json | truncate: 1500 }}
 
         Output: HIGH or LOW.
     on-failure:
@@ -293,7 +293,7 @@ steps:
 
   - name: apply_severity_high
     type: if
-    condition: '{{ steps.classify_severity.output | strip | upcase }} == "HIGH"'
+    condition: "'{{ steps.classify_severity.output | strip | upcase }}' == 'HIGH'"
     steps:
       - name: set_high_severity_case
         type: if

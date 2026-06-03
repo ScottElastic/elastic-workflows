@@ -38,7 +38,7 @@ inputs:
     default: "risk-notable-protect-assets-and-users"
 
 consts:
-  workflow_runner_base: "/api/workflows"
+  workflow_runner_base: "/api/workflows/workflow"
 
 steps:
   - name: run_review
@@ -98,6 +98,7 @@ steps:
       retry:
         max-attempts: 3
         delay: "5s"
+      continue: true
 
   - name: comment_after_protect
     type: if

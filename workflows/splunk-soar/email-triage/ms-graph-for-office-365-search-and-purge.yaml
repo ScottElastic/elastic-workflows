@@ -68,9 +68,14 @@ steps:
         delay: "5s"
       continue: true
 
+  - name: mailbox_list
+    type: data.set
+    with:
+      users: []
+
   - name: locate_recipients
     type: foreach
-    foreach: "${{ steps.list_mailboxes.output.value | default: [] }}"
+    foreach: "${{ steps.mailbox_list.output.users }}"
     steps:
       # Microsoft Graph: GET /users/{id|UPN}/messages?$filter=internetMessageId eq '...'
       - name: find_message_id

@@ -30,7 +30,7 @@ consts:
   # The Kibana Jira connector does not expose a JQL search subAction, so we hit
   # the Jira Cloud REST API directly. Auth header is base64(email:api_token).
   jira_connector_id: "CHANGEME-jira-connector"
-  jira_base_url: "https://CHANGEME.atlassian.net"
+  jira_base_url: "https://CHANGEME-jira.internal"
   jira_auth_header: "Basic CHANGEME_BASE64_EMAIL_TOKEN"
 
 steps:

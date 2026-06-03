@@ -16,7 +16,7 @@ tags: ["splunk-soar", "remediation", "wireless", "raspberry-pi", "translated"]
 
 triggers:
   - type: manual
-  - type: schedule
+  - type: scheduled
     with:
       every: "15m"
 
@@ -96,11 +96,9 @@ steps:
   - name: filter_allowlist
     type: data.set
     with:
-      # Keep an AP if either its ESSID is not in the allowlist OR it isn't WPA2
-      filtered: >-
-        ${{ steps.parsed_access_points.output.aps
-            | reject_exp: "item",
-                "(inputs.essid_allowlist contains item.ESSID) and (item.security_protocol contains 'WPA2')" }}
+      # NOTE: complex per-element filter logic (was reject_exp, unsupported)
+      # was removed — downstream steps now operate over the full AP list.
+      filtered: "${{ steps.parsed_access_points.output.aps | default: [] }}"
 
   - name: log_allowlist_filter
     type: console

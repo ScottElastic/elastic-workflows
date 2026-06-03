@@ -195,7 +195,7 @@ steps:
           artifacts:
             email_reputation:
               source: "Splunk Attack Analyzer"
-              observable: "{{ steps.detonate_in_attack_analyzer.output.observable | default: {} }}"
+              observable: "{{ steps.detonate_in_attack_analyzer.output.observable | default: '' }}"
               label: "saa_email_report"
             message_recipients: "{{ steps.who_received_email.output.results | default: [] }}"
             url_activity: "{{ steps.hunt_url_interactions.output | default: [] }}"

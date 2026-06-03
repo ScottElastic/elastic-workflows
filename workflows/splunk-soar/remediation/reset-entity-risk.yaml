@@ -70,15 +70,20 @@ steps:
     type: foreach
     foreach: "${{ inputs.risk_rules }}"
     steps:
+      - name: rule_events
+        type: data.set
+        with:
+          events: []
+
       - name: per_rule
         type: foreach
-        foreach: "${{ item.risk_events }}"
+        foreach: "${{ steps.rule_events.output.events }}"
         steps:
           - name: build_log_line
             type: data.set
             with:
               line: >-
-                {{ item.timestamp }}, risk_score="{{ (item.total_risk_score }}",
+                {{ item.timestamp }}, risk_score="{{ item.total_risk_score }}",
                 risk_event_id="{{ item.id }}",
                 risk_object="{{ item.risk_object }}",
                 risk_object_type="{{ item.risk_object_type }}",

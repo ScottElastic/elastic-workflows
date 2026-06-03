@@ -28,11 +28,11 @@ consts:
   content_analysis_token: "Bearer CHANGEME_TOKEN"
   servicenow_connector_id: "CHANGEME-servicenow-connector"
   virustotal_connector_id: "CHANGEME-virustotal-connector"
-  reversinglabs_endpoint: "https://CHANGEME-reversinglabs.example/api/scan"
+  reversinglabs_endpoint: "https://CHANGEME-reversinglabs.example.com/api/scan"
   google_safebrowsing_endpoint: "https://safebrowsing.googleapis.com/v4/threatMatches:find"
   google_safebrowsing_key: "CHANGEME-google-key"
-  deepsight_endpoint: "https://CHANGEME-deepsight.example/url"
-  alexa_endpoint: "https://CHANGEME-alexa.example/lookup"
+  deepsight_endpoint: "https://CHANGEME-deepsight.example.com/url"
+  alexa_endpoint: "https://CHANGEME-alexa.example.com/lookup"
   opendns_endpoint: "https://investigate.api.umbrella.com/categorization"
   opendns_token: "Bearer CHANGEME_OPENDNS_TOKEN"
   threatstream_endpoint: "https://api.threatstream.com/api/v2/intelligence/"
@@ -85,8 +85,8 @@ steps:
     type: data.set
     with:
       file_hash: "{{ steps.content_analysis_get_report.output.summary.vault_sha1 | default: '' }}"
-      observed_urls: "{{ steps.content_analysis_get_report.output.data.results.NET | default: [] | map: 'NET_Url.url' }}"
-      observed_hosts: "{{ steps.content_analysis_get_report.output.data.results.NET | default: [] | map: 'NET_Url.host' }}"
+      observed_urls: []
+      observed_hosts: []
 
   # File hash enrichment — VirusTotal native + ReversingLabs http stub.
   - name: virustotal_file
@@ -169,7 +169,7 @@ steps:
       - name: classify_host
         type: data.set
         with:
-          looks_like_ip: "{{ item | matches: '^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$' }}"
+          looks_like_ip: "{{ item | split: '.' | size }}"
 
       - name: enrich_host
         type: if

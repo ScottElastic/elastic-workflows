@@ -54,8 +54,11 @@ CANNED_INPUTS = {
     "hostname": _HOSTNAME,
     "ip_or_hostname": [_HOSTNAME],
     "ip_or_hostname_str": _HOSTNAME,
+    "device": _HOSTNAME,
     "device_id": "a3f8e2d14c9b4f7e",
+    "target_host": _HOSTNAME,
     "machine_id": "a3f8e2d14c9b4f7e",
+    "instance_id": "i-0a3f8e2d14c9b4f7e",
     "is_virtual": False,
     "vmx_path": "[datastore1] vm/desktop-a4k9b2z.vmx",
     # URLs
@@ -69,13 +72,23 @@ CANNED_INPUTS = {
     # File hashes
     "hash": _SHA256,
     "hashes": [_SHA256],
+    "file_hash": _SHA256,
     "file_hash_md5": "a3f8e2d14c9b4f7e",
     "file_hash_sha1": "a3f8e2d14c9b4f7ea5d2c8b1",
     "file_hash_sha256": _SHA256,
+    "sha256": _SHA256,
+    "md5": "a3f8e2d14c9b4f7e",
+    "sha1": "a3f8e2d14c9b4f7ea5d2c8b1",
     "source_data_identifier": _SHA256,
+    "file": "invoice_march.exe",
+    "path": "C:\\Users\\jdoe\\Downloads\\invoice_march.exe",
     # Email
     "internet_message_id": _MSG_ID,
     "network_message_id": "4d2a9f3b1748899200",
+    "email_subject": "ACTION REQUIRED: March Invoice",
+    "from_email": "hr-noreply@acmecorp-invoices.com",
+    "vault_id": "vault-2026-0042-malware",
+    "current_answer": "evil.example.com",
     # message_id and ip_or_hostname conflict across workflows (string vs array).
     # _str variants are used when the workflow declares type: string.
     # _arr variants (the default keys) are used when type: array.
@@ -110,6 +123,8 @@ CANNED_INPUTS = {
     "kibana_case_id": "",
     "case_id": "CASE-2026-0042",
     "snow_incident": "INC0047821",
+    "finding_id": "FINDING-2026-047821",
+    "jira_key": "SEC-12047",
     "ticket_title": "Investigate TOR exit node connection from DESKTOP-A4K9B2Z",
     "ticket_description": (
         f"CrowdStrike detected invoice_march.exe ({_SHA256[:16]}...) on {_HOSTNAME}. "
@@ -130,6 +145,17 @@ CANNED_INPUTS = {
     "threat_category": "malware",
     "alert_name": "Malware: Invoice Trojan Downloader",
     "dvc_ip": "10.10.14.22",
+    "compromised_user": _USER,
+    "client_name": "acmecorp-prod",
+    "transport_protocol": "tcp",
+    "endace_datetime": "2026-06-02T09:32:00Z",
+    "severity_normalized": 4,
+    "reset_reason": "False positive — risk score reset after analyst review",
+    "owner": _USER,
+    "soar_event_id": "EVT-2026-047821",
+    "soar_event_name": "Phishing Alert — Malware Detected",
+    "risk_rules": ["Suspicious Outbound to TOR", "Anomalous Authentication"],
+    "contained_indicators": [_MALICIOUS_IP, _SHA256],
     # Booleans / flags
     "approve": False,
     "auto_approve": True,
@@ -156,6 +182,8 @@ CANNED_INPUTS = {
 _TYPE_VARIANTS: dict[str, dict[str, object]] = {
     "message_id":    {"string": CANNED_INPUTS["message_id_str"], "array": CANNED_INPUTS["message_id"]},
     "ip_or_hostname": {"string": CANNED_INPUTS["ip_or_hostname_str"], "array": CANNED_INPUTS["ip_or_hostname"]},
+    # identifier-reputation-analysis-dispatch declares indicators as a comma-separated string
+    "indicators":    {"string": _MALICIOUS_IP, "array": CANNED_INPUTS["indicators"]},
 }
 
 # Indicator schemas differ per workflow. Keyed by workflow name hint.
@@ -216,18 +244,21 @@ def build_inputs(yaml_path: str) -> dict:
         if declared and declared in variants:
             inputs[name] = variants[declared]
 
-    # For indicators: select schema based on workflow name
+    # For indicators: select shape based on declared type then workflow name.
+    # Kibana's input validator only accepts scalar elements in array inputs
+    # (it treats array items as anyOf [string, number, boolean]). Object-array
+    # indicators are rejected with "indicators.0: Invalid input" — pass strings
+    # for type: array. The workflows that consume item.cef_value will fail
+    # downstream until Kibana supports object-array schemas.
     if "indicators" in schema:
-        if "ticket" in name_hint or "create" in name_hint:
-            inputs["indicators"] = _INDICATOR_SCHEMAS["ticket"]
-        elif "review" in name_hint:
-            inputs["indicators"] = _INDICATOR_SCHEMAS["review"]
-            # responses must match indicators length
-            inputs["responses"] = ["Block"] * len(_INDICATOR_SCHEMAS["review"])
-        elif "enrich" in name_hint:
-            inputs["indicators"] = _INDICATOR_SCHEMAS["enrich"]
+        declared = schema.get("indicators")
+        if declared == "string":
+            inputs["indicators"] = _MALICIOUS_IP
         else:
-            inputs["indicators"] = _INDICATOR_SCHEMAS["default"]
+            inputs["indicators"] = [_MALICIOUS_IP, _SHA256]
+            if "review" in name_hint:
+                # responses must match indicators length
+                inputs["responses"] = ["Block"] * len(inputs["indicators"])
 
     # Workflow-specific overrides for inputs whose values must match
     # an expected constant in the YAML (not derivable from schema alone).

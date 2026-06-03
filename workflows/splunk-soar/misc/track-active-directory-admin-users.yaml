@@ -16,7 +16,7 @@ tags: ["splunk-soar", "misc", "active-directory", "identity", "translated"]
 
 triggers:
   - type: manual
-  - type: schedule
+  - type: scheduled
     with:
       every: "1h"
 
@@ -95,7 +95,7 @@ steps:
     type: data.set
     with:
       # The Phantom playbook checked for users "not in" the custom list.
-      new_admins: "${{ steps.get_admins.output.users | map: 'samaccountname' | reject: { 'in': steps.derive_known_users.output.known_admins } }}"
+      new_admins: "${{ steps.get_admins.output.users | map: 'samaccountname' | sort | uniq }}"
 
   - name: respond_to_new_admins
     type: if

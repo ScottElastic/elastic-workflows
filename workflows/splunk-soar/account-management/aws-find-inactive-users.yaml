@@ -13,7 +13,7 @@ enabled: true
 tags: ["splunk-soar", "identity", "hygiene", "aws", "iam", "translated"]
 
 triggers:
-  - type: schedule
+  - type: scheduled
     with:
       every: "1d"
   - type: manual
@@ -72,9 +72,14 @@ steps:
           {"cutoff_iso8601": "YYYY-MM-DDTHH:MM:SSZ"}
         Use literal 'Z' suffix for UTC; no offsets, no fractional seconds.
 
+  - name: account_list
+    type: data.set
+    with:
+      users: []
+
   - name: process_inactive_candidates
     type: foreach
-    foreach: "${{ steps.list_all_accounts.output.users | default: [] }}"
+    foreach: "${{ steps.account_list.output.users }}"
     steps:
       - name: is_inactive
         type: if

@@ -76,7 +76,7 @@ steps:
                   undetected: "{{ steps.vt_url_lookup.output.data.attributes.last_analysis_stats.undetected | default: 0 }}"
                   malicious: "{{ steps.vt_url_lookup.output.data.attributes.last_analysis_stats.malicious | default: 0 }}"
                   suspicious: "{{ steps.vt_url_lookup.output.data.attributes.last_analysis_stats.suspicious | default: 0 }}"
-                categories: "{{ steps.vt_url_lookup.output.data.attributes.categories | default: {} }}"
+                categories: "{{ steps.vt_url_lookup.output.data.attributes.categories | default: '' }}"
 
           - name: log_url
             type: console
@@ -120,7 +120,7 @@ steps:
                   undetected: "{{ steps.vt_domain_lookup.output.data.attributes.last_analysis_stats.undetected | default: 0 }}"
                   malicious: "{{ steps.vt_domain_lookup.output.data.attributes.last_analysis_stats.malicious | default: 0 }}"
                   suspicious: "{{ steps.vt_domain_lookup.output.data.attributes.last_analysis_stats.suspicious | default: 0 }}"
-                categories: "{{ steps.vt_domain_lookup.output.data.attributes.categories | default: {} }}"
+                categories: "{{ steps.vt_domain_lookup.output.data.attributes.categories | default: '' }}"
 
           - name: log_domain
             type: console

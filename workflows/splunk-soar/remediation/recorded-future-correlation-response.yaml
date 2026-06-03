@@ -130,7 +130,7 @@ steps:
 
       - name: execute_block
         type: if
-        condition: '{{ steps.ai_decision.output.verdict | default: '' | upcase }} == "YES"'
+        condition: "{{ steps.ai_decision.output.verdict | default: '' | upcase }} == 'YES'"
         steps:
           # Destructive — no `continue: true`. If the firewall call fails,
           # we want the workflow to halt so the analyst is notified.

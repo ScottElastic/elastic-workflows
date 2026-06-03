@@ -13,7 +13,7 @@ enabled: true
 tags: ["splunk-soar", "investigation", "extrahop", "dns", "nessus", "scheduled", "translated"]
 
 triggers:
-  - type: schedule
+  - type: scheduled
     with:
       every: "30m"
   - type: manual

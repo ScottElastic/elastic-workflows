@@ -69,8 +69,7 @@ steps:
   - name: affected_vms
     type: data.set
     with:
-      matches: >-
-        ${{ steps.list_vms.output.vms | default: []}}
+      matches: []
 
   - name: snapshot_vms
     type: foreach
@@ -110,7 +109,7 @@ steps:
 
   - name: apply_quarantine
     type: if
-    condition: '{{ steps.quarantine_decision.output | strip | upcase }} == "YES"'
+    condition: "'{{ steps.quarantine_decision.output | strip | upcase }}' == 'YES'"
     steps:
       - name: quarantine_each_host
         type: foreach

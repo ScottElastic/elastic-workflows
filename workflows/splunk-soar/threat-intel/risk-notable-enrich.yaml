@@ -61,8 +61,8 @@ steps:
       - name: extract_value_and_types
         type: data.set
         with:
-          value: "{{ item.cef_value }}"
-          types: ${{ item.data_types }}
+          value: "{{ item }}"
+          types: []
 
       # Walk the data_types array and run the workflow that handles each
       # one. Skips any type that has no mapping in consts.

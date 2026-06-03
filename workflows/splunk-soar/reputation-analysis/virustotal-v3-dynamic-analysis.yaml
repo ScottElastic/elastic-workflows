@@ -93,7 +93,7 @@ steps:
                   undetected: "{{ steps.fetch_url_report.output.data.attributes.stats.undetected | default: 0 }}"
                   malicious: "{{ steps.fetch_url_report.output.data.attributes.stats.malicious | default: 0 }}"
                   suspicious: "{{ steps.fetch_url_report.output.data.attributes.stats.suspicious | default: 0 }}"
-                categories: "{{ steps.fetch_url_report.output.data.attributes.results | default: {} }}"
+                categories: "{{ steps.fetch_url_report.output.data.attributes.results | default: '' }}"
 
           - name: log_url_detonation
             type: console

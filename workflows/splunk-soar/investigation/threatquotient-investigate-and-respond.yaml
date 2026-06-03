@@ -97,7 +97,7 @@ steps:
   # Destination IP path.
   - name: dst_branch
     type: if
-    condition: "{{ inputs.destination_address | size }} > 0 and not {{ inputs.internal_ranges }}"
+    condition: "{{ inputs.destination_address | size }} > 0 and {{ inputs.internal_ranges | size }} == 0"
     steps:
       - name: dst_ip_reputation_tq
         type: http
@@ -214,7 +214,7 @@ steps:
   # Source IP path (mirror image of destination).
   - name: src_branch
     type: if
-    condition: "{{ inputs.source_address | size }} > 0 and not {{ inputs.internal_ranges }}"
+    condition: "{{ inputs.source_address | size }} > 0 and {{ inputs.internal_ranges | size }} == 0"
     steps:
       - name: src_ip_reputation_tq
         type: http

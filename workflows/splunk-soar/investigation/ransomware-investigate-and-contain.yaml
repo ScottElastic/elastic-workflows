@@ -108,7 +108,7 @@ steps:
   # either signal.
   - name: is_ransomware
     type: if
-    condition: "{{ steps.detonate_file.output.wildfire.get_verdict_info.verdict | default: '' }} == '1' or {{ steps.wildfire_report.output.wildfire.task_info.report.malware | default: '' | downcase }}"
+    condition: "'{{ steps.detonate_file.output.wildfire.get_verdict_info.verdict | default: '' }}' == '1' or '{{ steps.wildfire_report.output.wildfire.task_info.report.malware | default: '' | downcase }}' != ''"
     steps:
       # Hunt the file in Carbon Black first so the affected sensor/user is
       # known before we run destructive actions. Lookup — continue on failure.

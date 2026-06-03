@@ -1079,8 +1079,12 @@ def fix_elasticsearch_index_step(text: str) -> str:
 
 
 def fix_scheduled_trigger(text: str) -> str:
-    """Fix invalid 'scheduled' trigger type → 'schedule'."""
-    return re.sub(r'^(\s+- type:\s+)scheduled\s*$', r'\1schedule', text, flags=re.MULTILINE)
+    """Fix invalid 'schedule' trigger type → 'scheduled'.
+
+    Kibana's workflow schema validator rejects `type: schedule` (singular)
+    with: "Invalid trigger type. Available: manual, alert, scheduled".
+    """
+    return re.sub(r'^(\s+- type:\s+)schedule\s*$', r'\1scheduled', text, flags=re.MULTILINE)
 
 
 # ── Pipeline ────────────────────────────────────────────────────────────────

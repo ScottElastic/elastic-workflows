@@ -496,6 +496,107 @@ def synth(method: str, path: str, query: str, body: bytes) -> dict:
         return {"_mock_error": "LLM returned non-JSON", "_raw": text[:200]}
 
 
+# ── Hardcoded handlers ───────────────────────────────────────────────────────
+# Auth/Graph paths that must look real (JWT shape, 204 No Content, etc.) but
+# don't depend on the indicator under test. Bypasses the LLM entirely.
+#
+# A handler returns (status_code: int, payload: dict | None). When payload is
+# None the server emits an empty body (used for 204 No Content).
+
+# Three-segment JWT to satisfy Azure "no dots" validator. Header/payload
+# decode to standard {alg,typ}/{sub,aud,iat,exp} JSON. Signature is opaque.
+_MOCK_JWT = (
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+    ".eyJzdWIiOiJtb2NrLXNvYXItaGFybmVzcyIsImF1ZCI6Im1vY2staXNzdWVyIiwiaWF0Ij"
+    "oxNzE3MDAwMDAwLCJleHAiOjIwMDAwMDAwMDB9"
+    ".HMACSIGNATUREPLACEHOLDER0123456789abcdef"
+)
+
+
+def _oauth_token(method, path, query, body):
+    return 200, {
+        "access_token": _MOCK_JWT,
+        "token_type": "Bearer",
+        "expires_in": 3600,
+        "scope": "*",
+        "refresh_token": "refresh-mock-token",
+    }
+
+
+def _graph_patch_user(method, path, query, body):
+    # MS Graph PATCH /v1.0/users/{id} returns 204 No Content on success.
+    return 204, None
+
+
+def _graph_get_user(method, path, query, body):
+    # PATH /v1.0/users/{id}; reflect the id back as both id and UPN.
+    user_id = path.rsplit("/", 1)[-1] or "mock-user"
+    return 200, {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users/$entity",
+        "id": user_id,
+        "userPrincipalName": user_id if "@" in user_id else f"{user_id}@example.com",
+        "displayName": user_id,
+        "accountEnabled": False,
+        "mail": user_id if "@" in user_id else f"{user_id}@example.com",
+    }
+
+
+def _graph_list_users(method, path, query, body):
+    return 200, {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users",
+        "value": [
+            {"id": "00000000-0000-0000-0000-000000000001",
+             "userPrincipalName": "jdoe@example.com",
+             "displayName": "John Doe",
+             "accountEnabled": True,
+             "mail": "jdoe@example.com"},
+            {"id": "00000000-0000-0000-0000-000000000002",
+             "userPrincipalName": "janalyst@example.com",
+             "displayName": "Jane Analyst",
+             "accountEnabled": True,
+             "mail": "janalyst@example.com"},
+        ],
+    }
+
+
+def _defender_machine_action(method, path, query, body):
+    # /api/machines/{id}/isolate or /unisolate → 201 Created with a tracking object
+    machine_id = re.search(r"/machines/([^/]+)", path)
+    return 201, {
+        "@odata.context": "https://api.security.microsoft.com/api/$metadata#MachineActions/$entity",
+        "id": "00000000-mock-isolate-action",
+        "type": "Isolate" if "isolate" in path.lower() else "Unisolate",
+        "scope": "Selective",
+        "machineId": machine_id.group(1) if machine_id else "mock-machine",
+        "status": "Pending",
+        "creationDateTime": "2026-06-03T13:00:00Z",
+    }
+
+
+# Pattern → handler. Patterns are anchored regex matched against the URL path.
+# Tried in order; first match wins.
+HARDCODED_HANDLERS = [
+    # CrowdStrike OAuth token endpoint
+    (re.compile(r"^/oauth2/token$"),                       ("POST",),     _oauth_token),
+    # Azure AD multi-tenant token endpoints — tenant id (or "common"/"organizations") before the path
+    (re.compile(r"^/[^/]+/oauth2/(v2\.0/)?token$"),        ("POST",),     _oauth_token),
+    # Microsoft Graph user PATCH (disable/enable) and GET
+    (re.compile(r"^/v1\.0/users/[^/]+$"),                  ("PATCH",),    _graph_patch_user),
+    (re.compile(r"^/v1\.0/users/[^/]+$"),                  ("GET",),      _graph_get_user),
+    (re.compile(r"^/v1\.0/users/?$"),                      ("GET",),      _graph_list_users),
+    # Microsoft Defender for Endpoint machine actions
+    (re.compile(r"^/api/machines/[^/]+/(isolate|unisolate)$"),
+                                                            ("POST",),     _defender_machine_action),
+]
+
+
+def _try_hardcoded(method: str, path: str, query: str, body: bytes):
+    for pat, methods, fn in HARDCODED_HANDLERS:
+        if method in methods and pat.match(path):
+            return fn(method, path, query, body)
+    return None
+
+
 # ── HTTP server ───────────────────────────────────────────────────────────────
 
 class Handler(BaseHTTPRequestHandler):
@@ -503,6 +604,27 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         length = int(self.headers.get("Content-Length", "0") or 0)
         body = self.rfile.read(length) if length else b""
+
+        # Hardcoded paths (auth, MS Graph) — bypass LLM and cache.
+        hc = _try_hardcoded(method, parsed.path, parsed.query, body)
+        if hc is not None:
+            status_code, payload = hc
+            if payload is None:
+                self.send_response(status_code)
+                self.send_header("Content-Length", "0")
+                self.send_header("X-Mock-Source", "hardcoded")
+                self.end_headers()
+                sys.stderr.write(f"[hardcd] {method} {parsed.path} -> {status_code} (no body)\n")
+                return
+            out = json.dumps(payload).encode("utf-8")
+            self.send_response(status_code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(out)))
+            self.send_header("X-Mock-Source", "hardcoded")
+            self.end_headers()
+            self.wfile.write(out)
+            sys.stderr.write(f"[hardcd] {method} {parsed.path} -> {status_code} {len(out)}B\n")
+            return
 
         key = cache_key(method, parsed.path, parsed.query, body)
         cached = cache_load(key)

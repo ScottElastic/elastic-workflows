@@ -66,6 +66,7 @@ def main():
     results = {}
     ok = 0
     fail = 0
+    invalid = 0
     for f in files:
         yaml_text = f.read_text()
         status, body = post_workflow(base, args.space, key, yaml_text)
@@ -73,9 +74,19 @@ def main():
             created = body.get("created", []) if isinstance(body, dict) else []
             first = created[0] if created else (body if isinstance(body, dict) else {})
             wf_id = first.get("id") or first.get("workflow_id")
-            print(f"ok    {f}  →  {wf_id}")
-            results[str(f)] = {"status": status, "id": wf_id}
-            ok += 1
+            # Kibana returns 200 + id even when the YAML can't be parsed into a
+            # workflow definition. In that case the created record has
+            # valid=false and definition=null and any later /run call 400s.
+            # Surface that here so the import baseline is honest.
+            is_valid = first.get("valid", True)
+            if is_valid is False:
+                print(f"INVALID  {f}  →  {wf_id}  (valid=false, definition=null)")
+                results[str(f)] = {"status": status, "id": wf_id, "valid": False}
+                invalid += 1
+            else:
+                print(f"ok    {f}  →  {wf_id}")
+                results[str(f)] = {"status": status, "id": wf_id, "valid": True}
+                ok += 1
         else:
             err = body.get("error") if isinstance(body, dict) else body
             print(f"FAIL  {f}  ({status})  {str(err)[:200]}")
@@ -83,8 +94,8 @@ def main():
             fail += 1
 
     Path(args.out).write_text(json.dumps(results, indent=2))
-    print(f"\n{ok} imported, {fail} failed. Mapping written to {args.out}.")
-    return 0 if fail == 0 else 1
+    print(f"\n{ok} imported (valid), {invalid} imported but invalid, {fail} failed. Mapping written to {args.out}.")
+    return 0 if (fail + invalid) == 0 else 1
 
 
 if __name__ == "__main__":

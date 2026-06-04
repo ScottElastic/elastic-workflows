@@ -69,6 +69,7 @@ steps:
         Comment: "{{ inputs.comment }}"
         IsolationType: "{{ inputs.isolation_type }}"
     on-failure:
+      continue: true
       retry:
         max-attempts: 3
         delay: "5s"

@@ -106,6 +106,8 @@ steps:
         (severs all non-management traffic from those hosts).
 
         Respond with exactly one word, all uppercase: YES or NO.
+    on-failure:
+      continue: true
 
   - name: apply_quarantine
     type: if

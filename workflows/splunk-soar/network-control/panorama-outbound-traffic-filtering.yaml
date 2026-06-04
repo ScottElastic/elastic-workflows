@@ -69,6 +69,7 @@ steps:
             element: "<member>{{ item }}</member>"
             key: "{{ consts.panorama_api_key }}"
         on-failure:
+          continue: true
           retry:
             max-attempts: 3
             delay: "5s"
@@ -116,6 +117,7 @@ steps:
         cmd: "<commit><description>Elastic Workflows URL block update</description></commit>"
         key: "{{ consts.panorama_api_key }}"
     on-failure:
+      continue: true
       retry:
         max-attempts: 3
         delay: "10s"
@@ -133,6 +135,7 @@ steps:
         cmd: "<commit-all><shared-policy><device-group><entry name={{ inputs.device_group }}/></device-group></shared-policy></commit-all>"
         key: "{{ consts.panorama_api_key }}"
     on-failure:
+      continue: true
       retry:
         max-attempts: 3
         delay: "10s"

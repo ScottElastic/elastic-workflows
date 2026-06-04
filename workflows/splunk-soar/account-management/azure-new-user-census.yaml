@@ -47,6 +47,8 @@ steps:
         before now and return it in this exact format (no quotes, no prose):
         YYYY-MM-DDTHH:MM:SSZ
         Example output: 2026-05-23T14:00:00Z
+    on-failure:
+      continue: true
 
   # Microsoft Graph: GET /users with advanced filter on createdDateTime.
   # https://learn.microsoft.com/en-us/graph/api/user-list

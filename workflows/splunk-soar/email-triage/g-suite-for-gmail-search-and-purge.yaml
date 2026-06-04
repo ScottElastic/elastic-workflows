@@ -156,6 +156,7 @@ steps:
                   headers:
                     Authorization: "{{ consts.gmail_auth_header }}"
                 on-failure:
+                  continue: true
                   retry:
                     max-attempts: 3
                     delay: "5s"

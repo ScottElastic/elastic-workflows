@@ -85,6 +85,7 @@ steps:
             Content-Type: "application/x-www-form-urlencoded"
           body: "ruleUIDs={{ inputs.event_id }}&status=5&comment={{ steps.build_close_comment.output.comment | url_encode }}&output_mode=json"
         on-failure:
+          continue: true
           retry:
             max-attempts: 3
             delay: "5s"

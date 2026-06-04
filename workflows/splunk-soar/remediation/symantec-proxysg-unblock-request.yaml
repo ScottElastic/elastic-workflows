@@ -163,6 +163,7 @@ steps:
                   body:
                     url: "{{ inputs.request_url }}"
                 on-failure:
+                  continue: true
                   retry:
                     max-attempts: 3
                     delay: "10s"

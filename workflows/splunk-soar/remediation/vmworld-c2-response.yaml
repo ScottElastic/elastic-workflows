@@ -120,6 +120,7 @@ steps:
                         ip_addresses:
                           - "{{ item }}"
                 on-failure:
+                  continue: true
                   retry:
                     max-attempts: 3
                     delay: "5s"
@@ -180,6 +181,7 @@ steps:
                     text: "Elastic Workflows — vmworld_c2_response block"
                     enabled: true
                 on-failure:
+                  continue: true
                   retry:
                     max-attempts: 3
                     delay: "5s"

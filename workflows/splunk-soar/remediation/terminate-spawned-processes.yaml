@@ -48,6 +48,7 @@ steps:
             ip_hostname: "{{ item.host }}"
             pid: "{{ item.pid }}"
         on-failure:
+          continue: true
           retry:
             max-attempts: 3
             delay: "5s"
@@ -89,6 +90,7 @@ steps:
                 ip_hostname: "{{ item.host }}"
                 pid: "{{ item.ProcessId }}"
             on-failure:
+              continue: true
               retry:
                 max-attempts: 3
                 delay: "5s"

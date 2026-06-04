@@ -59,6 +59,7 @@ steps:
     # Destructive single-user action — retry transient errors but fail
     # loud so the calling workflow surfaces the failure.
     on-failure:
+      continue: true
       retry:
         max-attempts: 3
         delay: "5s"

@@ -116,6 +116,8 @@ steps:
 
         Identity matches: {{ steps.identity_search.output.results | default: [] | json }}
         Asset matches: {{ steps.asset_search.output.results | default: [] | json }}
+    on-failure:
+      continue: true
 
   - name: parse_selection
     type: data.set

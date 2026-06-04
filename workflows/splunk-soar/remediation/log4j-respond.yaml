@@ -78,6 +78,7 @@ steps:
               ip_or_hostname: '${{ steps.build_unix_targets.output.unix_entries | map: "host" }}'
               filepath: '${{ steps.build_unix_targets.output.unix_entries | map: "file_path" }}'
         on-failure:
+          continue: true
           retry:
             max-attempts: 3
             delay: "5s"
@@ -96,6 +97,7 @@ steps:
               ip_or_hostname: '${{ steps.build_windows_targets.output.windows_entries | map: "host" }}'
               filepath: '${{ steps.build_windows_targets.output.windows_entries | map: "file_path" }}'
         on-failure:
+          continue: true
           retry:
             max-attempts: 3
             delay: "5s"

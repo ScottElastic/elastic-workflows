@@ -148,6 +148,7 @@ steps:
                 value: "{{ inputs.ip }}"
                 description: "Auto-blocked: {{ inputs.rule_name }} verdict={{ steps.ai_decision.output.verdict }} confidence={{ steps.ai_decision.output.confidence }}"
             on-failure:
+              continue: true
               retry:
                 max-attempts: 3
                 delay: "5s"
@@ -171,6 +172,7 @@ steps:
                   protocolVersion: "1.0a"
                   providerName: "Security Platform"
             on-failure:
+              continue: true
               retry:
                 max-attempts: 3
                 delay: "5s"

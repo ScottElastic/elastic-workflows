@@ -149,6 +149,7 @@ steps:
                 element: "<member>{{ item.ip | default: item }}</member>"
                 key: "{{ consts.panorama_api_key }}"
             on-failure:
+              continue: true
               retry:
                 max-attempts: 3
                 delay: "5s"
@@ -168,6 +169,7 @@ steps:
             text: "Auto-block from ransomware playbook (workflow run {{ execution.id }})"
             enabled: true
         on-failure:
+          continue: true
           retry:
             max-attempts: 3
             delay: "5s"
@@ -191,6 +193,7 @@ steps:
                 text: "Child of {{ inputs.file_hash }} (workflow run {{ execution.id }})"
                 enabled: true
             on-failure:
+              continue: true
               retry:
                 max-attempts: 3
                 delay: "5s"
@@ -211,6 +214,7 @@ steps:
           body:
             sensor_id: "{{ steps.hunt_file.output.results[0].sensor_id | default: '' }}"
         on-failure:
+          continue: true
           retry:
             max-attempts: 3
             delay: "5s"
@@ -227,6 +231,7 @@ steps:
           body:
             network_isolation_enabled: true
         on-failure:
+          continue: true
           retry:
             max-attempts: 3
             delay: "5s"
@@ -244,6 +249,7 @@ steps:
             username: "{{ steps.hunt_file.output.results[0].username | default: '' }}"
             reason: "Ransomware detection on host {{ steps.hunt_file.output.results[0].hostname | default: 'unknown' }} (workflow run {{ execution.id }})"
         on-failure:
+          continue: true
           retry:
             max-attempts: 3
             delay: "5s"
@@ -284,6 +290,7 @@ steps:
                 element: "<member>{{ item.remote_ip | default: item.ip | default: item }}</member>"
                 key: "{{ consts.panorama_api_key }}"
             on-failure:
+              continue: true
               retry:
                 max-attempts: 3
                 delay: "5s"
@@ -301,6 +308,7 @@ steps:
             cmd: "<commit><description>Ransomware containment {{ execution.id }}</description></commit>"
             key: "{{ consts.panorama_api_key }}"
         on-failure:
+          continue: true
           retry:
             max-attempts: 3
             delay: "10s"

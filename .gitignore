@@ -25,3 +25,7 @@ HANDOFF.md
 
 # LLM mock server response cache (local only, can grow)
 cache/
+
+# Python bytecode
+__pycache__/
+*.pyc

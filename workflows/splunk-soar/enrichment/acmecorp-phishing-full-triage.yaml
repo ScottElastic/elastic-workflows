@@ -689,3 +689,27 @@ steps:
         CrowdStrike detections={{ steps.build_summary.output.cs_detection_total }}
         Graph user={{ steps.build_summary.output.graph_display_name }}, dept={{ steps.build_summary.output.graph_dept }}
         Splunk SID={{ steps.build_summary.output.splunk_sid }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: AcmeCorp Phishing Full Triage"
+        description: |
+          Automated case created by the **AcmeCorp Phishing Full Triage** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

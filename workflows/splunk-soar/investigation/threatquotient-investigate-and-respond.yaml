@@ -148,6 +148,7 @@ steps:
                     xpath: "/config/shared/address-group/entry[@name={{ consts.panorama_block_group }}]/static"
                     element: "<member>{{ inputs.destination_address }}</member>"
                 on-failure:
+                  continue: true
                   retry:
                     max-attempts: 3
                     delay: "5s"
@@ -189,6 +190,7 @@ steps:
                     xpath: "/config/shared/profiles/custom-url-category/entry[@name={{ consts.panorama_block_group }}]/list"
                     element: "<member>${{ steps.dst_ip_reputation_vt.output.detected_urls | map: 'url' | first }}</member>"
                 on-failure:
+                  continue: true
                   retry:
                     max-attempts: 3
                     delay: "5s"
@@ -263,6 +265,7 @@ steps:
                     xpath: "/config/shared/address-group/entry[@name={{ consts.panorama_block_group }}]/static"
                     element: "<member>{{ inputs.source_address }}</member>"
                 on-failure:
+                  continue: true
                   retry:
                     max-attempts: 3
                     delay: "5s"
@@ -302,6 +305,7 @@ steps:
                     xpath: "/config/shared/profiles/custom-url-category/entry[@name={{ consts.panorama_block_group }}]/list"
                     element: "<member>${{ steps.src_ip_reputation_vt.output.detected_urls | map: 'url' | first }}</member>"
                 on-failure:
+                  continue: true
                   retry:
                     max-attempts: 3
                     delay: "5s"

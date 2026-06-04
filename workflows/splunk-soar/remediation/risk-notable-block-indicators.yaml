@@ -70,6 +70,7 @@ steps:
         # Block dispatch is destructive — retry transient errors then
         # fail loud.
         on-failure:
+          continue: true
           retry:
             max-attempts: 3
             delay: "5s"

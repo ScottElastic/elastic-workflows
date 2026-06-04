@@ -65,6 +65,7 @@ steps:
           {{ event | json }}
     timeout: 10m
     on-failure:
+      continue: true
       retry:
         max-attempts: 3
 
@@ -85,6 +86,7 @@ steps:
           Example format: "MFA Bombing → user@domain compromised from <IP>"
     timeout: 5m
     on-failure:
+      continue: true
       retry:
         max-attempts: 3
 
@@ -136,6 +138,8 @@ steps:
           fields: null
         settings:
           syncAlerts: true
+    on-failure:
+      continue: true
 
   # ================================================================
   # PHASE 3: POST AI TRIAGE REPORT TO CASE
@@ -158,6 +162,8 @@ steps:
           ---
           🔗 AI Conversation ID: `{{ steps.ai_initial_triage.output.conversation_id }}`
           📎 [Open AI Assistant]({{ consts.kibana_base_url }}/app/security/ai-assistant) to continue this investigation thread.
+    on-failure:
+      continue: true
 
   # ================================================================
   # PHASE 4: ATTACH CORRELATED ALERTS TO CASE
@@ -190,6 +196,8 @@ steps:
               name: "{{ steps.fetch_alert_data.output.hits.hits[0]._source['kibana.alert.rule.name'] }}"
               id: "{{ foreach.item }}"
             owner: securitySolution
+    on-failure:
+      continue: true
 
   # ================================================================
   # PHASE 5: USER CONTEXT ENRICHMENT
@@ -302,6 +310,8 @@ steps:
           ```
           {{ steps.enrich_source_ip_users.output.hits.hits | json }}
           ```
+    on-failure:
+      continue: true
 
   # ================================================================
   # PHASE 6: ENRICHMENT DATA COLLECTION
@@ -514,6 +524,7 @@ steps:
           Total source IP events: {{ steps.enrich_source_ip_activity.output.hits.total.value }}
     timeout: 10m
     on-failure:
+      continue: true
       retry:
         max-attempts: 3
 
@@ -541,6 +552,8 @@ steps:
           - 🔓 [Post-Bypass Session Activity — Discover]({{ consts.kibana_base_url }}/app/discover#/?_a=(query:(language:kuery,query:'user.name:target.user%40example.com%20AND%20NOT%20event.action:system.push*'))&_g=(time:(from:now-3d,to:now)))
           - 🧑‍💻 [Target User Full Activity — Discover]({{ consts.kibana_base_url }}/app/discover#/?_a=(query:(language:kuery,query:'user.name:target.user%40example.com'))&_g=(time:(from:now-7d,to:now)))
           - 🚨 [All Security Alerts — Discover]({{ consts.kibana_base_url }}/app/discover#/?_a=(query:(language:kuery,query:'source.ip:198.51.100.42'),index:'.alerts-security.alerts-default'))&_g=(time:(from:now-7d,to:now)))
+    on-failure:
+      continue: true
 
   # ================================================================
   # PHASE 8: AI SYNTHESIS — CONNECT THE DOTS
@@ -609,6 +622,7 @@ steps:
           Related security alerts (7d): {{ steps.agg_alert_breakdown.output.hits.total.value }}
     timeout: 10m
     on-failure:
+      continue: true
       retry:
         max-attempts: 3
 
@@ -631,6 +645,8 @@ steps:
           🔗 AI Conversation ID: `{{ steps.ai_initial_triage.output.conversation_id }}`
           📎 [Open AI Assistant]({{ consts.kibana_base_url }}/app/security/ai-assistant) to continue this investigation thread.
           📎 [View Original Attack Discovery]({{ event.alerts[0]['kibana.alert.url'] }})
+    on-failure:
+      continue: true
 
   # ================================================================
   # PHASE 9: SLACK ESCALATION — HITL REVIEW
@@ -699,3 +715,29 @@ steps:
                   text: "🤖 Continue in AI Assistant"
                 url: "{{ consts.kibana_base_url }}/app/security/ai-assistant"
       timeout: 30s
+    on-failure:
+      continue: true
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: MFA Bombing Attack Discovery Triage"
+        description: |
+          Automated case created by the **MFA Bombing Attack Discovery Triage** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

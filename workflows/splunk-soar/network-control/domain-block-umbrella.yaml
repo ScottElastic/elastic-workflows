@@ -60,6 +60,7 @@ steps:
             eventDescription: "Domain submitted for DNS denylisting by Elastic Workflows."
             protocolVersion: "1.0a"
         on-failure:
+          continue: true
           retry:
             max-attempts: 3
             delay: "5s"

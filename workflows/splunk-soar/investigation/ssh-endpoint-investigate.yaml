@@ -63,6 +63,8 @@ steps:
                 content:
                   - type: text
                     text: "{{ inputs.description | default: '' }}"
+    on-failure:
+      continue: true
 
   - name: only_new_linux_server
     type: if

@@ -75,6 +75,7 @@ steps:
                 memory: true
                 quiesce: false
             on-failure:
+              continue: true
               retry:
                 max-attempts: 3
                 delay: "5s"
@@ -94,6 +95,7 @@ steps:
                   query:
                     action: "suspend"
                 on-failure:
+                  continue: true
                   retry:
                     max-attempts: 3
                     delay: "5s"
@@ -111,6 +113,7 @@ steps:
             element: "<member>{{ inputs.dvc_ip }}</member>"
             key: "{{ consts.panw_api_key }}"
         on-failure:
+          continue: true
           retry:
             max-attempts: 3
             delay: "5s"
@@ -125,6 +128,7 @@ steps:
             cmd: "<commit></commit>"
             key: "{{ consts.panw_api_key }}"
         on-failure:
+          continue: true
           retry:
             max-attempts: 3
             delay: "5s"
@@ -144,6 +148,7 @@ steps:
             xpath: "/config/devices/entry[@name='localhost.localdomain']/vsys/entry[@name={{ consts.panw_vsys }}]/address-group/entry[@name={{ consts.panw_block_group }}]/static/member[text()={{ inputs.dvc_ip }}]"
             key: "{{ consts.panw_api_key }}"
         on-failure:
+          continue: true
           retry:
             max-attempts: 3
             delay: "5s"
@@ -158,6 +163,7 @@ steps:
             cmd: "<commit></commit>"
             key: "{{ consts.panw_api_key }}"
         on-failure:
+          continue: true
           retry:
             max-attempts: 3
             delay: "5s"

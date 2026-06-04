@@ -62,6 +62,7 @@ steps:
             inputs:
               indicators: ${{ steps.partition_indicators.output.asset_indicators }}
         on-failure:
+          continue: true
           retry:
             max-attempts: 3
             delay: "5s"
@@ -79,6 +80,7 @@ steps:
             inputs:
               indicators: ${{ steps.partition_indicators.output.identity_indicators }}
         on-failure:
+          continue: true
           retry:
             max-attempts: 3
             delay: "5s"

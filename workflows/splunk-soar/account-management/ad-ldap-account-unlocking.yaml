@@ -59,6 +59,7 @@ steps:
         use_samaccountname: true
         action: "enable"
     on-failure:
+      continue: true
       retry:
         max-attempts: 3
         delay: "5s"

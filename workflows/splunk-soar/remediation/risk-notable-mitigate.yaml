@@ -69,6 +69,7 @@ steps:
             inputs:
               indicators: '${{ steps.run_review.output.marked_indicators | default: [] }}'
         on-failure:
+          continue: true
           retry:
             max-attempts: 3
             delay: "5s"

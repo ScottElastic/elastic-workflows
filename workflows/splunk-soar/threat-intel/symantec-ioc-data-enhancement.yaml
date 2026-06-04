@@ -64,6 +64,7 @@ steps:
         priority: "high"
         source: "Elastic Workflows"
     on-failure:
+      continue: true
       retry:
         max-attempts: 3
         delay: "10s"
@@ -77,6 +78,7 @@ steps:
         Authorization: "{{ consts.content_analysis_token }}"
         Accept: "application/json"
     on-failure:
+      continue: true
       retry:
         max-attempts: 5
         delay: "15s"

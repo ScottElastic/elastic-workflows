@@ -87,6 +87,8 @@ steps:
         {{ steps.scan_wifi.output.output | default: '' }}
 
         Return ONLY the JSON array. No prose, no markdown fence.
+    on-failure:
+      continue: true
 
   - name: parsed_access_points
     type: data.set
@@ -136,6 +138,8 @@ steps:
         Suspect patterns: {{ inputs.potential_rogue_essids | default: [] | json }}
 
         Output: a single JSON array. No prose, no markdown fence.
+    on-failure:
+      continue: true
 
   - name: enriched_aps
     type: data.set

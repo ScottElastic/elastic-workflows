@@ -96,6 +96,7 @@ steps:
                 text: "Elastic Workflows — blocked from ProtectWise investigation"
                 enabled: true
             on-failure:
+              continue: true
               retry:
                 max-attempts: 3
                 delay: "5s"
@@ -207,6 +208,7 @@ steps:
                 element: "<member>{{ inputs.destination_address }}</member>"
                 key: "{{ consts.panorama_api_key }}"
             on-failure:
+              continue: true
               retry:
                 max-attempts: 3
                 delay: "5s"
@@ -221,6 +223,7 @@ steps:
                 cmd: "<commit></commit>"
                 key: "{{ consts.panorama_api_key }}"
             on-failure:
+              continue: true
               retry:
                 max-attempts: 3
                 delay: "5s"

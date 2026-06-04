@@ -101,6 +101,8 @@ steps:
               okta.debug_context.debug_data.risk_level,
               okta.debug_context.debug_data.risk_reasons,
               okta.security_context.is_proxy
+    on-failure:
+      continue: true
 
   # ── 1b: Okta account modification events for the user ──────────
   - name: get_okta_account_changes
@@ -144,6 +146,8 @@ steps:
               okta.client.ip,
               okta.target.display_name,
               okta.target.type
+    on-failure:
+      continue: true
 
   # ── 1c: Okta SSO app access during the session ────────────────
   - name: get_okta_sso_app_access
@@ -168,6 +172,8 @@ steps:
               okta.target.type,
               user_agent.original,
               okta.debug_context.debug_data.risk_level
+    on-failure:
+      continue: true
 
   # ── 1d: Okta activity from the attacker IP(s) — other users ───
   - name: get_okta_lateral_movement
@@ -194,6 +200,8 @@ steps:
           BY okta.actor.alternate_id, okta.client.ip
         | SORT event_count DESC
         | LIMIT 20
+    on-failure:
+      continue: true
 
   # ── 1e: AWS CloudTrail — activity from attacker IPs ────────────
   - name: get_cloudtrail_activity
@@ -219,6 +227,8 @@ steps:
               aws.cloudtrail.user_identity.type,
               aws.cloudtrail.user_identity.arn,
               user_agent.original
+    on-failure:
+      continue: true
 
   # ── 1f: Palo Alto NGFW — network activity for attacker IPs ────
   - name: get_panw_activity
@@ -250,6 +260,8 @@ steps:
               panw.panos.sub_type,
               observer.hostname,
               rule.name
+    on-failure:
+      continue: true
 
   # ================================================================
   # PHASE 2: AI TRIAGE
@@ -321,6 +333,7 @@ steps:
           9. IOC List - All indicators: IPs, user agents, session IDs, timestamps, app names, hostnames. One per line with type label and source.
     timeout: 10m
     on-failure:
+      continue: true
       retry:
         max-attempts: 2
 
@@ -380,6 +393,7 @@ steps:
           Extracted IOCs - IOC Type, Value, Source, Context.
     timeout: 10m
     on-failure:
+      continue: true
       retry:
         max-attempts: 2
 
@@ -432,6 +446,7 @@ steps:
           Format each query with a numbered title, what to look for description, and the complete ES|QL query in a code block.
     timeout: 10m
     on-failure:
+      continue: true
       retry:
         max-attempts: 2
 
@@ -502,6 +517,8 @@ steps:
 
           ---
           [Open AI Assistant]({{ consts.kibana_base_url }}/app/security/ai-assistant) to continue this investigation.
+    on-failure:
+      continue: true
 
   # ── 5c: Post Investigation Dashboard ─────────────────────────────
   - name: post_dashboard_to_case
@@ -518,6 +535,8 @@ steps:
           # Phase 2: Investigation Dashboard
 
           {{ steps.ai_build_dashboard.output.response.message }}
+    on-failure:
+      continue: true
 
   # ── 5d: Post Hunt Queries ────────────────────────────────────────
   - name: post_hunt_queries_to_case
@@ -536,6 +555,8 @@ steps:
           Copy-paste these ES|QL queries into Discover to dig deeper.
 
           {{ steps.ai_generate_hunt_queries.output.response.message }}
+    on-failure:
+      continue: true
 
   # ================================================================
   # PHASE 6: DISCOVER DEEP-LINKS FOR ANALYST VERIFICATION
@@ -610,6 +631,8 @@ steps:
           **Tip:** Each link includes the KQL query in plain text above it.
           If the deep-link doesn't load correctly, copy the KQL and paste it
           into Discover's search bar manually, then set the time range to Last 7 days.
+    on-failure:
+      continue: true
 
   # ================================================================
   # PHASE 7: FINAL AI SYNTHESIS
@@ -646,6 +669,7 @@ steps:
           5. Severity Recommendation - Should this case stay HIGH or escalate to CRITICAL? Base on apps accessed, account changes made, lateral movement observed, data exposure risk.
     timeout: 10m
     on-failure:
+      continue: true
       retry:
         max-attempts: 2
 
@@ -666,6 +690,8 @@ steps:
 
           ---
           [Open AI Assistant]({{ consts.kibana_base_url }}/app/security/ai-assistant) to continue this investigation.
+    on-failure:
+      continue: true
 
   # ── Final log ────────────────────────────────────────────────────
   - name: log_complete
@@ -677,3 +703,27 @@ steps:
         User: {{ event.alerts[0].okta.actor.alternate_id | default: "N/A" }}
         Session: {{ event.alerts[0].okta.authentication_context.root_session_id | default: "N/A" }}
         View case: {{ consts.kibana_base_url }}/app/security/cases/{{ steps.create_investigation_case.output.id }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Okta AiTM Session Cookie Replay Investigation v1.0"
+        description: |
+          Automated case created by the **Okta AiTM Session Cookie Replay Investigation v1.0** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

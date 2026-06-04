@@ -45,6 +45,7 @@ steps:
         Accept: "application/json"
       body: "client_id={{ consts.crowdstrike_client_id }}&client_secret={{ consts.crowdstrike_client_secret }}"
     on-failure:
+      continue: true
       retry:
         max-attempts: 3
         delay: "5s"
@@ -84,6 +85,7 @@ steps:
         ids:
           - "{{ steps.capture_device_id.output.device_id }}"
     on-failure:
+      continue: true
       retry:
         max-attempts: 3
         delay: "5s"

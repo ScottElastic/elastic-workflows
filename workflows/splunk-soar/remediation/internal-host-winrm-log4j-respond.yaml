@@ -80,6 +80,7 @@ steps:
                     ip_hostname: "{{ item }}"
                     script_str: "$ProgressPreference = 'SilentlyContinue'; Remove-Item {{ inputs.filepath[forloop.index0] }} | Write-Output 'Files Deleted'"
                 on-failure:
+                  continue: true
                   retry:
                     max-attempts: 2
                     delay: "3s"
@@ -109,6 +110,7 @@ steps:
                 ip_hostname: "{{ item }}"
                 script_str: "$ProgressPreference = 'SilentlyContinue'; New-NetFirewallRule -DisplayName Splunk_SOAR_Quarantine -Direction Outbound -Enabled True -LocalPort Any -RemoteAddress Any -Action Block"
             on-failure:
+              continue: true
               retry:
                 max-attempts: 2
                 delay: "3s"
@@ -129,6 +131,7 @@ steps:
                 ip_hostname: "{{ item }}"
                 script_str: "$ProgressPreference = 'SilentlyContinue'; shutdown /f"
             on-failure:
+              continue: true
               retry:
                 max-attempts: 2
                 delay: "3s"
@@ -149,6 +152,7 @@ steps:
                 ip_hostname: "{{ item }}"
                 script_str: "$ProgressPreference = 'SilentlyContinue'; New-NetFirewallRule -DisplayName Splunk_SOAR_Quarantine -Direction Outbound -Enabled True -LocalPort Any -RemoteAddress Any -Action Block; shutdown /f"
             on-failure:
+              continue: true
               retry:
                 max-attempts: 2
                 delay: "3s"

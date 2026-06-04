@@ -213,6 +213,7 @@ steps:
                         device_id:
                           - "{{ steps.run_splunk_query.output.results[0].client_ip | default: '' }}"
                     on-failure:
+                      continue: true
                       retry:
                         max-attempts: 3
                         delay: "10s"
@@ -248,6 +249,7 @@ steps:
                     device_id:
                       - "{{ steps.run_splunk_query.output.results[0].client_ip | default: '' }}"
                 on-failure:
+                  continue: true
                   retry:
                     max-attempts: 3
                     delay: "10s"
@@ -284,6 +286,7 @@ steps:
                 urls:
                   - "{{ inputs.request_url }}"
             on-failure:
+              continue: true
               retry:
                 max-attempts: 3
                 delay: "5s"
@@ -297,6 +300,7 @@ steps:
                 Content-Type: "application/json"
                 Cookie: "{{ steps.zscaler_session.output.jsessionid }}"
             on-failure:
+              continue: true
               retry:
                 max-attempts: 3
                 delay: "5s"

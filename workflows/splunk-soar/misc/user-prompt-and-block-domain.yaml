@@ -111,6 +111,7 @@ steps:
                 eventDescription: "Approved by analyst: {{ steps.ask_for_approval.output.reason | default: 'n/a' }}"
                 protocolVersion: "1.0a"
             on-failure:
+              continue: true
               retry:
                 max-attempts: 3
                 delay: "5s"

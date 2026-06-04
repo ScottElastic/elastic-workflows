@@ -80,6 +80,7 @@ steps:
               indicator_tags_include: "known_identity"
               indicator_tags_exclude: "contained"
         on-failure:
+          continue: true
           retry:
             max-attempts: 3
             delay: "5s"
@@ -95,6 +96,7 @@ steps:
               indicator_tags_include: "known_asset"
               indicator_tags_exclude: "contained"
         on-failure:
+          continue: true
           retry:
             max-attempts: 3
             delay: "5s"

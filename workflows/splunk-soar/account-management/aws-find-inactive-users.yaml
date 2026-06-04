@@ -71,6 +71,8 @@ steps:
         code fences:
           {"cutoff_iso8601": "YYYY-MM-DDTHH:MM:SSZ"}
         Use literal 'Z' suffix for UTC; no offsets, no fractional seconds.
+    on-failure:
+      continue: true
 
   - name: account_list
     type: data.set

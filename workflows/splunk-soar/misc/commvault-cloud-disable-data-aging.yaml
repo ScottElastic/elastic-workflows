@@ -49,6 +49,7 @@ steps:
       body:
         clientName: "{{ inputs.client_name }}"
     on-failure:
+      continue: true
       retry:
         max-attempts: 3
         delay: "5s"

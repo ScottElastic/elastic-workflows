@@ -199,6 +199,7 @@ steps:
             element: "<member>{{ inputs.client_ip }}</member>"
             key: "{{ consts.pan_api_key }}"
         on-failure:
+          continue: true
           retry:
             max-attempts: 3
             delay: "5s"
@@ -213,6 +214,7 @@ steps:
             cmd: "<commit></commit>"
             key: "{{ consts.pan_api_key }}"
         on-failure:
+          continue: true
           retry:
             max-attempts: 3
             delay: "5s"

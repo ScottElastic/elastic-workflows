@@ -136,6 +136,7 @@ steps:
                     element: "<member>{{ inputs.destination_ip }}</member>"
                     key: "{{ consts.pan_api_key }}"
                 on-failure:
+                  continue: true
                   retry:
                     max-attempts: 3
                     delay: "5s"
@@ -193,6 +194,7 @@ steps:
                     protocolVersion: "1.0a"
                     providerName: "Security Platform"
                 on-failure:
+                  continue: true
                   retry:
                     max-attempts: 3
                     delay: "5s"
@@ -247,6 +249,7 @@ steps:
                     element: "<member>{{ inputs.destination_url }}</member>"
                     key: "{{ consts.pan_api_key }}"
                 on-failure:
+                  continue: true
                   retry:
                     max-attempts: 3
                     delay: "5s"
@@ -299,6 +302,7 @@ steps:
                     text: "Elastic Workflows — PhishMe-driven block"
                     enabled: true
                 on-failure:
+                  continue: true
                   retry:
                     max-attempts: 3
                     delay: "5s"

@@ -53,6 +53,7 @@ steps:
       body:
         accountEnabled: false
     on-failure:
+      continue: true
       retry:
         max-attempts: 3
         delay: "5s"

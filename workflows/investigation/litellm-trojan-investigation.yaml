@@ -104,6 +104,8 @@ steps:
               process.parent.name,
               user.name,
               host.name
+    on-failure:
+      continue: true
 
   # -- 1b: Suspicious child processes spawned by python ---------------
   - name: get_suspicious_children
@@ -134,6 +136,8 @@ steps:
               process.parent.name,
               user.name,
               event.action
+    on-failure:
+      continue: true
 
   # -- 1c: Network connections from python processes ------------------
   - name: get_python_network_activity
@@ -164,6 +168,8 @@ steps:
               event.action,
               host.name,
               user.name
+    on-failure:
+      continue: true
 
   # -- 1d: File events from python processes --------------------------
   - name: get_python_file_activity
@@ -192,6 +198,8 @@ steps:
               process.pid,
               user.name,
               host.name
+    on-failure:
+      continue: true
 
   # -- 1e: Related security alerts on this host -----------------------
   - name: get_host_alerts
@@ -216,6 +224,8 @@ steps:
               destination.ip,
               user.name,
               host.name
+    on-failure:
+      continue: true
 
   # ================================================================
   # PHASE 2: LATERAL HUNT
@@ -240,6 +250,8 @@ steps:
           BY destination.ip, destination.port
         | SORT connection_count DESC
         | LIMIT 30
+    on-failure:
+      continue: true
 
   # -- 2b: Suspicious python children across fleet --------------------
   - name: hunt_suspicious_python_children
@@ -261,6 +273,8 @@ steps:
           BY host.name, process.name, process.parent.name
         | SORT hit_count DESC
         | LIMIT 50
+    on-failure:
+      continue: true
 
   # ================================================================
   # PHASE 3: AI TRIAGE
@@ -348,6 +362,7 @@ steps:
           6. **Detection Gaps** — What should we add?
     timeout: 10m
     on-failure:
+      continue: true
       retry:
         max-attempts: 2
 
@@ -421,6 +436,7 @@ steps:
           | IOC Type | Value | Context | First Seen | Hosts Affected |
     timeout: 10m
     on-failure:
+      continue: true
       retry:
         max-attempts: 2
 
@@ -490,6 +506,7 @@ steps:
           Suspicious child processes (fleet): {{ steps.hunt_suspicious_python_children.output.values | size }}
     timeout: 10m
     on-failure:
+      continue: true
       retry:
         max-attempts: 2
 
@@ -564,6 +581,8 @@ steps:
 
           ---
           [Open AI Assistant]({{ consts.kibana_base_url }}/app/security/ai-assistant) to continue this investigation.
+    on-failure:
+      continue: true
 
   - name: post_dashboard_to_case
     type: kibana.request
@@ -579,6 +598,8 @@ steps:
           # Phase 2: Investigation Dashboard
 
           {{ steps.ai_build_dashboard.output.response.message }}
+    on-failure:
+      continue: true
 
   - name: post_synthesis_to_case
     type: kibana.request
@@ -597,6 +618,8 @@ steps:
 
           ---
           [Open AI Assistant]({{ consts.kibana_base_url }}/app/security/ai-assistant) to continue this investigation.
+    on-failure:
+      continue: true
 
   - name: post_discover_links
     type: kibana.request
@@ -652,6 +675,8 @@ steps:
 
           **Tip:** If a deep-link doesn't load correctly, copy the KQL and paste
           it into Discover's search bar, then set the time range to Last 7 days.
+    on-failure:
+      continue: true
 
   - name: attach_alert
     type: if
@@ -681,3 +706,27 @@ steps:
         Case ID: {{ steps.create_investigation_case.output.id }}
         Host: {{ event.alerts[0].host.name | default: inputs.hostname | default: "Fleet-wide" }}
         View case: {{ consts.kibana_base_url }}/app/security/cases/{{ steps.create_investigation_case.output.id }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Trojaned Python Package — Base64 Exec Investigation"
+        description: |
+          Automated case created by the **Trojaned Python Package — Base64 Exec Investigation** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

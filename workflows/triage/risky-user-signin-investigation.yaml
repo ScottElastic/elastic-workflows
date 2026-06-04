@@ -120,6 +120,8 @@ steps:
               azure.signinlogs.properties.conditional_access_status,
               azure.signinlogs.properties.mfa_detail.auth_method,
               event.outcome
+    on-failure:
+      continue: true
 
   # ── 1b: User entity enrichment from Entra ID ────────────────────
   - name: get_user_entity
@@ -144,6 +146,8 @@ steps:
               entityanalytics_entra_id.user.office_location,
               entityanalytics_entra_id.user.account_enabled,
               entityanalytics_entra_id.user.mail
+    on-failure:
+      continue: true
 
   # ── 1c: Sign-in statistics (7-day baseline) ─────────────────────
   - name: get_signin_stats
@@ -164,6 +168,8 @@ steps:
             unique_ips = COUNT_DISTINCT(azure.signinlogs.properties.ip_address),
             unique_apps = COUNT_DISTINCT(azure.signinlogs.properties.app_display_name),
             unique_countries = COUNT_DISTINCT(azure.signinlogs.properties.location.country_or_region)
+    on-failure:
+      continue: true
 
   # ── 1d: Azure audit log activity ─────────────────────────────────
   - name: get_audit_activity
@@ -183,6 +189,8 @@ steps:
               azure.auditlogs.properties.activity_display_name,
               azure.auditlogs.properties.result,
               event.action
+    on-failure:
+      continue: true
 
   # ── 1e: CrowdStrike EDR alerts ──────────────────────────────────
   - name: get_crowdstrike_alerts
@@ -205,6 +213,8 @@ steps:
               crowdstrike.alert.severity_name,
               crowdstrike.alert.description,
               host.name
+    on-failure:
+      continue: true
 
   # ── 1f: PowerShell activity ──────────────────────────────────────
   - name: get_powershell_activity
@@ -225,6 +235,8 @@ steps:
               powershell.file.script_block_text,
               host.name,
               user.name
+    on-failure:
+      continue: true
 
   # ── 1g: Graph API activity summary ──────────────────────────────
   #    Key for answering "is this user spamming people?"
@@ -245,6 +257,8 @@ steps:
             file_ops = COUNT_IF(url.path LIKE "/*/drive*" OR url.path LIKE "/*/files*"),
             user_ops = COUNT_IF(url.path LIKE "/*/users*"),
             unique_resources = COUNT_DISTINCT(url.path)
+    on-failure:
+      continue: true
 
   # ── 1h: Windows logon events (system.security) ──────────────────
   - name: get_windows_logon_events
@@ -265,6 +279,8 @@ steps:
             explicit_cred_logons = COUNT_IF(event.code == "4648"),
             unique_logon_hosts = COUNT_DISTINCT(host.name),
             unique_source_ips = COUNT_DISTINCT(source.ip)
+    on-failure:
+      continue: true
 
   # ================================================================
   # PHASE 2: AI TRIAGE
@@ -358,6 +374,7 @@ steps:
         IPs, hostnames, user agents, app names, locations.
         One per line, with type label.
     on-failure:
+      continue: true
       retry:
         max-attempts: 2
 
@@ -423,6 +440,7 @@ steps:
         ## 🎯 Extracted IOCs
         | IOC Type | Value | Source | Context |
     on-failure:
+      continue: true
       retry:
         max-attempts: 2
 
@@ -487,6 +505,7 @@ steps:
         [complete query]
         ```
     on-failure:
+      continue: true
       retry:
         max-attempts: 2
 
@@ -549,6 +568,8 @@ steps:
 
           ---
           📎 [Open AI Assistant]({{ consts.kibana_base_url }}/app/security/ai-assistant) to continue this investigation.
+    on-failure:
+      continue: true
 
   # ── 5c: Post Investigation Dashboard ─────────────────────────────
   - name: post_dashboard_to_case
@@ -565,6 +586,8 @@ steps:
           # 📊 Phase 2: Investigation Dashboard
 
           {{ steps.ai_build_dashboard.output }}
+    on-failure:
+      continue: true
 
   # ── 5d: Post Hunt Queries ────────────────────────────────────────
   - name: post_hunt_queries_to_case
@@ -583,6 +606,8 @@ steps:
           Copy-paste these ES|QL queries into Discover to dig deeper.
 
           {{ steps.ai_generate_hunt_queries.output }}
+    on-failure:
+      continue: true
 
   # ================================================================
   # PHASE 6: SAVED SEARCHES FOR ANALYST VERIFICATION
@@ -639,6 +664,8 @@ steps:
           - name: "kibanaSavedObjectMeta.searchSourceJSON.index"
             type: index-pattern
             id: "{{ consts.logs_data_view_id }}"
+    on-failure:
+      continue: true
 
   # ── 6b: Failed sign-ins for this user ────────────────────────────
   - name: create_ss_failed_signins
@@ -687,6 +714,8 @@ steps:
           - name: "kibanaSavedObjectMeta.searchSourceJSON.index"
             type: index-pattern
             id: "{{ consts.logs_data_view_id }}"
+    on-failure:
+      continue: true
 
   # ── 6c: Audit log changes by this user ───────────────────────────
   - name: create_ss_audit_activity
@@ -732,6 +761,8 @@ steps:
           - name: "kibanaSavedObjectMeta.searchSourceJSON.index"
             type: index-pattern
             id: "{{ consts.logs_data_view_id }}"
+    on-failure:
+      continue: true
 
   # ── 6d: Lateral movement — same source IP, other users ──────────
   - name: create_ss_lateral_ip
@@ -780,6 +811,8 @@ steps:
           - name: "kibanaSavedObjectMeta.searchSourceJSON.index"
             type: index-pattern
             id: "{{ consts.logs_data_view_id }}"
+    on-failure:
+      continue: true
 
   # ── 6e: CrowdStrike alerts for user's hosts ─────────────────────
   - name: create_ss_crowdstrike
@@ -826,6 +859,8 @@ steps:
           - name: "kibanaSavedObjectMeta.searchSourceJSON.index"
             type: index-pattern
             id: "{{ consts.logs_data_view_id }}"
+    on-failure:
+      continue: true
 
   # ── 6f: Graph API mail operations ────────────────────────────────
   - name: create_ss_graph_mail
@@ -870,6 +905,8 @@ steps:
           - name: "kibanaSavedObjectMeta.searchSourceJSON.index"
             type: index-pattern
             id: "{{ consts.logs_data_view_id }}"
+    on-failure:
+      continue: true
 
   # ── 6g: Post all saved search links to case ─────────────────────
   - name: post_saved_searches_to_case
@@ -899,6 +936,8 @@ steps:
 
           ---
           📂 All saved searches are also available in Discover under the prefix **🔐** or **🔴** or **🛡️** etc.
+    on-failure:
+      continue: true
 
   # ================================================================
   # PHASE 7: FINAL AI SYNTHESIS
@@ -928,6 +967,7 @@ steps:
         4. **Gaps** — What data sources are missing? What should we hunt for next?
         5. **Severity Recommendation** — Should this case stay HIGH or escalate to CRITICAL?
     on-failure:
+      continue: true
       retry:
         max-attempts: 2
 
@@ -948,6 +988,8 @@ steps:
 
           ---
           📎 [Open AI Assistant]({{ consts.kibana_base_url }}/app/security/ai-assistant) to continue this investigation.
+    on-failure:
+      continue: true
 
   # ── Final log ────────────────────────────────────────────────────
   - name: log_complete
@@ -976,3 +1018,27 @@ steps:
   #         *Case:* {{ consts.kibana_base_url }}/app/security/cases/{{ steps.create_investigation_case.output.id }}
   #         *Saved Searches:* 6 evidence links in case
   #         Review the AI triage and verify findings before taking action.
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: M365 Risky User Sign-in Investigation"
+        description: |
+          Automated case created by the **M365 Risky User Sign-in Investigation** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

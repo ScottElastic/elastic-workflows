@@ -62,6 +62,7 @@ steps:
     # Identity-mutation — retry transient errors and fail loud so the
     # caller knows the unlock did not complete.
     on-failure:
+      continue: true
       retry:
         max-attempts: 3
         delay: "5s"

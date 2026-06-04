@@ -50,6 +50,7 @@ steps:
         Accept: "application/json"
       body: "client_id={{ consts.crowdstrike_client_id }}&client_secret={{ consts.crowdstrike_client_secret }}"
     on-failure:
+      continue: true
       retry:
         max-attempts: 3
         delay: "5s"
@@ -95,6 +96,7 @@ steps:
             description: "Added by Elastic Workflow translation of CrowdStrike denylist playbook"
             source: "Elastic Workflow"
     on-failure:
+      continue: true
       retry:
         max-attempts: 3
         delay: "5s"

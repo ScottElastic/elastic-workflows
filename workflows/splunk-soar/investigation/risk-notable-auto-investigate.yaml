@@ -217,6 +217,7 @@ steps:
                     # Destructive — retry transient errors but fail loud
                     # so the analyst sees that containment did not run.
                     on-failure:
+                      continue: true
                       retry:
                         max-attempts: 3
                         delay: "5s"

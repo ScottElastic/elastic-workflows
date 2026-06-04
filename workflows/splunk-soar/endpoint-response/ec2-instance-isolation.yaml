@@ -95,6 +95,7 @@ steps:
         Authorization: "{{ consts.aws_auth_header }}"
         Accept: "application/json"
     on-failure:
+      continue: true
       retry:
         max-attempts: 3
         delay: "5s"

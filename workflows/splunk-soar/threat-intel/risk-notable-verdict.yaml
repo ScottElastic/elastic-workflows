@@ -140,6 +140,7 @@ steps:
                     inputs:
                       case_id: "{{ inputs.case_id }}"
                 on-failure:
+                  continue: true
                   retry:
                     max-attempts: 3
                     delay: "5s"

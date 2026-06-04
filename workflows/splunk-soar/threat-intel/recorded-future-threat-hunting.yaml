@@ -56,6 +56,7 @@ steps:
       query:
         fields: "risk,intelCard"
     on-failure:
+      continue: true
       retry:
         max-attempts: 3
         delay: "5s"
@@ -75,6 +76,7 @@ steps:
           query:
             fields: "relatedEntities,risk"
         on-failure:
+          continue: true
           retry:
             max-attempts: 3
             delay: "5s"

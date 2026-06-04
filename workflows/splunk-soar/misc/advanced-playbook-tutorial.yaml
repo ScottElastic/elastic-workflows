@@ -133,6 +133,7 @@ steps:
                 host: "{{ inputs.destination_address }}"
                 timeout_seconds: 60
             on-failure:
+              continue: true
               retry:
                 max-attempts: 3
                 delay: "5s"
@@ -185,6 +186,7 @@ steps:
                     cmd: "<request><address-block><ip>{{ inputs.source_address }}</ip></address-block></request>"
                     key: "{{ consts.pan_api_key }}"
                 on-failure:
+                  continue: true
                   retry:
                     max-attempts: 3
                     delay: "5s"

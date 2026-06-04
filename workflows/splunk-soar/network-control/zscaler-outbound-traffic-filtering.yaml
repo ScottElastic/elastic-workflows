@@ -64,6 +64,7 @@ steps:
         apiKey: "{{ consts.zscaler_obfuscated_api_key }}"
         timestamp: "{{ consts.zscaler_session_timestamp }}"
     on-failure:
+      continue: true
       retry:
         max-attempts: 3
         delay: "5s"
@@ -94,6 +95,7 @@ steps:
             urls:
               - "{{ item }}"
         on-failure:
+          continue: true
           retry:
             max-attempts: 3
             delay: "5s"
@@ -151,6 +153,7 @@ steps:
         Content-Type: "application/json"
         Cookie: "{{ steps.capture_session.output.jsessionid }}"
     on-failure:
+      continue: true
       retry:
         max-attempts: 3
         delay: "5s"

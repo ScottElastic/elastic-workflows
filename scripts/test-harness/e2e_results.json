@@ -1,0 +1,1582 @@
+{
+  "workflows/investigation/litellm-trojan-investigation.yaml": {
+    "result": "no_case",
+    "exec_status": "running",
+    "exec_id": "e4dd0454-2160-434b-9c5d-c88c6e0df300",
+    "expected_title": "Workflow: Trojaned Python Package \u2014 Base64 Exec Investigation"
+  },
+  "workflows/investigation/okta-aitm-investigation.yaml": {
+    "result": "exec_fail",
+    "exec_id": "97e1c560-5085-4c0c-a8ff-8afb55889b7b"
+  },
+  "workflows/splunk-soar/account-management/active-directory-disable-account-dispatch.yaml": {
+    "result": "ok",
+    "exec_id": "6f6b9fa2-011e-4132-b161-e766e873dcf4",
+    "exec_status": "completed",
+    "case_id": "d35fc85f-a634-4e3b-9a7e-2fee6b02d607",
+    "case_title": "Workflow: Active Directory \u2014 Disable Account Dispatch",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 172,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/d35fc85f-a634-4e3b-9a7e-2fee6b02d607"
+  },
+  "workflows/splunk-soar/account-management/active-directory-enable-account-dispatch.yaml": {
+    "result": "ok",
+    "exec_id": "471b7b68-92c8-43b6-a176-2188c957f0de",
+    "exec_status": "completed",
+    "case_id": "2d48393e-4806-4980-93a4-6c84382acafe",
+    "case_title": "Workflow: Active Directory \u2014 Enable Account Dispatch",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 171,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/2d48393e-4806-4980-93a4-6c84382acafe"
+  },
+  "workflows/splunk-soar/account-management/activedirectory-reset-password.yaml": {
+    "result": "ok",
+    "exec_id": "cd5b5837-9b23-43f9-b0e0-e17eb0953bb5",
+    "exec_status": "completed",
+    "case_id": "26e700f0-8c09-4a45-b89c-3adb5351c8c7",
+    "case_title": "Workflow: Active Directory \u2014 Reset Password",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 162,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/26e700f0-8c09-4a45-b89c-3adb5351c8c7"
+  },
+  "workflows/splunk-soar/account-management/ad-ldap-account-locking.yaml": {
+    "result": "exec_fail",
+    "exec_id": "ca323fd3-914c-4589-8b76-5e01bb7bfb43"
+  },
+  "workflows/splunk-soar/account-management/ad-ldap-account-unlocking.yaml": {
+    "result": "exec_fail",
+    "exec_id": "53f2dcae-f1b2-410a-98db-7fb8977ef302"
+  },
+  "workflows/splunk-soar/account-management/alert-deescalation-for-test-machines.yaml": {
+    "result": "ok",
+    "exec_id": "fe45e658-446c-4a52-bba7-92635c2f59c0",
+    "exec_status": "completed",
+    "case_id": "c6905eb6-26c1-41df-a726-f3148b356ade",
+    "case_title": "Workflow: Alert De-escalation \u2014 Test Machines",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 164,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/c6905eb6-26c1-41df-a726-f3148b356ade"
+  },
+  "workflows/splunk-soar/account-management/alert-escalation-for-attacked-executives.yaml": {
+    "result": "ok",
+    "exec_id": "d0d459d9-b999-48fa-8867-7e7f62424dc7",
+    "exec_status": "completed",
+    "case_id": "2f0cef1e-d2cb-430c-8ce5-8739a321b1a5",
+    "case_title": "Workflow: Alert Escalation \u2014 Attacked Executives",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 167,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/2f0cef1e-d2cb-430c-8ce5-8739a321b1a5"
+  },
+  "workflows/splunk-soar/account-management/aws-disable-user-accounts.yaml": {
+    "result": "ok",
+    "exec_id": "91897ed0-583d-44a2-a910-8c9b6a40b0f8",
+    "exec_status": "completed",
+    "case_id": "1c85b8e5-9ef1-42eb-b560-9a79fb931f5a",
+    "case_title": "Workflow: AWS IAM \u2014 Disable Inactive Users (Bulk)",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 168,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/1c85b8e5-9ef1-42eb-b560-9a79fb931f5a"
+  },
+  "workflows/splunk-soar/account-management/aws-find-inactive-users.yaml": {
+    "result": "exec_fail",
+    "exec_id": "fd22bcdc-c0d1-44be-985f-6d90281ac4b1"
+  },
+  "workflows/splunk-soar/account-management/aws-iam-account-locking.yaml": {
+    "result": "exec_fail",
+    "exec_id": "e02d5dc5-1f6d-4d4d-8b7b-ffbf4f9ee604"
+  },
+  "workflows/splunk-soar/account-management/aws-iam-account-unlocking.yaml": {
+    "result": "exec_fail",
+    "exec_id": "a4065b30-b4e4-4359-b8f0-1d605db88a5b"
+  },
+  "workflows/splunk-soar/account-management/azure-ad-account-locking.yaml": {
+    "result": "exec_fail",
+    "exec_id": "b19d36e7-780c-451b-a259-a4225456315c"
+  },
+  "workflows/splunk-soar/account-management/azure-ad-account-unlocking.yaml": {
+    "result": "exec_fail",
+    "exec_id": "b98af523-1b06-49a4-aad9-49c60c2f5ef2"
+  },
+  "workflows/splunk-soar/account-management/azure-new-user-census.yaml": {
+    "result": "exec_fail",
+    "exec_id": "aedcd678-c926-4200-974d-fe9bd1f376da"
+  },
+  "workflows/splunk-soar/account-management/excessive-account-lockouts-enrichment-and-response.yaml": {
+    "result": "ok",
+    "exec_id": "78ea1cae-b9f3-4a65-8f29-39066e2f7308",
+    "exec_status": "completed",
+    "case_id": "531da92a-c659-4891-90fa-78cc42574bd0",
+    "case_title": "Workflow: Excessive Account Lockouts \u2014 Enrichment & Response",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 179,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/531da92a-c659-4891-90fa-78cc42574bd0"
+  },
+  "workflows/splunk-soar/email-triage/email-notification-for-malware.yaml": {
+    "result": "ok",
+    "exec_id": "f3ded03f-2a6a-402e-8adc-9330ce1e2214",
+    "exec_status": "completed",
+    "case_id": "9093accd-c81f-482b-8e82-09ba354d3d26",
+    "case_title": "Workflow: Email Notification \u2014 Malware Confirmation",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 170,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/9093accd-c81f-482b-8e82-09ba354d3d26"
+  },
+  "workflows/splunk-soar/email-triage/g-suite-for-gmail-message-eviction.yaml": {
+    "result": "exec_fail",
+    "exec_id": "e87e271e-eddd-4274-9486-1aa1e9afc350"
+  },
+  "workflows/splunk-soar/email-triage/g-suite-for-gmail-search-and-purge.yaml": {
+    "result": "ok",
+    "exec_id": "d630aedb-507a-408c-a378-87cba58edfce",
+    "exec_status": "completed",
+    "case_id": "6786bf95-9c2a-42d4-96b2-4eb2e8f93c43",
+    "case_title": "Workflow: GSuite Gmail \u2014 Search and Purge",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 160,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/6786bf95-9c2a-42d4-96b2-4eb2e8f93c43"
+  },
+  "workflows/splunk-soar/email-triage/ms-graph-for-office-365-message-eviction.yaml": {
+    "result": "ok",
+    "exec_id": "ee154603-85b6-4717-88b2-f9650c3d34ee",
+    "exec_status": "completed",
+    "case_id": "eb4ec247-cabe-47d8-875a-3df388df7558",
+    "case_title": "Workflow: MS Graph O365 \u2014 Message Eviction",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 161,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/eb4ec247-cabe-47d8-875a-3df388df7558"
+  },
+  "workflows/splunk-soar/email-triage/ms-graph-for-office-365-message-restore.yaml": {
+    "result": "ok",
+    "exec_id": "c914f4da-8c86-4ca7-86f3-e4489154ac02",
+    "exec_status": "completed",
+    "case_id": "5c07d24a-4687-40dd-ac5b-944234b72953",
+    "case_title": "Workflow: MS Graph O365 \u2014 Message Restore",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 160,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/5c07d24a-4687-40dd-ac5b-944234b72953"
+  },
+  "workflows/splunk-soar/email-triage/ms-graph-for-office-365-search-and-purge.yaml": {
+    "result": "ok",
+    "exec_id": "e15bb104-e26d-4a73-9e0d-adc945d9ba60",
+    "exec_status": "completed",
+    "case_id": "957f0a01-e15f-497c-83f5-8812d1b4402e",
+    "case_title": "Workflow: MS Graph O365 \u2014 Search and Purge",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 161,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/957f0a01-e15f-497c-83f5-8812d1b4402e"
+  },
+  "workflows/splunk-soar/email-triage/ms-graph-for-office-365-search-and-restore.yaml": {
+    "result": "ok",
+    "exec_id": "d8390ffd-b614-4172-9e3b-17c48aca6891",
+    "exec_status": "completed",
+    "case_id": "97bd6056-2ebc-4b22-bd53-7ebb3d11c27c",
+    "case_title": "Workflow: MS Graph O365 \u2014 Search and Restore",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 163,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/97bd6056-2ebc-4b22-bd53-7ebb3d11c27c"
+  },
+  "workflows/splunk-soar/email-triage/phishme-email-investigate-and-respond.yaml": {
+    "result": "ok",
+    "exec_id": "7dad60ee-1153-4dad-9a2a-356cb1438b8c",
+    "exec_status": "completed",
+    "case_id": "464350c0-5779-4d40-9430-1995f0c9b7b0",
+    "case_title": "Workflow: PhishMe \u2014 Investigate and Respond",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 162,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/464350c0-5779-4d40-9430-1995f0c9b7b0"
+  },
+  "workflows/splunk-soar/email-triage/reversinglabs-reported-email-triage.yaml": {
+    "result": "ok",
+    "exec_id": "9d0906ef-5f64-44de-827f-9caee4235158",
+    "exec_status": "completed",
+    "case_id": "17627522-a89e-4dac-afac-47d22809cff4",
+    "case_title": "Workflow: ReversingLabs \u2014 Reported Email Triage",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 166,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/17627522-a89e-4dac-afac-47d22809cff4"
+  },
+  "workflows/splunk-soar/email-triage/splunk-automated-email-investigation.yaml": {
+    "result": "ok",
+    "exec_id": "ed6d4d39-4b0c-4307-9437-cb723547bd37",
+    "exec_status": "completed",
+    "case_id": "0824d63a-7b27-4246-af33-eb43099695ff",
+    "case_title": "Workflow: Splunk \u2014 Automated Email Investigation",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 167,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/0824d63a-7b27-4246-af33-eb43099695ff"
+  },
+  "workflows/splunk-soar/email-triage/zscaler-patient-0-parse-email.yaml": {
+    "result": "ok",
+    "exec_id": "53a488bc-f55a-49f4-ba85-24996992afe0",
+    "exec_status": "completed",
+    "case_id": "5d6414d5-208f-41f7-a1c9-c85621b2f4ae",
+    "case_title": "Workflow: Zscaler Patient 0 \u2014 Parse Email",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 160,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/5d6414d5-208f-41f7-a1c9-c85621b2f4ae"
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-endpoint-ioc-enrichment.yaml": {
+    "result": "exec_fail",
+    "exec_id": "65913df4-4547-4c65-899b-543754520490"
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-endpoint-quarantine-response.yaml": {
+    "result": "exec_fail",
+    "exec_id": "011f04cb-8f9d-47b8-ad76-090b5d8f4e4c"
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-malware-triage.yaml": {
+    "result": "exec_fail",
+    "exec_id": "beb50993-35bb-4f94-962e-1b0b02222c38"
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-device-attribute-lookup.yaml": {
+    "result": "exec_fail",
+    "exec_id": "71494ef1-e143-4755-9189-eeecfb7b6878"
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-dynamic-analysis.yaml": {
+    "result": "exec_fail",
+    "exec_id": "b983654f-db3d-4ef7-850d-6bff6692e699"
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-endpoint-analysis.yaml": {
+    "result": "exec_fail",
+    "exec_id": "a44f4026-c116-4820-9811-e32b29b34b24"
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-executable-denylisting.yaml": {
+    "result": "exec_fail",
+    "exec_id": "1c371fe1-4942-4c58-be5a-ba01452f268c"
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-file-collection.yaml": {
+    "result": "exec_fail",
+    "exec_id": "85124c62-f584-4112-912e-9105ce22d695"
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-file-eviction.yaml": {
+    "result": "exec_fail",
+    "exec_id": "55080ac9-4e17-49ff-87c1-5dfba683ceae"
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-file-restore.yaml": {
+    "result": "exec_fail",
+    "exec_id": "4908f210-cea9-4a73-ac64-1138e50f763a"
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-get-device-info.yaml": {
+    "result": "exec_fail",
+    "exec_id": "ef4f28b3-fc29-43f2-b4f4-b18385b86816"
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-identifier-activity-analysis.yaml": {
+    "result": "exec_fail",
+    "exec_id": "b7d168b5-3c93-4e61-a113-d6cdc75a74b9"
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-network-isolation.yaml": {
+    "result": "exec_fail",
+    "exec_id": "70501aa3-09e7-4e74-9e05-a3961e3f0127"
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-network-restore.yaml": {
+    "result": "exec_fail",
+    "exec_id": "77605e54-711b-42b5-b0ff-9126cd6d9edb"
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-process-termination.yaml": {
+    "result": "exec_fail",
+    "exec_id": "91894c42-339e-4571-ba79-cc68e57ce799"
+  },
+  "workflows/splunk-soar/endpoint-response/ec2-instance-isolation.yaml": {
+    "result": "exec_fail",
+    "exec_id": "37e2d576-20a2-403e-bf2b-3fce5e3e197c"
+  },
+  "workflows/splunk-soar/endpoint-response/host-quarantine-crowdstrike.yaml": {
+    "result": "exec_fail",
+    "exec_id": "dec2fc30-1ec7-42f7-bc84-0511ff5fc97f"
+  },
+  "workflows/splunk-soar/endpoint-response/microsoft-defender-for-endpoint-network-isolation.yaml": {
+    "result": "exec_fail",
+    "exec_id": "1419b4bc-905a-488a-b3d7-d2f5315c23f2"
+  },
+  "workflows/splunk-soar/endpoint-response/microsoft-defender-for-endpoint-network-restore.yaml": {
+    "result": "exec_fail",
+    "exec_id": "8492e7d2-41c6-4298-a452-da534f35ea2f"
+  },
+  "workflows/splunk-soar/endpoint-response/windows-defender-atp-identifier-activity-analysis.yaml": {
+    "result": "ok",
+    "exec_id": "534beca8-e831-4283-b623-bf27a847ed35",
+    "exec_status": "completed",
+    "case_id": "71d94fa0-4199-4d5a-a9b5-3274d2591472",
+    "case_title": "Workflow: Windows Defender ATP \u2014 Identifier Activity Analysis",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 180,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/71d94fa0-4199-4d5a-a9b5-3274d2591472"
+  },
+  "workflows/splunk-soar/enrichment/acmecorp-phishing-full-triage.yaml": {
+    "result": "no_case",
+    "exec_status": "completed",
+    "exec_id": "7754cc8c-6c6e-40e2-9d51-d2c2fe20f79a",
+    "expected_title": "Workflow: AcmeCorp Phishing Full Triage"
+  },
+  "workflows/splunk-soar/enrichment/ad-ldap-entity-attribute-lookup.yaml": {
+    "result": "ok",
+    "exec_id": "d2ecff5f-c8f1-4cf5-aa5d-7d841972c852",
+    "exec_status": "completed",
+    "case_id": "fde384af-e33b-4d25-b99a-bdf75723ae9e",
+    "case_title": "Workflow: AD LDAP \u2014 Entity Attribute Lookup",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 162,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/fde384af-e33b-4d25-b99a-bdf75723ae9e"
+  },
+  "workflows/splunk-soar/enrichment/attribute-lookup-dispatch.yaml": {
+    "result": "ok",
+    "exec_id": "b778339a-a3cf-4ea9-b120-23fabf222b1c",
+    "exec_status": "completed",
+    "case_id": "6d68ec46-e778-4997-a4d0-5e357781feba",
+    "case_title": "Workflow: Attribute Lookup \u2014 Dispatch",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 156,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/6d68ec46-e778-4997-a4d0-5e357781feba"
+  },
+  "workflows/splunk-soar/enrichment/automated-enrichment.yaml": {
+    "result": "ok",
+    "exec_id": "87c399e5-2906-49e5-b9ca-783a6627f51e",
+    "exec_status": "completed",
+    "case_id": "cca9abbb-d4ce-449a-b1b0-c753afa67630",
+    "case_title": "Workflow: Automated Enrichment",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 149,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/cca9abbb-d4ce-449a-b1b0-c753afa67630"
+  },
+  "workflows/splunk-soar/enrichment/azure-ad-graph-user-attribute-lookup.yaml": {
+    "result": "ok",
+    "exec_id": "1d7f80c2-1fa6-4d61-92e8-5e9b6f97ce55",
+    "exec_status": "completed",
+    "case_id": "77e0eb02-9700-4a87-a863-0ae76441a262",
+    "case_title": "Workflow: Azure AD Graph \u2014 User Attribute Lookup",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 167,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/77e0eb02-9700-4a87-a863-0ae76441a262"
+  },
+  "workflows/splunk-soar/enrichment/dynamic-analysis-dispatch.yaml": {
+    "result": "ok",
+    "exec_id": "0a74e562-5a96-4fc9-961e-fb339eafff7c",
+    "exec_status": "completed",
+    "case_id": "52fd678c-235e-48df-b936-3edec643bbcf",
+    "case_title": "Workflow: Dynamic Analysis \u2014 Dispatch",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 156,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/52fd678c-235e-48df-b936-3edec643bbcf"
+  },
+  "workflows/splunk-soar/enrichment/g-suite-for-gmail-message-identifier-activity-analysis.yaml": {
+    "result": "exec_fail",
+    "exec_id": "b72c0dbe-5dea-41b5-bcaa-2ba962ef062c"
+  },
+  "workflows/splunk-soar/enrichment/identifier-activity-analysis-dispatch.yaml": {
+    "result": "ok",
+    "exec_id": "d85afa39-18d0-449b-8382-2ea86d67418f",
+    "exec_status": "completed",
+    "case_id": "f6501972-274e-4438-a522-b2ceac1942b1",
+    "case_title": "Workflow: Identifier Activity Analysis \u2014 Dispatch",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 168,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/f6501972-274e-4438-a522-b2ceac1942b1"
+  },
+  "workflows/splunk-soar/enrichment/mission-control-attribute-lookup.yaml": {
+    "result": "ok",
+    "exec_id": "b1591c38-5901-4c69-9238-75703708db50",
+    "exec_status": "completed",
+    "case_id": "c01edd02-388a-4385-b238-edbed1cea73d",
+    "case_title": "Workflow: Mission Control \u2014 Attribute Lookup",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 163,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/c01edd02-388a-4385-b238-edbed1cea73d"
+  },
+  "workflows/splunk-soar/enrichment/mission-control-automated-enrichment.yaml": {
+    "result": "ok",
+    "exec_id": "ae4287ac-780c-41c0-ad6a-52da4ae9fffa",
+    "exec_status": "completed",
+    "case_id": "a2266aed-68d0-4dae-9e91-bd7f20183391",
+    "case_title": "Workflow: Mission Control \u2014 Automated Enrichment",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 167,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/a2266aed-68d0-4dae-9e91-bd7f20183391"
+  },
+  "workflows/splunk-soar/enrichment/ms-graph-for-office-365-message-identifier-activity-analysis.yaml": {
+    "result": "exec_fail",
+    "exec_id": "1a2a0860-3d86-42fd-a96b-5061d8622caa"
+  },
+  "workflows/splunk-soar/enrichment/splunk-attack-analyzer-dynamic-analysis.yaml": {
+    "result": "ok",
+    "exec_id": "d6e9b876-3e47-412b-aa3d-26dcf313ee70",
+    "exec_status": "completed",
+    "case_id": "3bc4f065-1bda-4375-8e9d-4767f6416e27",
+    "case_title": "Workflow: Splunk Attack Analyzer \u2014 Dynamic Analysis",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 170,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/3bc4f065-1bda-4375-8e9d-4767f6416e27"
+  },
+  "workflows/splunk-soar/enrichment/splunk-identifier-activity-analysis.yaml": {
+    "result": "ok",
+    "exec_id": "34dc3328-94fc-4db2-b480-8637e9018cee",
+    "exec_status": "completed",
+    "case_id": "f0a541f1-793d-45fa-b3ab-9a6faaffb579",
+    "case_title": "Workflow: Splunk \u2014 Identifier Activity Analysis",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 166,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/f0a541f1-793d-45fa-b3ab-9a6faaffb579"
+  },
+  "workflows/splunk-soar/enrichment/splunk-message-identifier-activity-analysis.yaml": {
+    "result": "exec_fail",
+    "exec_id": "eb697320-7dda-47c8-b7ce-ed0092b886b4"
+  },
+  "workflows/splunk-soar/investigation/corelight-investigate-dns-alert.yaml": {
+    "result": "ok",
+    "exec_id": "fc9c4e00-2599-4980-a76d-10cd6eb20990",
+    "exec_status": "completed",
+    "case_id": "d0d8a9a0-887c-40ee-b9fe-26a4c0558097",
+    "case_title": "Workflow: Corelight \u2014 DNS Alert Investigation",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 164,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/d0d8a9a0-887c-40ee-b9fe-26a4c0558097"
+  },
+  "workflows/splunk-soar/investigation/dispatch-input-playbooks.yaml": {
+    "result": "ok",
+    "exec_id": "63b2974f-118c-47d9-8d5e-69e84acc8e80",
+    "exec_status": "completed",
+    "case_id": "623e1941-cba6-4bd5-8c3b-4d4531b85fad",
+    "case_title": "Workflow: Dispatcher \u2014 Route Indicators to Input Workflows",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 177,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/623e1941-cba6-4bd5-8c3b-4d4531b85fad"
+  },
+  "workflows/splunk-soar/investigation/dns-hijack-enrichment.yaml": {
+    "result": "ok",
+    "exec_id": "8f014968-7bc3-4b09-950a-f5b08e1a9fba",
+    "exec_status": "running",
+    "case_id": "9648c694-1f22-482d-8d07-3dbf2167e073",
+    "case_title": "Workflow: DNS Hijack \u2014 Enrichment",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 152,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/9648c694-1f22-482d-8d07-3dbf2167e073"
+  },
+  "workflows/splunk-soar/investigation/domain-investigate.yaml": {
+    "result": "ok",
+    "exec_id": "001b9bb8-449f-44d8-be3e-95f680633124",
+    "exec_status": "completed",
+    "case_id": "068f14e5-f305-495c-b8e0-a118219348f9",
+    "case_title": "Workflow: Domain \u2014 Multi-Source Investigation",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 164,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/068f14e5-f305-495c-b8e0-a118219348f9"
+  },
+  "workflows/splunk-soar/investigation/ec2-instance-investigation-and-notification.yaml": {
+    "result": "ok",
+    "exec_id": "47cc2cad-448a-48dc-8654-876e3ab3ae20",
+    "exec_status": "completed",
+    "case_id": "0cd49adc-7dc6-494e-8d5a-11f5d68344b3",
+    "case_title": "Workflow: AWS EC2 \u2014 Security Hub Finding Investigation & Notification",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 188,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/0cd49adc-7dc6-494e-8d5a-11f5d68344b3"
+  },
+  "workflows/splunk-soar/investigation/extrahop-detect-data-exfiltration.yaml": {
+    "result": "ok",
+    "exec_id": "6722023e-5f6e-4c72-941a-d9dcf7da245e",
+    "exec_status": "completed",
+    "case_id": "57e2c024-ec39-4916-97b5-fc66b3efc70a",
+    "case_title": "Workflow: ExtraHop \u2014 Data Exfiltration Investigation",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 171,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/57e2c024-ec39-4916-97b5-fc66b3efc70a"
+  },
+  "workflows/splunk-soar/investigation/extrahop-externally-accessible-databases.yaml": {
+    "result": "ok",
+    "exec_id": "6e222614-8f92-4582-a00a-9377a2beeb6d",
+    "exec_status": "completed",
+    "case_id": "bc8123ec-b9c2-4742-82a6-291b4f7ead2c",
+    "case_title": "Workflow: ExtraHop \u2014 Externally Accessible Database Investigation",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 184,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/bc8123ec-b9c2-4742-82a6-291b4f7ead2c"
+  },
+  "workflows/splunk-soar/investigation/extrahop-new-dns-servers.yaml": {
+    "result": "ok",
+    "exec_id": "8398dcb2-a3db-488b-ae91-a691fef5f082",
+    "exec_status": "completed",
+    "case_id": "70fe4fcf-7ef5-494c-b960-d4f0cd4add32",
+    "case_title": "Workflow: ExtraHop \u2014 New DNS Server Discovery & Scan",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 171,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/70fe4fcf-7ef5-494c-b960-d4f0cd4add32"
+  },
+  "workflows/splunk-soar/investigation/internal-host-splunk-investigate-log4j.yaml": {
+    "result": "exec_fail",
+    "exec_id": "898e4a0b-6e2e-4c4e-a888-362a92832704"
+  },
+  "workflows/splunk-soar/investigation/internal-host-ssh-investigate.yaml": {
+    "result": "exec_fail",
+    "exec_id": "1018ab72-67f8-4386-a202-6f18f5aa9a6a"
+  },
+  "workflows/splunk-soar/investigation/internal-host-ssh-log4j-investigate.yaml": {
+    "result": "exec_fail",
+    "exec_id": "567ab240-ab19-4806-986c-4850d1f14cf9"
+  },
+  "workflows/splunk-soar/investigation/internal-host-winrm-investigate.yaml": {
+    "result": "exec_fail",
+    "exec_id": "56c78cd9-b7e5-4ba3-a9c9-0ea7472a5177"
+  },
+  "workflows/splunk-soar/investigation/internal-host-winrm-log4j-investigate.yaml": {
+    "result": "exec_fail",
+    "exec_id": "19187ea4-18a0-45bd-92de-ed7a77c46d3a"
+  },
+  "workflows/splunk-soar/investigation/lets-encrypt-domain-investigate.yaml": {
+    "result": "ok",
+    "exec_id": "596f94cd-3dd0-4d0d-b3c1-42085d254fbe",
+    "exec_status": "completed",
+    "case_id": "027e0d4f-3fde-40f6-b427-37a083d9aca7",
+    "case_title": "Workflow: Let's Encrypt \u2014 Phishing Domain Investigation",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 174,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/027e0d4f-3fde-40f6-b427-37a083d9aca7"
+  },
+  "workflows/splunk-soar/investigation/log4j-investigate.yaml": {
+    "result": "ok",
+    "exec_id": "b97ee0ef-7d53-4ece-9519-6f9553e19b2d",
+    "exec_status": "completed",
+    "case_id": "3f0448d4-1a78-40ac-a476-1512ba79a716",
+    "case_title": "Workflow: log4j \u2014 Master Investigation Orchestrator (CVE-2021-44228)",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 187,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/3f0448d4-1a78-40ac-a476-1512ba79a716"
+  },
+  "workflows/splunk-soar/investigation/mcafee-phishing-attachment-investigate.yaml": {
+    "result": "ok",
+    "exec_id": "4dbf80ce-cecb-4fd2-bf43-6d858e5746a4",
+    "exec_status": "completed",
+    "case_id": "fbe3f0ad-3f56-44e1-9bf2-115f287165fe",
+    "case_title": "Workflow: McAfee \u2014 Phishing Attachment Investigation",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 171,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/fbe3f0ad-3f56-44e1-9bf2-115f287165fe"
+  },
+  "workflows/splunk-soar/investigation/nagios-service-monitor.yaml": {
+    "result": "ok",
+    "exec_id": "b77cc8d9-9876-4ecd-b831-5d685fb30263",
+    "exec_status": "completed",
+    "case_id": "d6389945-7231-4595-9b89-0bb385650c81",
+    "case_title": "Workflow: Nagios \u2014 Service Monitor Auto-Restart",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 166,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/d6389945-7231-4595-9b89-0bb385650c81"
+  },
+  "workflows/splunk-soar/investigation/protectwise-investigate-and-respond.yaml": {
+    "result": "ok",
+    "exec_id": "326a01d7-326a-496b-b645-4687bd9c7b1a",
+    "exec_status": "completed",
+    "case_id": "b358be34-6708-4b1b-8b72-8dab8615e4cb",
+    "case_title": "Workflow: ProtectWise \u2014 Investigate and Respond",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 166,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/b358be34-6708-4b1b-8b72-8dab8615e4cb"
+  },
+  "workflows/splunk-soar/investigation/ransomware-investigate-and-contain.yaml": {
+    "result": "ok",
+    "exec_id": "347b9e62-45c4-41d0-a534-75b31ea9b534",
+    "exec_status": "completed",
+    "case_id": "aa342a94-4fb5-445b-94d8-dbaea80e2d0c",
+    "case_title": "Workflow: Ransomware \u2014 Investigate and Contain",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 165,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/aa342a94-4fb5-445b-94d8-dbaea80e2d0c"
+  },
+  "workflows/splunk-soar/investigation/reinfected-endpoint-check.yaml": {
+    "result": "ok",
+    "exec_id": "7a2b9fa5-0d9d-4c9f-9e2e-390e28e48d68",
+    "exec_status": "completed",
+    "case_id": "fd80e5f3-b4ec-4081-9c15-613220675673",
+    "case_title": "Workflow: Reinfected Endpoint \u2014 Triage",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 157,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/fd80e5f3-b4ec-4081-9c15-613220675673"
+  },
+  "workflows/splunk-soar/investigation/risk-notable-auto-investigate.yaml": {
+    "result": "ok",
+    "exec_id": "19fdf9c4-6de8-4c6f-8db7-b79bddad8b8f",
+    "exec_status": "completed",
+    "case_id": "105a8a33-9406-423a-a298-bdf9e3cd9b16",
+    "case_title": "Workflow: Splunk Risk Notable \u2014 Auto-Investigate",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 167,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/105a8a33-9406-423a-a298-bdf9e3cd9b16"
+  },
+  "workflows/splunk-soar/investigation/risk-notable-auto-merge.yaml": {
+    "result": "ok",
+    "exec_id": "775bcddd-bd12-4d75-8b13-2383b05cb112",
+    "exec_status": "completed",
+    "case_id": "2c3507cd-3db7-463f-8ae5-91f9a713f642",
+    "case_title": "Workflow: Splunk Risk Notable \u2014 Auto-Merge",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 161,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/2c3507cd-3db7-463f-8ae5-91f9a713f642"
+  },
+  "workflows/splunk-soar/investigation/risk-notable-import-data.yaml": {
+    "result": "ok",
+    "exec_id": "f3059e37-ed22-4049-b854-cde602c0b371",
+    "exec_status": "completed",
+    "case_id": "07804b89-94e9-4e8f-9f16-ab88b080a568",
+    "case_title": "Workflow: Splunk Risk Notable \u2014 Import Contributing Events",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 177,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/07804b89-94e9-4e8f-9f16-ab88b080a568"
+  },
+  "workflows/splunk-soar/investigation/risk-notable-investigate.yaml": {
+    "result": "ok",
+    "exec_id": "1e985ed0-f89a-48d1-8aa1-4fb97583e50e",
+    "exec_status": "completed",
+    "case_id": "ae911905-ab71-47e6-bb0b-f374631680f1",
+    "case_title": "Workflow: Splunk Risk Notable \u2014 Investigate",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 162,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/ae911905-ab71-47e6-bb0b-f374631680f1"
+  },
+  "workflows/splunk-soar/investigation/risk-notable-merge-events.yaml": {
+    "result": "ok",
+    "exec_id": "bc4f1411-bcea-462f-9584-4ae5b8cd7e79",
+    "exec_status": "completed",
+    "case_id": "1357cbc7-22ad-4c59-9dcd-13638f7b8566",
+    "case_title": "Workflow: Splunk Risk Notable \u2014 Manual Merge Events",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 170,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/1357cbc7-22ad-4c59-9dcd-13638f7b8566"
+  },
+  "workflows/splunk-soar/investigation/risk-notable-preprocess.yaml": {
+    "result": "ok",
+    "exec_id": "16898cc7-2c69-4bc4-9baa-f618994da656",
+    "exec_status": "completed",
+    "case_id": "d9e75967-dfbf-4795-b8c1-8b19620bd5f5",
+    "case_title": "Workflow: Splunk Risk Notable \u2014 Preprocess",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 161,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/d9e75967-dfbf-4795-b8c1-8b19620bd5f5"
+  },
+  "workflows/splunk-soar/investigation/splunk-enterprise-security-close-investigation.yaml": {
+    "result": "ok",
+    "exec_id": "0da01ad7-e0e1-461a-9425-fcb9bc62c928",
+    "exec_status": "completed",
+    "case_id": "bebfac7a-0efd-41de-b8ff-9b24f789c153",
+    "case_title": "Workflow: Splunk ES \u2014 Close Investigation",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 160,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/bebfac7a-0efd-41de-b8ff-9b24f789c153"
+  },
+  "workflows/splunk-soar/investigation/ssh-endpoint-investigate.yaml": {
+    "result": "exec_fail",
+    "exec_id": "eb4196fc-1a5d-4ee5-8149-d278a39f38eb"
+  },
+  "workflows/splunk-soar/investigation/start-investigation.yaml": {
+    "result": "ok",
+    "exec_id": "f9bc8ff3-9282-429f-883e-0d5a766f5af6",
+    "exec_status": "completed",
+    "case_id": "e86514e1-b738-4431-a20f-21e14e2856b5",
+    "case_title": "Workflow: Workbook \u2014 Start Investigation",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 159,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/e86514e1-b738-4431-a20f-21e14e2856b5"
+  },
+  "workflows/splunk-soar/investigation/threat-intel-investigate.yaml": {
+    "result": "exec_fail",
+    "exec_id": "938a6ca1-e19f-40af-8597-170dffe7490d"
+  },
+  "workflows/splunk-soar/investigation/threatquotient-investigate-and-respond.yaml": {
+    "result": "ok",
+    "exec_id": "79fc3ebc-a951-46c4-9ab3-92a0aae3d322",
+    "exec_status": "completed",
+    "case_id": "864bf564-4a4d-490d-ab9f-d8a208210861",
+    "case_title": "Workflow: ThreatQuotient \u2014 Investigate and Respond",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 169,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/864bf564-4a4d-490d-ab9f-d8a208210861"
+  },
+  "workflows/splunk-soar/investigation/url-investigate.yaml": {
+    "result": "ok",
+    "exec_id": "a8bc230e-ccf7-4cf9-82b9-0ccf71506fcb",
+    "exec_status": "completed",
+    "case_id": "fac6162b-855a-4cca-81e5-dcfbb6564afc",
+    "case_title": "Workflow: URL \u2014 Investigate (Splunk Intelligence Management)",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 179,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/fac6162b-855a-4cca-81e5-dcfbb6564afc"
+  },
+  "workflows/splunk-soar/misc/advanced-playbook-tutorial.yaml": {
+    "result": "ok",
+    "exec_id": "253f90aa-4df0-4e18-a34f-4490de9e35a8",
+    "exec_status": "completed",
+    "case_id": "3fcb7c64-d268-4a24-bd04-869058bec207",
+    "case_title": "Workflow: Advanced Playbook Tutorial",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 155,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/3fcb7c64-d268-4a24-bd04-869058bec207"
+  },
+  "workflows/splunk-soar/misc/commvault-cloud-disable-data-aging.yaml": {
+    "result": "exec_fail",
+    "exec_id": "5684e718-50f7-417f-b84a-52486c4c2847"
+  },
+  "workflows/splunk-soar/misc/create-ticket.yaml": {
+    "result": "exec_fail",
+    "exec_id": "e30fe625-9aa4-49ff-aebe-f240794d02a0"
+  },
+  "workflows/splunk-soar/misc/customer-firewall-request-handle-artifact.yaml": {
+    "result": "exec_fail",
+    "exec_id": "8c7b9b6d-3fe2-408f-afd9-3e26760eda37"
+  },
+  "workflows/splunk-soar/misc/customer-firewall-request-parse-csv.yaml": {
+    "result": "ok",
+    "exec_id": "6206ecee-1ee9-4d42-97a3-9d72db571496",
+    "exec_status": "completed",
+    "case_id": "906dacab-f06b-4535-9494-f9a9f38ff5a3",
+    "case_title": "Workflow: Customer Firewall Request \u2014 Parse CSV",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 166,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/906dacab-f06b-4535-9494-f9a9f38ff5a3"
+  },
+  "workflows/splunk-soar/misc/endace-splunk-search-download-pcap.yaml": {
+    "result": "ok",
+    "exec_id": "be6de53c-c165-41ab-8a36-afb9fd68e4ef",
+    "exec_status": "completed",
+    "case_id": "45cdeaba-340b-4fbe-b16a-536934a74a20",
+    "case_title": "Workflow: EndaceProbe \u2014 Splunk Search and Conditional PCAP Download",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 186,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/45cdeaba-340b-4fbe-b16a-536934a74a20"
+  },
+  "workflows/splunk-soar/misc/gcp-unusual-serviceaccount-usage.yaml": {
+    "result": "ok",
+    "exec_id": "17477a96-b828-45da-a635-071b0b4ccc24",
+    "exec_status": "completed",
+    "case_id": "3b45ddea-e1f1-4a7f-88d7-3b8f81e484eb",
+    "case_title": "Workflow: GCP \u2014 Unusual Service Account Usage Triage",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 171,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/3b45ddea-e1f1-4a7f-88d7-3b8f81e484eb"
+  },
+  "workflows/splunk-soar/misc/onboarding-demonstration.yaml": {
+    "result": "ok",
+    "exec_id": "8a8b4d82-fa0f-4496-ab90-1dcf0c5495e5",
+    "exec_status": "completed",
+    "case_id": "16cc9bf6-b9b6-4d91-890d-e9ec95b9ac62",
+    "case_title": "Workflow: Onboarding Demonstration \u2014 Enrichment and Severity",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 179,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/16cc9bf6-b9b6-4d91-890d-e9ec95b9ac62"
+  },
+  "workflows/splunk-soar/misc/pin-to-hud-sample.yaml": {
+    "result": "ok",
+    "exec_id": "e0771fb2-464d-4401-af06-546e03ca5e58",
+    "exec_status": "completed",
+    "case_id": "91863bd8-97f4-4958-a27c-b19e785cf8e0",
+    "case_title": "Workflow: Heads-Up Display Pinning Sample",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 160,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/91863bd8-97f4-4958-a27c-b19e785cf8e0"
+  },
+  "workflows/splunk-soar/misc/reversinglabs-titaniumscale-file-analysis.yaml": {
+    "result": "ok",
+    "exec_id": "c77961ac-168f-411a-85bf-a4172dcb0d94",
+    "exec_status": "completed",
+    "case_id": "a4bd7b7f-74a0-4091-a4bb-071bcb409f70",
+    "case_title": "Workflow: ReversingLabs TitaniumScale \u2014 File Detonation",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 174,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/a4bd7b7f-74a0-4091-a4bb-071bcb409f70"
+  },
+  "workflows/splunk-soar/misc/test-connectivity.yaml": {
+    "result": "ok",
+    "exec_id": "a7b35397-af2a-41bd-9855-54fa1402edd3",
+    "exec_status": "completed",
+    "case_id": "5643498f-8278-46df-9f25-884964c00eed",
+    "case_title": "Workflow: Connector Health Check",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 151,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/5643498f-8278-46df-9f25-884964c00eed"
+  },
+  "workflows/splunk-soar/misc/track-active-directory-admin-users.yaml": {
+    "result": "ok",
+    "exec_id": "57c840d5-475a-426a-8ff8-b8f39ce8ffd2",
+    "exec_status": "completed",
+    "case_id": "942628e8-197c-473e-b577-a808e566cc53",
+    "case_title": "Workflow: Track Active Directory Administrator Users",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 171,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/942628e8-197c-473e-b577-a808e566cc53"
+  },
+  "workflows/splunk-soar/misc/user-approved-ticket-creation.yaml": {
+    "result": "ok",
+    "exec_id": "a6958867-fe33-4968-bb21-2729410ef52c",
+    "exec_status": "completed",
+    "case_id": "0cd3a6f3-c13e-48dc-bcbf-b540a835fd51",
+    "case_title": "Workflow: User-Approved Endpoint Containment Ticket",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 170,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/0cd3a6f3-c13e-48dc-bcbf-b540a835fd51"
+  },
+  "workflows/splunk-soar/misc/user-prompt-and-block-domain.yaml": {
+    "result": "ok",
+    "exec_id": "44c6971c-a26d-4ad6-8931-faf8fd1985d6",
+    "exec_status": "completed",
+    "case_id": "381c25b7-2662-4224-b5eb-aaea98a63141",
+    "case_title": "Workflow: User-Approved Domain Block via Umbrella",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 168,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/381c25b7-2662-4224-b5eb-aaea98a63141"
+  },
+  "workflows/splunk-soar/misc/vectra-detection-notification.yaml": {
+    "result": "ok",
+    "exec_id": "8cf07a81-7fe9-4ce9-936d-6c78f3ad9815",
+    "exec_status": "completed",
+    "case_id": "f74d55f0-5d8e-427c-a763-f4da7c89ef1d",
+    "case_title": "Workflow: Vectra Detection Notification",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 158,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/f74d55f0-5d8e-427c-a763-f4da7c89ef1d"
+  },
+  "workflows/splunk-soar/network-control/cisco-umbrella-dns-denylisting.yaml": {
+    "result": "exec_fail",
+    "exec_id": "b3dfde38-8e85-41fe-ac42-7eb20b0d0e0a"
+  },
+  "workflows/splunk-soar/network-control/dns-denylisting-dispatch.yaml": {
+    "result": "ok",
+    "exec_id": "28f3acb9-3d31-4374-8b42-853cb702b863",
+    "exec_status": "completed",
+    "case_id": "db657ea5-6212-4840-9b15-a7b46ca44ace",
+    "case_title": "Workflow: DNS Denylisting \u2014 Dispatch",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 155,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/db657ea5-6212-4840-9b15-a7b46ca44ace"
+  },
+  "workflows/splunk-soar/network-control/domain-block-umbrella.yaml": {
+    "result": "exec_fail",
+    "exec_id": "5661bf0d-815d-4e94-8115-e5c707bbde47"
+  },
+  "workflows/splunk-soar/network-control/panorama-outbound-traffic-filtering.yaml": {
+    "result": "exec_fail",
+    "exec_id": "ab4303dc-2241-4209-aa4a-004af3e48ee8"
+  },
+  "workflows/splunk-soar/network-control/url-outbound-traffic-filtering-dispatch.yaml": {
+    "result": "ok",
+    "exec_id": "b895c13b-cc83-4512-9026-3d86ef19945b",
+    "exec_status": "completed",
+    "case_id": "3407beb2-ca5d-4852-8576-3292f00945dc",
+    "case_title": "Workflow: URL Outbound Traffic Filtering \u2014 Dispatch",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 170,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/3407beb2-ca5d-4852-8576-3292f00945dc"
+  },
+  "workflows/splunk-soar/network-control/zscaler-hunt-and-block-url.yaml": {
+    "result": "ok",
+    "exec_id": "9f968a29-e65f-4578-8783-d693e4ccc77d",
+    "exec_status": "completed",
+    "case_id": "beafef20-bee7-4972-a990-167cf2164bc4",
+    "case_title": "Workflow: Zscaler \u2014 Hunt and Block Malicious URL",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 167,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/beafef20-bee7-4972-a990-167cf2164bc4"
+  },
+  "workflows/splunk-soar/network-control/zscaler-malicious-file-response.yaml": {
+    "result": "ok",
+    "exec_id": "895ad797-a3d2-4fa9-a5bb-aa57472163ca",
+    "exec_status": "completed",
+    "case_id": "abfde085-c1e0-46f7-bb60-00c0c7abb875",
+    "case_title": "Workflow: Zscaler \u2014 Malicious File Response (Patient Zero)",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 177,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/abfde085-c1e0-46f7-bb60-00c0c7abb875"
+  },
+  "workflows/splunk-soar/network-control/zscaler-outbound-traffic-filtering.yaml": {
+    "result": "exec_fail",
+    "exec_id": "ab635f8e-caaa-46b7-9182-15d0cd8c70cf"
+  },
+  "workflows/splunk-soar/remediation/delete-detected-files.yaml": {
+    "result": "ok",
+    "exec_id": "04fa49bf-8c1e-4a74-84cc-5918fbbad7d2",
+    "exec_status": "completed",
+    "case_id": "6e771521-9787-4ba3-a02c-bd8519a56fa6",
+    "case_title": "Workflow: Endpoint \u2014 Delete Detected Files",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 161,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/6e771521-9787-4ba3-a02c-bd8519a56fa6"
+  },
+  "workflows/splunk-soar/remediation/internal-host-ssh-log4j-respond.yaml": {
+    "result": "ok",
+    "exec_id": "8f54089b-c6f9-4ff2-b97b-06fc8124327f",
+    "exec_status": "completed",
+    "case_id": "74802804-ab5b-46bb-ba08-e52843118984",
+    "case_title": "Workflow: Log4j \u2014 SSH Host Respond",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 153,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/74802804-ab5b-46bb-ba08-e52843118984"
+  },
+  "workflows/splunk-soar/remediation/internal-host-winrm-log4j-respond.yaml": {
+    "result": "ok",
+    "exec_id": "c37fb345-f869-429b-9f09-d43efd118e9a",
+    "exec_status": "completed",
+    "case_id": "3a8fa40f-1f5c-4605-90fb-6bd732bed9cc",
+    "case_title": "Workflow: Log4j \u2014 WinRM Host Respond",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 155,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/3a8fa40f-1f5c-4605-90fb-6bd732bed9cc"
+  },
+  "workflows/splunk-soar/remediation/log4j-respond.yaml": {
+    "result": "ok",
+    "exec_id": "5bcbcfda-a3c3-4100-9d11-ee9e0708e9c5",
+    "exec_status": "completed",
+    "case_id": "8b33627c-5e89-4b09-8030-74f67a852af0",
+    "case_title": "Workflow: Log4j \u2014 Respond (Dispatch)",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 155,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/8b33627c-5e89-4b09-8030-74f67a852af0"
+  },
+  "workflows/splunk-soar/remediation/recorded-future-correlation-response.yaml": {
+    "result": "ok",
+    "exec_id": "63bb0b15-895e-4dfb-ab87-262b787051ce",
+    "exec_status": "completed",
+    "case_id": "6f4bde1b-dbc1-4843-b416-a3c08961dc28",
+    "case_title": "Workflow: Recorded Future \u2014 Correlation Response",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 167,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/6f4bde1b-dbc1-4843-b416-a3c08961dc28"
+  },
+  "workflows/splunk-soar/remediation/reset-entity-risk.yaml": {
+    "result": "ok",
+    "exec_id": "25c2901f-c012-488c-a7f6-c59d9443d1cc",
+    "exec_status": "completed",
+    "case_id": "e5f61a8e-46c7-4d40-abdd-fbac3fbc2b2d",
+    "case_title": "Workflow: Splunk ES \u2014 Reset Entity Risk",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 158,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/e5f61a8e-46c7-4d40-abdd-fbac3fbc2b2d"
+  },
+  "workflows/splunk-soar/remediation/risk-notable-auto-containment.yaml": {
+    "result": "ok",
+    "exec_id": "28e2d0f5-293b-4682-80ae-82e714a3784a",
+    "exec_status": "completed",
+    "case_id": "de2f4210-453f-427b-936d-926a0719b5c6",
+    "case_title": "Workflow: Risk Notable \u2014 Auto Containment",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 160,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/de2f4210-453f-427b-936d-926a0719b5c6"
+  },
+  "workflows/splunk-soar/remediation/risk-notable-auto-undo-containment.yaml": {
+    "result": "ok",
+    "exec_id": "8fb22466-860c-4e2d-bc21-340f9f673dec",
+    "exec_status": "completed",
+    "case_id": "9f07a1b6-fd4b-46a7-8e46-50bde817e7f6",
+    "case_title": "Workflow: Risk Notable \u2014 Auto Undo Containment",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 165,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/9f07a1b6-fd4b-46a7-8e46-50bde817e7f6"
+  },
+  "workflows/splunk-soar/remediation/risk-notable-block-indicators.yaml": {
+    "result": "ok",
+    "exec_id": "6dae3827-7e13-4929-9a39-ede8eebbef43",
+    "exec_status": "completed",
+    "case_id": "3c374817-184f-469f-82ac-1675baac370e",
+    "case_title": "Workflow: Risk Notable \u2014 Block Indicators",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 160,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/3c374817-184f-469f-82ac-1675baac370e"
+  },
+  "workflows/splunk-soar/remediation/risk-notable-mitigate.yaml": {
+    "result": "ok",
+    "exec_id": "0dfac820-7f23-4b3e-b80f-681cb44a8996",
+    "exec_status": "completed",
+    "case_id": "a9d693e1-0038-4f17-bbdd-ebb841bd0cfa",
+    "case_title": "Workflow: Risk Notable \u2014 Mitigate",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 152,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/a9d693e1-0038-4f17-bbdd-ebb841bd0cfa"
+  },
+  "workflows/splunk-soar/remediation/risk-notable-protect-assets-and-users.yaml": {
+    "result": "exec_fail",
+    "exec_id": "a9cd192b-8816-4645-b766-47a8b9c18dfe"
+  },
+  "workflows/splunk-soar/remediation/rogue-wireless-access-point-remediate.yaml": {
+    "result": "exec_fail",
+    "exec_id": "5a105f47-39d2-4c19-a963-8c5cb859e2a6"
+  },
+  "workflows/splunk-soar/remediation/splunk-enterprise-security-tag-assets-and-identities.yaml": {
+    "result": "ok",
+    "exec_id": "9204677e-602e-4d60-a180-0a909d248255",
+    "exec_status": "completed",
+    "case_id": "1556e27c-0244-4bd7-a147-3d31b821ab89",
+    "case_title": "Workflow: Splunk ES \u2014 Tag Assets and Identities",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 166,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/1556e27c-0244-4bd7-a147-3d31b821ab89"
+  },
+  "workflows/splunk-soar/remediation/symantec-proxysg-unblock-request.yaml": {
+    "result": "ok",
+    "exec_id": "b11d6f5c-3424-4a3b-8097-65819ffab33e",
+    "exec_status": "completed",
+    "case_id": "b8751237-8561-4203-94c7-c5ccdda942a4",
+    "case_title": "Workflow: Symantec ProxySG \u2014 Website Unblock Request",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 171,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/b8751237-8561-4203-94c7-c5ccdda942a4"
+  },
+  "workflows/splunk-soar/remediation/terminate-spawned-processes.yaml": {
+    "result": "ok",
+    "exec_id": "be1117df-1529-4f8c-9cf2-c4f7e4dc01a2",
+    "exec_status": "completed",
+    "case_id": "8e629933-765e-4a48-8c30-13cbc2353ceb",
+    "case_title": "Workflow: Endpoint \u2014 Terminate Spawned Processes",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 167,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/8e629933-765e-4a48-8c30-13cbc2353ceb"
+  },
+  "workflows/splunk-soar/remediation/vectra-advanced-block-host.yaml": {
+    "result": "ok",
+    "exec_id": "aa9c5e52-af4f-4f17-8e59-b2f468f4495f",
+    "exec_status": "completed",
+    "case_id": "39668999-2721-470b-ac7d-f9efa6b145c2",
+    "case_title": "Workflow: Vectra \u2014 Advanced Block Host",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 157,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/39668999-2721-470b-ac7d-f9efa6b145c2"
+  },
+  "workflows/splunk-soar/remediation/vectra-basic-block-host.yaml": {
+    "result": "ok",
+    "exec_id": "b83b35db-5d90-4265-8eb4-98d7d5b57eb4",
+    "exec_status": "completed",
+    "case_id": "f5d39373-72a4-4d72-be8b-a1eaa541cb0c",
+    "case_title": "Workflow: Vectra \u2014 Basic Block Host",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 154,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/f5d39373-72a4-4d72-be8b-a1eaa541cb0c"
+  },
+  "workflows/splunk-soar/remediation/vmworld-c2-response.yaml": {
+    "result": "ok",
+    "exec_id": "8d51d604-ea35-4ff9-a56c-1e799f81574d",
+    "exec_status": "completed",
+    "case_id": "22f21967-7984-4c48-b31d-279abe28ea81",
+    "case_title": "Workflow: VMWorld \u2014 C2 Response",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 150,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/22f21967-7984-4c48-b31d-279abe28ea81"
+  },
+  "workflows/splunk-soar/remediation/vmworld-wannacry-response.yaml": {
+    "result": "exec_fail",
+    "exec_id": "d432b019-6398-4d77-9e86-fa72c77647ea"
+  },
+  "workflows/splunk-soar/reputation-analysis/cisco-talos-intelligence-identifier-reputation-analysis.yaml": {
+    "result": "ok",
+    "exec_id": "4bbcf5b0-8e81-475c-8e04-65422cbba3df",
+    "exec_status": "completed",
+    "case_id": "5e11b23e-57f4-4c55-b142-3877ceb45a86",
+    "case_title": "Workflow: Cisco Talos Intelligence \u2014 Identifier Reputation Analysis",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 186,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/5e11b23e-57f4-4c55-b142-3877ceb45a86"
+  },
+  "workflows/splunk-soar/reputation-analysis/identifier-reputation-analysis-dispatch.yaml": {
+    "result": "exec_fail",
+    "exec_id": "f47a95e5-fae8-4dc5-895a-d3165f579a40"
+  },
+  "workflows/splunk-soar/reputation-analysis/mission-control-identifier-reputation-analysis.yaml": {
+    "result": "ok",
+    "exec_id": "1cc668ae-4073-4289-a8ed-c020b8fed50e",
+    "exec_status": "completed",
+    "case_id": "cc761564-6c25-47ad-b320-2f1e1ae17086",
+    "case_title": "Workflow: Mission Control \u2014 Identifier Reputation Analysis",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 177,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/cc761564-6c25-47ad-b320-2f1e1ae17086"
+  },
+  "workflows/splunk-soar/reputation-analysis/phishtank-url-reputation-analysis.yaml": {
+    "result": "ok",
+    "exec_id": "d04a3014-c045-4b72-81a4-393b3f8983f2",
+    "exec_status": "completed",
+    "case_id": "24042e61-b638-4118-a51e-31879fea8c99",
+    "case_title": "Workflow: PhishTank \u2014 URL Reputation Analysis",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 164,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/24042e61-b638-4118-a51e-31879fea8c99"
+  },
+  "workflows/splunk-soar/reputation-analysis/reversinglabs-titaniumcloud-file-reputation.yaml": {
+    "result": "ok",
+    "exec_id": "5a94198f-d790-43a4-a244-e5ecb36b96fa",
+    "exec_status": "completed",
+    "case_id": "05d0b0ee-e2b6-440d-83ce-11bf756f2ab2",
+    "case_title": "Workflow: ReversingLabs TitaniumCloud \u2014 File Reputation",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 174,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/05d0b0ee-e2b6-440d-83ce-11bf756f2ab2"
+  },
+  "workflows/splunk-soar/reputation-analysis/reversinglabs-titaniumcloud-url-reputation.yaml": {
+    "result": "ok",
+    "exec_id": "9df16c80-3ac3-4607-9a30-98f53d1ff0af",
+    "exec_status": "completed",
+    "case_id": "e285ae5a-cdb8-4698-b89a-b44936848b52",
+    "case_title": "Workflow: ReversingLabs TitaniumCloud \u2014 URL Reputation",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 173,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/e285ae5a-cdb8-4698-b89a-b44936848b52"
+  },
+  "workflows/splunk-soar/reputation-analysis/urlscan-io-dynamic-analysis.yaml": {
+    "result": "ok",
+    "exec_id": "26adfebd-34f5-4039-995e-75f3859eefd9",
+    "exec_status": "completed",
+    "case_id": "db062f8e-613f-4b33-8297-33228f6b9f0b",
+    "case_title": "Workflow: urlscan.io \u2014 Dynamic URL Analysis",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 162,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/db062f8e-613f-4b33-8297-33228f6b9f0b"
+  },
+  "workflows/splunk-soar/reputation-analysis/virustotal-v3-dynamic-analysis.yaml": {
+    "result": "ok",
+    "exec_id": "4e6e97c6-e716-4087-8f83-c014ddf04ea5",
+    "exec_status": "completed",
+    "case_id": "f0e45c8c-3dd1-4880-8353-ba3a2fb4a5b1",
+    "case_title": "Workflow: VirusTotal v3 \u2014 Dynamic Analysis",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 161,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/f0e45c8c-3dd1-4880-8353-ba3a2fb4a5b1"
+  },
+  "workflows/splunk-soar/reputation-analysis/virustotal-v3-identifier-reputation-analysis.yaml": {
+    "result": "ok",
+    "exec_id": "500d7eb6-a09e-44f1-8b30-5353f179f777",
+    "exec_status": "completed",
+    "case_id": "29167b39-cfce-465d-b3f8-ea2814207ffa",
+    "case_title": "Workflow: VirusTotal v3 \u2014 Identifier Reputation Analysis",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 175,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/29167b39-cfce-465d-b3f8-ea2814207ffa"
+  },
+  "workflows/splunk-soar/threat-intel/greynoise-gnql-enrichment.yaml": {
+    "result": "ok",
+    "exec_id": "c14b7500-1a0e-4455-8bec-2f8dd5e4ec64",
+    "exec_status": "completed",
+    "case_id": "927f69df-ac03-4817-b061-9426987ea021",
+    "case_title": "Workflow: GreyNoise \u2014 GNQL Government RDNS Match",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 167,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/927f69df-ac03-4817-b061-9426987ea021"
+  },
+  "workflows/splunk-soar/threat-intel/greynoise-ip-enrichment.yaml": {
+    "result": "ok",
+    "exec_id": "2e9ecbc1-e773-4409-b056-80442b8116bc",
+    "exec_status": "completed",
+    "case_id": "cc8af675-085b-4110-88b8-738101d22753",
+    "case_title": "Workflow: GreyNoise \u2014 IP Enrichment by Severity",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 166,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/cc8af675-085b-4110-88b8-738101d22753"
+  },
+  "workflows/splunk-soar/threat-intel/greynoise-on-poll-set-severity.yaml": {
+    "result": "ok",
+    "exec_id": "434f9ca2-27b6-45b6-9368-2a4c6fd4c6e1",
+    "exec_status": "completed",
+    "case_id": "6cab3fc4-23a4-4261-8125-5da92b3b3d1f",
+    "case_title": "Workflow: GreyNoise \u2014 Set Severity From Classification",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 173,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/6cab3fc4-23a4-4261-8125-5da92b3b3d1f"
+  },
+  "workflows/splunk-soar/threat-intel/greynoise-update-severity-from-ip-reputation.yaml": {
+    "result": "ok",
+    "exec_id": "65b5a383-2daa-478d-8e5b-5c1296078aa8",
+    "exec_status": "completed",
+    "case_id": "35c0783e-fb76-4766-b093-3537e1157282",
+    "case_title": "Workflow: GreyNoise \u2014 Severity From IP Reputation",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 168,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/35c0783e-fb76-4766-b093-3537e1157282"
+  },
+  "workflows/splunk-soar/threat-intel/intelligence-management-enrich-indicators.yaml": {
+    "result": "exec_fail",
+    "exec_id": "c812b641-2b6d-4139-8996-fe515fdcca2a"
+  },
+  "workflows/splunk-soar/threat-intel/recorded-future-handle-leaked-credentials.yaml": {
+    "result": "exec_fail",
+    "exec_id": "a03c7ec5-55ae-48bf-bc29-87fe9b589ead"
+  },
+  "workflows/splunk-soar/threat-intel/recorded-future-indicator-enrichment.yaml": {
+    "result": "ok",
+    "exec_id": "09632638-c8f7-410c-85c8-67d985fc4f1b",
+    "exec_status": "completed",
+    "case_id": "9f15ed8c-e4e6-48c0-b8ad-4e08ed298501",
+    "case_title": "Workflow: Recorded Future \u2014 Indicator Enrichment",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 167,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/9f15ed8c-e4e6-48c0-b8ad-4e08ed298501"
+  },
+  "workflows/splunk-soar/threat-intel/recorded-future-threat-hunting.yaml": {
+    "result": "exec_fail",
+    "exec_id": "777cc1bb-c72b-443a-9632-f632d1ac4681"
+  },
+  "workflows/splunk-soar/threat-intel/risk-notable-enrich.yaml": {
+    "result": "exec_fail",
+    "exec_id": "01d1b304-d796-47b8-8662-b6ae40e3424a"
+  },
+  "workflows/splunk-soar/threat-intel/risk-notable-review-indicators.yaml": {
+    "result": "exec_fail",
+    "exec_id": "5e81abdd-49f3-4fd9-959f-514abaa4dde8"
+  },
+  "workflows/splunk-soar/threat-intel/risk-notable-verdict.yaml": {
+    "result": "ok",
+    "exec_id": "0b439505-45aa-49ba-b8f1-17322fee9e76",
+    "exec_status": "completed",
+    "case_id": "02a905a9-22fc-4876-a36c-d7028c3f502c",
+    "case_title": "Workflow: Risk Notable \u2014 Analyst Verdict and Response Launcher",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 181,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/02a905a9-22fc-4876-a36c-d7028c3f502c"
+  },
+  "workflows/splunk-soar/threat-intel/symantec-ioc-data-enhancement.yaml": {
+    "result": "exec_fail",
+    "exec_id": "9359fe55-5498-4b28-9650-b0015433ada1"
+  },
+  "workflows/splunk-soar/threat-intel/trustar-network-enrichment.yaml": {
+    "result": "ok",
+    "exec_id": "b5827600-ed1d-4504-9b28-fcb7a9d76efa",
+    "exec_status": "completed",
+    "case_id": "6bc4b350-fe19-4984-a860-0342e8c89fef",
+    "case_title": "Workflow: TruSTAR \u2014 Network Indicator Enrichment",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 167,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/6bc4b350-fe19-4984-a860-0342e8c89fef"
+  },
+  "workflows/splunk-soar/ticketing/jira-related-tickets-search.yaml": {
+    "result": "ok",
+    "exec_id": "42b1c2e0-76d7-4f2b-885e-69800729f231",
+    "exec_status": "completed",
+    "case_id": "7d7dbc4b-dc82-49d5-add5-72cb45296309",
+    "case_title": "Workflow: Jira \u2014 Related Tickets Search",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 158,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/7d7dbc4b-dc82-49d5-add5-72cb45296309"
+  },
+  "workflows/splunk-soar/ticketing/mission-control-related-tickets-search.yaml": {
+    "result": "ok",
+    "exec_id": "35ff940d-50f8-4ae1-8055-c806539e59a9",
+    "exec_status": "completed",
+    "case_id": "4aa1fdd5-b90e-48ec-9f89-47e9b39e76a1",
+    "case_title": "Workflow: Mission Control \u2014 Related Tickets Search Orchestrator",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 182,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/4aa1fdd5-b90e-48ec-9f89-47e9b39e76a1"
+  },
+  "workflows/splunk-soar/ticketing/related-tickets-search-dispatch.yaml": {
+    "result": "ok",
+    "exec_id": "019d95fa-8a5e-4cb3-ad46-f2e316222d96",
+    "exec_status": "completed",
+    "case_id": "b5e01dfc-d1fb-4bb4-b8ec-a903e9d556a8",
+    "case_title": "Workflow: Related Tickets \u2014 Search Dispatch",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 162,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/b5e01dfc-d1fb-4bb4-b8ec-a903e9d556a8"
+  },
+  "workflows/splunk-soar/ticketing/servicenow-create-incident-es.yaml": {
+    "result": "ok",
+    "exec_id": "16a6482a-c7d4-4da1-9155-0aa6f36b02f7",
+    "exec_status": "completed",
+    "case_id": "14d57f5a-ee43-44ba-9429-a5b778f0b7bb",
+    "case_title": "Workflow: ServiceNow \u2014 Create Incident from ES Finding",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 173,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/14d57f5a-ee43-44ba-9429-a5b778f0b7bb"
+  },
+  "workflows/splunk-soar/ticketing/servicenow-create-incident.yaml": {
+    "result": "ok",
+    "exec_id": "0c89a0c2-c8e8-4f66-9752-c40e748e3653",
+    "exec_status": "completed",
+    "case_id": "ee744523-3a4c-492e-b342-14c819de30d4",
+    "case_title": "Workflow: ServiceNow \u2014 Create Incident",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 157,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/ee744523-3a4c-492e-b342-14c819de30d4"
+  },
+  "workflows/splunk-soar/ticketing/servicenow-query-incidents.yaml": {
+    "result": "ok",
+    "exec_id": "7701330a-6972-4358-8c0f-677bb92e021f",
+    "exec_status": "completed",
+    "case_id": "efda0bcd-ef85-43d2-bad2-ecbc217ab982",
+    "case_title": "Workflow: ServiceNow \u2014 Query Incidents by Affected Entity",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 176,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/efda0bcd-ef85-43d2-bad2-ecbc217ab982"
+  },
+  "workflows/splunk-soar/ticketing/servicenow-related-tickets-search.yaml": {
+    "result": "ok",
+    "exec_id": "b85bfaf6-c265-473a-b90c-1bb6d3c22458",
+    "exec_status": "completed",
+    "case_id": "a4e9866e-9461-4061-9050-245eb17514ee",
+    "case_title": "Workflow: ServiceNow \u2014 Related Tickets Search",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 164,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/a4e9866e-9461-4061-9050-245eb17514ee"
+  },
+  "workflows/splunk-soar/ticketing/servicenow-update-incident-notes.yaml": {
+    "result": "ok",
+    "exec_id": "005aa523-e4ba-4255-bcf0-69d16932281d",
+    "exec_status": "completed",
+    "case_id": "7c251e93-d48e-456e-b849-fa932ffde4b5",
+    "case_title": "Workflow: ServiceNow \u2014 Update Incident with Investigation Notes",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 182,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/7c251e93-d48e-456e-b849-fa932ffde4b5"
+  },
+  "workflows/splunk-soar/ticketing/servicenow-update-incident.yaml": {
+    "result": "ok",
+    "exec_id": "bc8ea19d-c208-42ce-beae-4bf7d3044066",
+    "exec_status": "completed",
+    "case_id": "b69121d3-8a59-418b-803a-c736ad5f67b1",
+    "case_title": "Workflow: ServiceNow \u2014 Update Incident with Investigation Note",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 181,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/b69121d3-8a59-418b-803a-c736ad5f67b1"
+  },
+  "workflows/splunk-soar/ticketing/splunk-notable-related-tickets-search.yaml": {
+    "result": "ok",
+    "exec_id": "30d6b431-6f44-4338-b088-e83f66ce8798",
+    "exec_status": "completed",
+    "case_id": "733b419b-1bbe-4fca-86b3-d123f46983ef",
+    "case_title": "Workflow: Splunk Notable \u2014 Related Tickets Search",
+    "case_owner": "securitySolution",
+    "case_severity": "medium",
+    "case_status": "open",
+    "case_description_chars": 168,
+    "case_url": "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com/app/security/cases/733b419b-1bbe-4fca-86b3-d123f46983ef"
+  },
+  "workflows/threat-intel/elastic-security-labs-feed.yaml": {
+    "result": "no_case",
+    "exec_status": "running",
+    "exec_id": "e3081b8f-650a-4bff-acb5-253d3e22fb55",
+    "expected_title": "Workflow: Threat Intelligence \u2014 Elastic Security Labs"
+  },
+  "workflows/threat-intel/threat-intel-feed-monitor.yaml": {
+    "result": "no_case",
+    "exec_status": "running",
+    "exec_id": "63f0efc4-941b-45e3-9140-56540a3e1f35",
+    "expected_title": "Workflow: Threat Intelligence Feed Monitor"
+  },
+  "workflows/triage/alert-fp-triage-activity-summary.yaml": {
+    "result": "exec_fail",
+    "exec_id": "a2915c7d-93c1-4aa5-b830-7d5b5391b9f0"
+  },
+  "workflows/triage/mfa-bombing-triage.yaml": {
+    "result": "exec_fail",
+    "exec_id": "73a050b6-0da7-4b11-94d4-ef037ebb06b4"
+  },
+  "workflows/triage/risky-user-signin-investigation.yaml": {
+    "result": "exec_fail",
+    "exec_id": "edc9fcef-f6e8-4cfb-a548-a7619468598d"
+  }
+}

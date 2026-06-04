@@ -1,0 +1,867 @@
+{
+  "workflows/investigation/litellm-trojan-investigation.yaml": {
+    "status": 200,
+    "id": "trojaned-python-package-base64-exec-investigation",
+    "valid": true
+  },
+  "workflows/investigation/okta-aitm-investigation.yaml": {
+    "status": 200,
+    "id": "okta-aitm-session-cookie-replay-investigation-v1-0",
+    "valid": true
+  },
+  "workflows/splunk-soar/account-management/active-directory-disable-account-dispatch.yaml": {
+    "status": 200,
+    "id": "active-directory-disable-account-dispatch-6",
+    "valid": true
+  },
+  "workflows/splunk-soar/account-management/active-directory-enable-account-dispatch.yaml": {
+    "status": 200,
+    "id": "active-directory-enable-account-dispatch-6",
+    "valid": true
+  },
+  "workflows/splunk-soar/account-management/activedirectory-reset-password.yaml": {
+    "status": 200,
+    "id": "active-directory-reset-password-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/account-management/ad-ldap-account-locking.yaml": {
+    "status": 200,
+    "id": "ad-ldap-account-locking-12",
+    "valid": true
+  },
+  "workflows/splunk-soar/account-management/ad-ldap-account-unlocking.yaml": {
+    "status": 200,
+    "id": "ad-ldap-account-unlocking-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/account-management/alert-deescalation-for-test-machines.yaml": {
+    "status": 200,
+    "id": "alert-de-escalation-test-machines-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/account-management/alert-escalation-for-attacked-executives.yaml": {
+    "status": 200,
+    "id": "alert-escalation-attacked-executives-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/account-management/aws-disable-user-accounts.yaml": {
+    "status": 200,
+    "id": "aws-iam-disable-inactive-users-bulk-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/account-management/aws-find-inactive-users.yaml": {
+    "status": 200,
+    "id": "aws-iam-find-inactive-users-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/account-management/aws-iam-account-locking.yaml": {
+    "status": 200,
+    "id": "aws-iam-account-locking-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/account-management/aws-iam-account-unlocking.yaml": {
+    "status": 200,
+    "id": "aws-iam-account-unlocking-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/account-management/azure-ad-account-locking.yaml": {
+    "status": 200,
+    "id": "azure-ad-account-locking-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/account-management/azure-ad-account-unlocking.yaml": {
+    "status": 200,
+    "id": "azure-ad-account-unlocking-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/account-management/azure-new-user-census.yaml": {
+    "status": 200,
+    "id": "azure-ad-new-user-census-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/account-management/excessive-account-lockouts-enrichment-and-response.yaml": {
+    "status": 200,
+    "id": "excessive-account-lockouts-enrichment-response-6",
+    "valid": true
+  },
+  "workflows/splunk-soar/email-triage/email-notification-for-malware.yaml": {
+    "status": 200,
+    "id": "email-notification-malware-confirmation-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/email-triage/g-suite-for-gmail-message-eviction.yaml": {
+    "status": 200,
+    "id": "gsuite-gmail-message-eviction-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/email-triage/g-suite-for-gmail-search-and-purge.yaml": {
+    "status": 200,
+    "id": "gsuite-gmail-search-and-purge-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/email-triage/ms-graph-for-office-365-message-eviction.yaml": {
+    "status": 200,
+    "id": "ms-graph-o365-message-eviction-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/email-triage/ms-graph-for-office-365-message-restore.yaml": {
+    "status": 200,
+    "id": "ms-graph-o365-message-restore-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/email-triage/ms-graph-for-office-365-search-and-purge.yaml": {
+    "status": 200,
+    "id": "ms-graph-o365-search-and-purge-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/email-triage/ms-graph-for-office-365-search-and-restore.yaml": {
+    "status": 200,
+    "id": "ms-graph-o365-search-and-restore-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/email-triage/phishme-email-investigate-and-respond.yaml": {
+    "status": 200,
+    "id": "phishme-investigate-and-respond-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/email-triage/reversinglabs-reported-email-triage.yaml": {
+    "status": 200,
+    "id": "reversinglabs-reported-email-triage-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/email-triage/splunk-automated-email-investigation.yaml": {
+    "status": 200,
+    "id": "splunk-automated-email-investigation-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/email-triage/zscaler-patient-0-parse-email.yaml": {
+    "status": 200,
+    "id": "zscaler-patient-0-parse-email-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-endpoint-ioc-enrichment.yaml": {
+    "status": 200,
+    "id": "crowdstrike-endpoint-ioc-enrichment-25",
+    "valid": true
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-endpoint-quarantine-response.yaml": {
+    "status": 200,
+    "id": "crowdstrike-endpoint-quarantine-response-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-malware-triage.yaml": {
+    "status": 200,
+    "id": "crowdstrike-malware-triage-5",
+    "valid": true
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-device-attribute-lookup.yaml": {
+    "status": 200,
+    "id": "crowdstrike-device-attribute-lookup-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-dynamic-analysis.yaml": {
+    "status": 200,
+    "id": "crowdstrike-dynamic-analysis-url-file-detonation-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-endpoint-analysis.yaml": {
+    "status": 200,
+    "id": "crowdstrike-endpoint-analysis-processes-netstat-system-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-executable-denylisting.yaml": {
+    "status": 200,
+    "id": "crowdstrike-executable-denylisting-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-file-collection.yaml": {
+    "status": 200,
+    "id": "crowdstrike-file-collection-rtr-get-put-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-file-eviction.yaml": {
+    "status": 200,
+    "id": "crowdstrike-file-eviction-rtr-rm-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-file-restore.yaml": {
+    "status": 200,
+    "id": "crowdstrike-file-restore-rtr-put-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-get-device-info.yaml": {
+    "status": 200,
+    "id": "crowdstrike-get-device-info-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-identifier-activity-analysis.yaml": {
+    "status": 200,
+    "id": "crowdstrike-identifier-activity-analysis-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-network-isolation.yaml": {
+    "status": 200,
+    "id": "crowdstrike-network-isolation-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-network-restore.yaml": {
+    "status": 200,
+    "id": "crowdstrike-network-restore-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-process-termination.yaml": {
+    "status": 200,
+    "id": "crowdstrike-process-termination-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/endpoint-response/ec2-instance-isolation.yaml": {
+    "status": 200,
+    "id": "aws-ec2-instance-isolation-6",
+    "valid": true
+  },
+  "workflows/splunk-soar/endpoint-response/host-quarantine-crowdstrike.yaml": {
+    "status": 200,
+    "id": "crowdstrike-host-quarantine-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/endpoint-response/microsoft-defender-for-endpoint-network-isolation.yaml": {
+    "status": 200,
+    "id": "microsoft-defender-for-endpoint-network-isolation-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/endpoint-response/microsoft-defender-for-endpoint-network-restore.yaml": {
+    "status": 200,
+    "id": "microsoft-defender-for-endpoint-network-restore-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/endpoint-response/windows-defender-atp-identifier-activity-analysis.yaml": {
+    "status": 200,
+    "id": "windows-defender-atp-identifier-activity-analysis-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/enrichment/acmecorp-phishing-full-triage.yaml": {
+    "status": 200,
+    "id": "acmecorp-phishing-full-triage-4",
+    "valid": true
+  },
+  "workflows/splunk-soar/enrichment/ad-ldap-entity-attribute-lookup.yaml": {
+    "status": 200,
+    "id": "ad-ldap-entity-attribute-lookup-14",
+    "valid": true
+  },
+  "workflows/splunk-soar/enrichment/attribute-lookup-dispatch.yaml": {
+    "status": 200,
+    "id": "attribute-lookup-dispatch-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/enrichment/automated-enrichment.yaml": {
+    "status": 200,
+    "id": "automated-enrichment-14",
+    "valid": true
+  },
+  "workflows/splunk-soar/enrichment/azure-ad-graph-user-attribute-lookup.yaml": {
+    "status": 200,
+    "id": "azure-ad-graph-user-attribute-lookup-14",
+    "valid": true
+  },
+  "workflows/splunk-soar/enrichment/dynamic-analysis-dispatch.yaml": {
+    "status": 200,
+    "id": "dynamic-analysis-dispatch-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/enrichment/g-suite-for-gmail-message-identifier-activity-analysis.yaml": {
+    "status": 200,
+    "id": "gsuite-gmail-message-identifier-activity-analysis-13",
+    "valid": true
+  },
+  "workflows/splunk-soar/enrichment/identifier-activity-analysis-dispatch.yaml": {
+    "status": 200,
+    "id": "identifier-activity-analysis-dispatch-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/enrichment/mission-control-attribute-lookup.yaml": {
+    "status": 200,
+    "id": "mission-control-attribute-lookup-13",
+    "valid": true
+  },
+  "workflows/splunk-soar/enrichment/mission-control-automated-enrichment.yaml": {
+    "status": 200,
+    "id": "mission-control-automated-enrichment-14",
+    "valid": true
+  },
+  "workflows/splunk-soar/enrichment/ms-graph-for-office-365-message-identifier-activity-analysis.yaml": {
+    "status": 200,
+    "id": "ms-graph-o365-message-identifier-activity-analysis-13",
+    "valid": true
+  },
+  "workflows/splunk-soar/enrichment/splunk-attack-analyzer-dynamic-analysis.yaml": {
+    "status": 200,
+    "id": "splunk-attack-analyzer-dynamic-analysis-9",
+    "valid": true
+  },
+  "workflows/splunk-soar/enrichment/splunk-identifier-activity-analysis.yaml": {
+    "status": 200,
+    "id": "splunk-identifier-activity-analysis-14",
+    "valid": true
+  },
+  "workflows/splunk-soar/enrichment/splunk-message-identifier-activity-analysis.yaml": {
+    "status": 200,
+    "id": "splunk-message-identifier-activity-analysis-13",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/corelight-investigate-dns-alert.yaml": {
+    "status": 200,
+    "id": "corelight-dns-alert-investigation-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/dispatch-input-playbooks.yaml": {
+    "status": 200,
+    "id": "dispatcher-route-indicators-to-input-workflows-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/dns-hijack-enrichment.yaml": {
+    "status": 200,
+    "id": "dns-hijack-enrichment-6",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/domain-investigate.yaml": {
+    "status": 200,
+    "id": "domain-multi-source-investigation-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/ec2-instance-investigation-and-notification.yaml": {
+    "status": 200,
+    "id": "aws-ec2-security-hub-finding-investigation-notification-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/extrahop-detect-data-exfiltration.yaml": {
+    "status": 200,
+    "id": "extrahop-data-exfiltration-investigation-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/extrahop-externally-accessible-databases.yaml": {
+    "status": 200,
+    "id": "extrahop-externally-accessible-database-investigation-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/extrahop-new-dns-servers.yaml": {
+    "status": 200,
+    "id": "extrahop-new-dns-server-discovery-scan-9",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/internal-host-splunk-investigate-log4j.yaml": {
+    "status": 200,
+    "id": "splunk-internal-host-log4j-investigation-cve-2021-44228-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/internal-host-ssh-investigate.yaml": {
+    "status": 200,
+    "id": "linux-host-ssh-based-investigation-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/internal-host-ssh-log4j-investigate.yaml": {
+    "status": 200,
+    "id": "linux-host-ssh-based-log4j-sweep-cve-2021-44228-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/internal-host-winrm-investigate.yaml": {
+    "status": 200,
+    "id": "windows-host-winrm-investigation-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/internal-host-winrm-log4j-investigate.yaml": {
+    "status": 200,
+    "id": "windows-host-winrm-log4j-sweep-cve-2021-44228-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/lets-encrypt-domain-investigate.yaml": {
+    "status": 200,
+    "id": "let-s-encrypt-phishing-domain-investigation-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/log4j-investigate.yaml": {
+    "status": 200,
+    "id": "log4j-master-investigation-orchestrator-cve-2021-44228-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/mcafee-phishing-attachment-investigate.yaml": {
+    "status": 200,
+    "id": "mcafee-phishing-attachment-investigation-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/nagios-service-monitor.yaml": {
+    "status": 200,
+    "id": "nagios-service-monitor-auto-restart-19",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/protectwise-investigate-and-respond.yaml": {
+    "status": 200,
+    "id": "protectwise-investigate-and-respond-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/ransomware-investigate-and-contain.yaml": {
+    "status": 200,
+    "id": "ransomware-investigate-and-contain-6",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/reinfected-endpoint-check.yaml": {
+    "status": 200,
+    "id": "reinfected-endpoint-triage-14",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/risk-notable-auto-investigate.yaml": {
+    "status": 200,
+    "id": "splunk-risk-notable-auto-investigate-5",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/risk-notable-auto-merge.yaml": {
+    "status": 200,
+    "id": "splunk-risk-notable-auto-merge-6",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/risk-notable-import-data.yaml": {
+    "status": 200,
+    "id": "splunk-risk-notable-import-contributing-events-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/risk-notable-investigate.yaml": {
+    "status": 200,
+    "id": "splunk-risk-notable-investigate-6",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/risk-notable-merge-events.yaml": {
+    "status": 200,
+    "id": "splunk-risk-notable-manual-merge-events-6",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/risk-notable-preprocess.yaml": {
+    "status": 200,
+    "id": "splunk-risk-notable-preprocess-6",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/splunk-enterprise-security-close-investigation.yaml": {
+    "status": 200,
+    "id": "splunk-es-close-investigation-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/ssh-endpoint-investigate.yaml": {
+    "status": 200,
+    "id": "ssh-endpoint-investigate-new-linux-server-6",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/start-investigation.yaml": {
+    "status": 200,
+    "id": "workbook-start-investigation-6",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/threat-intel-investigate.yaml": {
+    "status": 200,
+    "id": "threat-intel-investigate-indicators-7",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/threatquotient-investigate-and-respond.yaml": {
+    "status": 200,
+    "id": "threatquotient-investigate-and-respond-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/investigation/url-investigate.yaml": {
+    "status": 200,
+    "id": "url-investigate-splunk-intelligence-management-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/misc/advanced-playbook-tutorial.yaml": {
+    "status": 200,
+    "id": "advanced-playbook-tutorial-6",
+    "valid": true
+  },
+  "workflows/splunk-soar/misc/commvault-cloud-disable-data-aging.yaml": {
+    "status": 200,
+    "id": "commvault-cloud-disable-data-aging-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/misc/create-ticket.yaml": {
+    "status": 200,
+    "id": "servicenow-create-ticket-with-indicator-summary-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/misc/customer-firewall-request-handle-artifact.yaml": {
+    "status": 200,
+    "id": "customer-firewall-request-handle-artifact-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/misc/customer-firewall-request-parse-csv.yaml": {
+    "status": 200,
+    "id": "customer-firewall-request-parse-csv-13",
+    "valid": true
+  },
+  "workflows/splunk-soar/misc/endace-splunk-search-download-pcap.yaml": {
+    "status": 200,
+    "id": "endaceprobe-splunk-search-and-conditional-pcap-download-6",
+    "valid": true
+  },
+  "workflows/splunk-soar/misc/gcp-unusual-serviceaccount-usage.yaml": {
+    "status": 200,
+    "id": "gcp-unusual-service-account-usage-triage-9",
+    "valid": true
+  },
+  "workflows/splunk-soar/misc/onboarding-demonstration.yaml": {
+    "status": 200,
+    "id": "onboarding-demonstration-enrichment-and-severity-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/misc/pin-to-hud-sample.yaml": {
+    "status": 200,
+    "id": "heads-up-display-pinning-sample-7",
+    "valid": true
+  },
+  "workflows/splunk-soar/misc/reversinglabs-titaniumscale-file-analysis.yaml": {
+    "status": 200,
+    "id": "reversinglabs-titaniumscale-file-detonation-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/misc/test-connectivity.yaml": {
+    "status": 200,
+    "id": "connector-health-check-9",
+    "valid": true
+  },
+  "workflows/splunk-soar/misc/track-active-directory-admin-users.yaml": {
+    "status": 200,
+    "id": "track-active-directory-administrator-users-9",
+    "valid": true
+  },
+  "workflows/splunk-soar/misc/user-approved-ticket-creation.yaml": {
+    "status": 200,
+    "id": "user-approved-endpoint-containment-ticket-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/misc/user-prompt-and-block-domain.yaml": {
+    "status": 200,
+    "id": "user-approved-domain-block-via-umbrella-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/misc/vectra-detection-notification.yaml": {
+    "status": 200,
+    "id": "vectra-detection-notification-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/network-control/cisco-umbrella-dns-denylisting.yaml": {
+    "status": 200,
+    "id": "cisco-umbrella-dns-denylisting-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/network-control/dns-denylisting-dispatch.yaml": {
+    "status": 200,
+    "id": "dns-denylisting-dispatch-6",
+    "valid": true
+  },
+  "workflows/splunk-soar/network-control/domain-block-umbrella.yaml": {
+    "status": 200,
+    "id": "cisco-umbrella-block-domain-tag-on-success-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/network-control/panorama-outbound-traffic-filtering.yaml": {
+    "status": 200,
+    "id": "palo-alto-panorama-outbound-url-block-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/network-control/url-outbound-traffic-filtering-dispatch.yaml": {
+    "status": 200,
+    "id": "url-outbound-traffic-filtering-dispatch-6",
+    "valid": true
+  },
+  "workflows/splunk-soar/network-control/zscaler-hunt-and-block-url.yaml": {
+    "status": 200,
+    "id": "zscaler-hunt-and-block-malicious-url-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/network-control/zscaler-malicious-file-response.yaml": {
+    "status": 200,
+    "id": "zscaler-malicious-file-response-patient-zero-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/network-control/zscaler-outbound-traffic-filtering.yaml": {
+    "status": 200,
+    "id": "zscaler-outbound-url-block-18",
+    "valid": true
+  },
+  "workflows/splunk-soar/remediation/delete-detected-files.yaml": {
+    "status": 200,
+    "id": "endpoint-delete-detected-files-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/remediation/internal-host-ssh-log4j-respond.yaml": {
+    "status": 200,
+    "id": "log4j-ssh-host-respond-12",
+    "valid": true
+  },
+  "workflows/splunk-soar/remediation/internal-host-winrm-log4j-respond.yaml": {
+    "status": 200,
+    "id": "log4j-winrm-host-respond-12",
+    "valid": true
+  },
+  "workflows/splunk-soar/remediation/log4j-respond.yaml": {
+    "status": 200,
+    "id": "log4j-respond-dispatch-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/remediation/recorded-future-correlation-response.yaml": {
+    "status": 200,
+    "id": "recorded-future-correlation-response-14",
+    "valid": true
+  },
+  "workflows/splunk-soar/remediation/reset-entity-risk.yaml": {
+    "status": 200,
+    "id": "splunk-es-reset-entity-risk-13",
+    "valid": true
+  },
+  "workflows/splunk-soar/remediation/risk-notable-auto-containment.yaml": {
+    "status": 200,
+    "id": "risk-notable-auto-containment-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/remediation/risk-notable-auto-undo-containment.yaml": {
+    "status": 200,
+    "id": "risk-notable-auto-undo-containment-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/remediation/risk-notable-block-indicators.yaml": {
+    "status": 200,
+    "id": "risk-notable-block-indicators-12",
+    "valid": true
+  },
+  "workflows/splunk-soar/remediation/risk-notable-mitigate.yaml": {
+    "status": 200,
+    "id": "risk-notable-mitigate-6",
+    "valid": true
+  },
+  "workflows/splunk-soar/remediation/risk-notable-protect-assets-and-users.yaml": {
+    "status": 200,
+    "id": "risk-notable-protect-assets-and-users-15",
+    "valid": true
+  },
+  "workflows/splunk-soar/remediation/rogue-wireless-access-point-remediate.yaml": {
+    "status": 200,
+    "id": "wireless-rogue-access-point-remediate-5",
+    "valid": true
+  },
+  "workflows/splunk-soar/remediation/splunk-enterprise-security-tag-assets-and-identities.yaml": {
+    "status": 200,
+    "id": "splunk-es-tag-assets-and-identities-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/remediation/symantec-proxysg-unblock-request.yaml": {
+    "status": 200,
+    "id": "symantec-proxysg-website-unblock-request-6",
+    "valid": true
+  },
+  "workflows/splunk-soar/remediation/terminate-spawned-processes.yaml": {
+    "status": 200,
+    "id": "endpoint-terminate-spawned-processes-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/remediation/vectra-advanced-block-host.yaml": {
+    "status": 200,
+    "id": "vectra-advanced-block-host-13",
+    "valid": true
+  },
+  "workflows/splunk-soar/remediation/vectra-basic-block-host.yaml": {
+    "status": 200,
+    "id": "vectra-basic-block-host-13",
+    "valid": true
+  },
+  "workflows/splunk-soar/remediation/vmworld-c2-response.yaml": {
+    "status": 200,
+    "id": "vmworld-c2-response-9",
+    "valid": true
+  },
+  "workflows/splunk-soar/remediation/vmworld-wannacry-response.yaml": {
+    "status": 200,
+    "id": "vmworld-wannacry-response-12",
+    "valid": true
+  },
+  "workflows/splunk-soar/reputation-analysis/cisco-talos-intelligence-identifier-reputation-analysis.yaml": {
+    "status": 200,
+    "id": "cisco-talos-intelligence-identifier-reputation-analysis-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/reputation-analysis/identifier-reputation-analysis-dispatch.yaml": {
+    "status": 200,
+    "id": "identifier-reputation-analysis-dispatch-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/reputation-analysis/mission-control-identifier-reputation-analysis.yaml": {
+    "status": 200,
+    "id": "mission-control-identifier-reputation-analysis-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/reputation-analysis/phishtank-url-reputation-analysis.yaml": {
+    "status": 200,
+    "id": "phishtank-url-reputation-analysis-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/reputation-analysis/reversinglabs-titaniumcloud-file-reputation.yaml": {
+    "status": 200,
+    "id": "reversinglabs-titaniumcloud-file-reputation-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/reputation-analysis/reversinglabs-titaniumcloud-url-reputation.yaml": {
+    "status": 200,
+    "id": "reversinglabs-titaniumcloud-url-reputation-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/reputation-analysis/urlscan-io-dynamic-analysis.yaml": {
+    "status": 200,
+    "id": "urlscan-io-dynamic-url-analysis-6",
+    "valid": true
+  },
+  "workflows/splunk-soar/reputation-analysis/virustotal-v3-dynamic-analysis.yaml": {
+    "status": 200,
+    "id": "virustotal-v3-dynamic-analysis-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/reputation-analysis/virustotal-v3-identifier-reputation-analysis.yaml": {
+    "status": 200,
+    "id": "virustotal-v3-identifier-reputation-analysis-14",
+    "valid": true
+  },
+  "workflows/splunk-soar/threat-intel/greynoise-gnql-enrichment.yaml": {
+    "status": 200,
+    "id": "greynoise-gnql-government-rdns-match-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/threat-intel/greynoise-ip-enrichment.yaml": {
+    "status": 200,
+    "id": "greynoise-ip-enrichment-by-severity-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/threat-intel/greynoise-on-poll-set-severity.yaml": {
+    "status": 200,
+    "id": "greynoise-set-severity-from-classification-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/threat-intel/greynoise-update-severity-from-ip-reputation.yaml": {
+    "status": 200,
+    "id": "greynoise-severity-from-ip-reputation-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/threat-intel/intelligence-management-enrich-indicators.yaml": {
+    "status": 200,
+    "id": "trustar-intelligence-management-enrich-indicators-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/threat-intel/recorded-future-handle-leaked-credentials.yaml": {
+    "status": 200,
+    "id": "recorded-future-handle-leaked-credentials-7",
+    "valid": true
+  },
+  "workflows/splunk-soar/threat-intel/recorded-future-indicator-enrichment.yaml": {
+    "status": 200,
+    "id": "recorded-future-indicator-enrichment-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/threat-intel/recorded-future-threat-hunting.yaml": {
+    "status": 200,
+    "id": "recorded-future-threat-hunting-pivot-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/threat-intel/risk-notable-enrich.yaml": {
+    "status": 200,
+    "id": "risk-notable-indicator-enrichment-dispatcher-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/threat-intel/risk-notable-review-indicators.yaml": {
+    "status": 200,
+    "id": "risk-notable-analyst-indicator-review-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/threat-intel/risk-notable-verdict.yaml": {
+    "status": 200,
+    "id": "risk-notable-analyst-verdict-and-response-launcher-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/threat-intel/symantec-ioc-data-enhancement.yaml": {
+    "status": 200,
+    "id": "symantec-ioc-sandbox-detonation-and-enrichment-14",
+    "valid": true
+  },
+  "workflows/splunk-soar/threat-intel/trustar-network-enrichment.yaml": {
+    "status": 200,
+    "id": "trustar-network-indicator-enrichment-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/ticketing/jira-related-tickets-search.yaml": {
+    "status": 200,
+    "id": "jira-related-tickets-search-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/ticketing/mission-control-related-tickets-search.yaml": {
+    "status": 200,
+    "id": "mission-control-related-tickets-search-orchestrator-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/ticketing/related-tickets-search-dispatch.yaml": {
+    "status": 200,
+    "id": "related-tickets-search-dispatch-6",
+    "valid": true
+  },
+  "workflows/splunk-soar/ticketing/servicenow-create-incident-es.yaml": {
+    "status": 200,
+    "id": "servicenow-create-incident-from-es-finding-6",
+    "valid": true
+  },
+  "workflows/splunk-soar/ticketing/servicenow-create-incident.yaml": {
+    "status": 200,
+    "id": "servicenow-create-incident-8",
+    "valid": true
+  },
+  "workflows/splunk-soar/ticketing/servicenow-query-incidents.yaml": {
+    "status": 200,
+    "id": "servicenow-query-incidents-by-affected-entity-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/ticketing/servicenow-related-tickets-search.yaml": {
+    "status": 200,
+    "id": "servicenow-related-tickets-search-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/ticketing/servicenow-update-incident-notes.yaml": {
+    "status": 200,
+    "id": "servicenow-update-incident-with-investigation-notes-10",
+    "valid": true
+  },
+  "workflows/splunk-soar/ticketing/servicenow-update-incident.yaml": {
+    "status": 200,
+    "id": "servicenow-update-incident-with-investigation-note-11",
+    "valid": true
+  },
+  "workflows/splunk-soar/ticketing/splunk-notable-related-tickets-search.yaml": {
+    "status": 200,
+    "id": "splunk-notable-related-tickets-search-10",
+    "valid": true
+  },
+  "workflows/threat-intel/elastic-security-labs-feed.yaml": {
+    "status": 200,
+    "id": "threat-intelligence-elastic-security-labs",
+    "valid": true
+  },
+  "workflows/threat-intel/threat-intel-feed-monitor.yaml": {
+    "status": 200,
+    "id": "threat-intelligence-feed-monitor",
+    "valid": true
+  },
+  "workflows/triage/alert-fp-triage-activity-summary.yaml": {
+    "status": 200,
+    "id": "alert-false-positive-triage-activity-summary-with-ai-v2",
+    "valid": true
+  },
+  "workflows/triage/mfa-bombing-triage.yaml": {
+    "status": 200,
+    "id": "mfa-bombing-attack-discovery-triage",
+    "valid": true
+  },
+  "workflows/triage/risky-user-signin-investigation.yaml": {
+    "status": 200,
+    "id": "m365-risky-user-sign-in-investigation",
+    "valid": true
+  }
+}

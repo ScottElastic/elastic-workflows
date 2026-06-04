@@ -80,3 +80,27 @@ steps:
         Defender isolation lift requested for {{ inputs.uid }}.
         action_id={{ steps.build_host_observable.output.observable.defender_action_id }}
         status={{ steps.build_host_observable.output.observable.status }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Microsoft Defender for Endpoint — Network Restore"
+        description: |
+          Automated case created by the **Microsoft Defender for Endpoint — Network Restore** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

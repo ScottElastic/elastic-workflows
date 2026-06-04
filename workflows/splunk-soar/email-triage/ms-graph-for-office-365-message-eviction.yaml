@@ -114,3 +114,27 @@ steps:
             type: console
             with:
               message: "Message {{ item }} not found in {{ inputs.email[loop.index0] }} — skipping eviction."
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: MS Graph O365 — Message Eviction"
+        description: |
+          Automated case created by the **MS Graph O365 — Message Eviction** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

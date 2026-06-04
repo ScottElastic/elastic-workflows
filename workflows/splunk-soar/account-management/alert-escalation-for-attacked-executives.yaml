@@ -110,3 +110,27 @@ steps:
             type: console
             with:
               message: "{{ steps.derive_user.output.user }} is not in the executives group — no escalation."
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Alert Escalation — Attacked Executives"
+        description: |
+          Automated case created by the **Alert Escalation — Attacked Executives** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

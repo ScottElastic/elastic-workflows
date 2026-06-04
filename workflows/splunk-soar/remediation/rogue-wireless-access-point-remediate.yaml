@@ -180,3 +180,27 @@ steps:
       message: |
         Wireless scan finished.
         escalated_aps={{ steps.enriched_aps.output.aps | where: "is_escalated", true | size }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Wireless — Rogue Access Point Remediate"
+        description: |
+          Automated case created by the **Wireless — Rogue Access Point Remediate** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

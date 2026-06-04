@@ -68,3 +68,27 @@ steps:
         with:
           message: |
             File hash {{ item }} classification={{ steps.rl_file_reputation.output.rl.malware_presence.status | default: 'UNKNOWN' }} threat={{ steps.rl_file_reputation.output.rl.malware_presence.threat_name | default: '' }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: ReversingLabs TitaniumCloud — File Reputation"
+        description: |
+          Automated case created by the **ReversingLabs TitaniumCloud — File Reputation** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

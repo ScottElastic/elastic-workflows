@@ -240,3 +240,27 @@ steps:
       message: |
         Quarantine response complete on device {{ steps.capture_device_id.output.device_id }}.
         deny={{ inputs.response_deny }} isolate={{ inputs.response_isolate }} evict={{ inputs.response_evict }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: CrowdStrike — Endpoint Quarantine Response"
+        description: |
+          Automated case created by the **CrowdStrike — Endpoint Quarantine Response** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

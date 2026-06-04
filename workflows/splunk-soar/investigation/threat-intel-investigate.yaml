@@ -156,3 +156,27 @@ steps:
     type: console
     with:
       message: "Threat intel orchestration complete for {{ inputs.indicators | size }} indicator(s)."
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Threat Intel — Investigate Indicators"
+        description: |
+          Automated case created by the **Threat Intel — Investigate Indicators** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

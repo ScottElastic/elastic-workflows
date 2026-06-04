@@ -227,3 +227,27 @@ steps:
             Client peers seen: {{ steps.get_client_peers.output.peers | size | default: 0 }}
             Server peers seen: {{ steps.get_db_peers.output.peers | size | default: 0 }}
             PAN block requested: {{ steps.block_client_on_palo_alto.output.status | default: 'failed' }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: ExtraHop — Externally Accessible Database Investigation"
+        description: |
+          Automated case created by the **ExtraHop — Externally Accessible Database Investigation** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

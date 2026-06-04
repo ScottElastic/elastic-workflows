@@ -309,3 +309,27 @@ steps:
     type: console
     with:
       message: "Ransomware response complete for hash {{ inputs.file_hash }} — wildfire_verdict={{ steps.detonate_file.output.wildfire.get_verdict_info.verdict | default: 'inconclusive' }} malware_label={{ steps.wildfire_report.output.wildfire.task_info.report.malware | default: 'unknown' }}"
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Ransomware — Investigate and Contain"
+        description: |
+          Automated case created by the **Ransomware — Investigate and Contain** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

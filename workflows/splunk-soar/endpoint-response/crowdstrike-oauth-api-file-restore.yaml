@@ -180,3 +180,27 @@ steps:
     with:
       message: |
         Restored {{ inputs.file }} into {{ inputs.target_directory }} on {{ inputs.device }}.
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: CrowdStrike — File Restore (RTR put)"
+        description: |
+          Automated case created by the **CrowdStrike — File Restore (RTR put)** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

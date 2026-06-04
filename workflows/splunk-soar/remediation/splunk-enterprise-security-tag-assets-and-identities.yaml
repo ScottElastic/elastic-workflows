@@ -130,3 +130,27 @@ steps:
         identity_matches={{ steps.find_identities.output.results | default: [] | size }}
         hosts_checked={{ steps.dedup_hosts.output.hosts | size }}
         asset_matches={{ steps.find_assets.output.results | default: [] | size }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Splunk ES — Tag Assets and Identities"
+        description: |
+          Automated case created by the **Splunk ES — Tag Assets and Identities** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

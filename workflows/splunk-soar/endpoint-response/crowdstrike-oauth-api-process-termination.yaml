@@ -146,3 +146,27 @@ steps:
         source: "CrowdStrike OAuth API"
         action: "terminate"
         device_id: "{{ steps.capture_device_id.output.device_id }}"
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: CrowdStrike — Process Termination"
+        description: |
+          Automated case created by the **CrowdStrike — Process Termination** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

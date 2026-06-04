@@ -113,3 +113,27 @@ steps:
     type: console
     with:
       message: "Created ServiceNow ticket: {{ steps.create_ticket.output.number | default: 'unknown' }}"
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: ServiceNow — Create Ticket With Indicator Summary"
+        description: |
+          Automated case created by the **ServiceNow — Create Ticket With Indicator Summary** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

@@ -130,3 +130,27 @@ steps:
                 type: console
                 with:
                   message: "{{ steps.derive_source_address.output.source_ip }} recorded as non-test; no de-escalation performed."
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Alert De-escalation — Test Machines"
+        description: |
+          Automated case created by the **Alert De-escalation — Test Machines** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

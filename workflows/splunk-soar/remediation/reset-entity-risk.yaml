@@ -118,3 +118,27 @@ steps:
         rules_processed={{ inputs.risk_rules | size }}
         owner={{ inputs.owner }}
         reason={{ inputs.reset_reason }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Splunk ES — Reset Entity Risk"
+        description: |
+          Automated case created by the **Splunk ES — Reset Entity Risk** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

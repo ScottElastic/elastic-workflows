@@ -199,3 +199,27 @@ steps:
                 with:
                   message: |
                     SAA file detonation: file={{ item }} verdict={{ steps.get_file_job_summary.output.Verdict | default: 'Unknown' }}, app_url={{ steps.get_file_job_summary.output.AppURL | default: '' }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Splunk Attack Analyzer — Dynamic Analysis"
+        description: |
+          Automated case created by the **Splunk Attack Analyzer — Dynamic Analysis** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

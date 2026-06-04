@@ -86,3 +86,27 @@ steps:
             message_id={{ item }}
             status={{ steps.record_result.output.observable.status }}
             http_code={{ steps.record_result.output.observable.http_code }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: GSuite Gmail — Message Eviction"
+        description: |
+          Automated case created by the **GSuite Gmail — Message Eviction** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

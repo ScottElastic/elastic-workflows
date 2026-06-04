@@ -324,3 +324,27 @@ steps:
             URL did not exceed positive-engine threshold; no action taken.
             url={{ inputs.request_url }}
             positives={{ steps.url_reputation.output.summary.positives | default: 0 }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Zscaler — Hunt and Block Malicious URL"
+        description: |
+          Automated case created by the **Zscaler — Hunt and Block Malicious URL** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

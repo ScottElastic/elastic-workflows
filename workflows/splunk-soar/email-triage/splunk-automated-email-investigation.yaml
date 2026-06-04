@@ -220,3 +220,27 @@ steps:
         type: console
         with:
           message: "Observable scored at or below threshold — no identifier hunting performed."
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Splunk — Automated Email Investigation"
+        description: |
+          Automated case created by the **Splunk — Automated Email Investigation** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

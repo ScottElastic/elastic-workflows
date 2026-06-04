@@ -104,3 +104,26 @@ steps:
                 comment: "Commvault data aging change for {{ inputs.client_name }} did not complete successfully."
                 owner: "cases"
 
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Commvault Cloud — Disable Data Aging"
+        description: |
+          Automated case created by the **Commvault Cloud — Disable Data Aging** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

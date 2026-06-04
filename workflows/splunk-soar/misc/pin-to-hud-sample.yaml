@@ -115,3 +115,26 @@ steps:
             comment: "Affected IPs: {{ steps.build_summary.output.hud_summary.affected_ips }} Affected users: {{ steps.build_summary.output.hud_summary.affected_users }} Most recent domain: {{ steps.build_summary.output.hud_summary.most_recent_domain }} IOC count: {{ steps.build_summary.output.hud_summary.ioc_count }} Most recent IOC: {{ steps.build_summary.output.hud_summary.most_recent_ioc }} IOC types: {{ steps.build_summary.output.hud_summary.ioc_types | join: ', ' }}"
             owner: "cases"
 
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Heads-Up Display Pinning Sample"
+        description: |
+          Automated case created by the **Heads-Up Display Pinning Sample** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

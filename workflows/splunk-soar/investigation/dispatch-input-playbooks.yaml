@@ -166,3 +166,27 @@ steps:
         # collect each child's output via the workflow execution API.
         with:
           message: "Dispatcher complete. Aggregate child outputs from execution records via the Kibana API."
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Dispatcher — Route Indicators to Input Workflows"
+        description: |
+          Automated case created by the **Dispatcher — Route Indicators to Input Workflows** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

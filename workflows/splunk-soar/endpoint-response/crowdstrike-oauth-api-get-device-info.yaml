@@ -102,3 +102,27 @@ steps:
     with:
       message: |
         Resolved {{ inputs.device }} -> device_id={{ steps.build_device_observable.output.observable.attributes.device_id }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: CrowdStrike — Get Device Info"
+        description: |
+          Automated case created by the **CrowdStrike — Get Device Info** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

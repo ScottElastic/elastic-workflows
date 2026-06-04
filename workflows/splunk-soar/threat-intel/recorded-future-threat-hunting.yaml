@@ -180,3 +180,27 @@ steps:
         type: console
         with:
           message: "Recorded Future risk score {{ steps.rf_ip_reputation.output.data.risk.score | default: 0 }} is below the {{ inputs.risk_threshold }} threshold — no hunting performed."
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Recorded Future — Threat Hunting Pivot"
+        description: |
+          Automated case created by the **Recorded Future — Threat Hunting Pivot** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

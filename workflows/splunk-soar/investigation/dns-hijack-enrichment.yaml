@@ -204,3 +204,27 @@ steps:
             max-attempts: 3
             delay: "5s"
           continue: true
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: DNS Hijack — Enrichment"
+        description: |
+          Automated case created by the **DNS Hijack — Enrichment** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

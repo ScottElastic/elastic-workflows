@@ -191,3 +191,27 @@ steps:
         source_domain={{ steps.derive_indicators.output.source_domain | default: '-' }}
         destination_domain={{ steps.derive_indicators.output.destination_domain | default: '-' }}
         url={{ steps.derive_indicators.output.request_url | default: '-' }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Recorded Future — Indicator Enrichment"
+        description: |
+          Automated case created by the **Recorded Future — Indicator Enrichment** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

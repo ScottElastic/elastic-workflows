@@ -145,3 +145,27 @@ steps:
       message: |
         Inactive AWS user scan complete. Candidates flagged based on PasswordLastUsed
         older than the {{ inputs.idle_days }}-day cutoff ({{ steps.calculate_cutoff.output.cutoff_iso8601 }}).
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: AWS IAM — Find Inactive Users"
+        description: |
+          Automated case created by the **AWS IAM — Find Inactive Users** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

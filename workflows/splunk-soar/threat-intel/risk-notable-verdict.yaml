@@ -176,3 +176,26 @@ steps:
                 comment: "[Auto-Generated] Verdict Error — no response workflows tagged {{ consts.response_tag }} were found."
                 owner: "cases"
 
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Risk Notable — Analyst Verdict and Response Launcher"
+        description: |
+          Automated case created by the **Risk Notable — Analyst Verdict and Response Launcher** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

@@ -105,3 +105,27 @@ steps:
     type: console
     with:
       message: "Splunk notable related-tickets search complete. Matched events: {{ steps.search_notables.output.results | size | default: 0 }}."
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Splunk Notable — Related Tickets Search"
+        description: |
+          Automated case created by the **Splunk Notable — Related Tickets Search** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

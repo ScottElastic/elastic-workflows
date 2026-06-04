@@ -101,3 +101,27 @@ steps:
     type: console
     with:
       message: "Created SNOW incident {{ steps.create_snow_ticket.output.number | default: 'unknown' }} for finding {{ inputs.finding_id }}."
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: ServiceNow — Create Incident from ES Finding"
+        description: |
+          Automated case created by the **ServiceNow — Create Incident from ES Finding** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

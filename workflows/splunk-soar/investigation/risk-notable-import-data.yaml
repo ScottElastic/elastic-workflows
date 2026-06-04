@@ -175,3 +175,27 @@ steps:
             type: console
             with:
               message: "Risk import complete for {{ inputs.risk_object }} — {{ steps.run_risk_query.output.summary.total_events | default: 0 }} contributing events parsed."
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Splunk Risk Notable — Import Contributing Events"
+        description: |
+          Automated case created by the **Splunk Risk Notable — Import Contributing Events** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

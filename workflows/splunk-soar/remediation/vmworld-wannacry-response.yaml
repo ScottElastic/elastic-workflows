@@ -150,3 +150,27 @@ steps:
         hosts={{ inputs.source_addresses | size }}
         snapshotted={{ steps.affected_vms.output.matches | size }}
         decision={{ steps.quarantine_decision.output | strip | upcase }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: VMWorld — WannaCry Response"
+        description: |
+          Automated case created by the **VMWorld — WannaCry Response** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

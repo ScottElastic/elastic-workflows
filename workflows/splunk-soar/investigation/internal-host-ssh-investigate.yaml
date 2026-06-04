@@ -150,3 +150,27 @@ steps:
         Collector zip retrieved: {{ steps.fetch_output_zip.output.path | default: 'not retrieved' }}
         Processes seen: {{ steps.list_processes.output.processes | size | default: 0 }}
         Connections seen: {{ steps.list_connections.output.connections | size | default: 0 }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Linux Host — SSH-based Investigation"
+        description: |
+          Automated case created by the **Linux Host — SSH-based Investigation** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

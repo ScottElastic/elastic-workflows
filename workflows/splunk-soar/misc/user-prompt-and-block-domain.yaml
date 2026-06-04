@@ -135,3 +135,27 @@ steps:
         type: console
         with:
           message: "Domain {{ inputs.domain }} risk {{ steps.extract_risk_score.output.risk_score }} is below threshold; no action."
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: User-Approved Domain Block via Umbrella"
+        description: |
+          Automated case created by the **User-Approved Domain Block via Umbrella** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

@@ -128,3 +128,27 @@ steps:
     with:
       message: |
         Azure AD new user census complete. Found {{ steps.list_new_users.output.value | size | default: 0 }} users created in the trailing {{ inputs.lookback_days }} day(s).
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Azure AD — New User Census"
+        description: |
+          Automated case created by the **Azure AD — New User Census** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

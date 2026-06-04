@@ -163,3 +163,27 @@ steps:
             all-Let's-Encrypt flag was {{ steps.count_le_certs.output.le_only | default: 'unknown' }}.
             The playbook only proceeds when there are 1-{{ consts.cert_result_limit }} certs
             and every issuer name contains {{ consts.lets_encrypt_issuer_substring }}.
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Let's Encrypt — Phishing Domain Investigation"
+        description: |
+          Automated case created by the **Let's Encrypt — Phishing Domain Investigation** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

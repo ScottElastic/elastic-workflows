@@ -1,0 +1,1040 @@
+{
+  "workflows/investigation/litellm-trojan-investigation.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "18c4c1f1-f73c-4c0c-aabe-f328d77df0a0"
+    }
+  },
+  "workflows/investigation/okta-aitm-investigation.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "320941ee-260b-4379-b39e-2d30bceb7524"
+    }
+  },
+  "workflows/splunk-soar/account-management/active-directory-disable-account-dispatch.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "37bc6156-73b8-40a7-84e9-a10cb681096c"
+    }
+  },
+  "workflows/splunk-soar/account-management/active-directory-enable-account-dispatch.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "44dbf76a-8098-458a-afd9-2f6f95fb58ff"
+    }
+  },
+  "workflows/splunk-soar/account-management/activedirectory-reset-password.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "1abfdf87-5cbb-4ad1-8f94-9d8402c756cb"
+    }
+  },
+  "workflows/splunk-soar/account-management/ad-ldap-account-locking.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "c4e93699-98f8-4560-bc77-2c538357ffa5"
+    }
+  },
+  "workflows/splunk-soar/account-management/ad-ldap-account-unlocking.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "396b7861-990b-4aa0-b487-cced7ca13828"
+    }
+  },
+  "workflows/splunk-soar/account-management/alert-deescalation-for-test-machines.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "9b8ae665-5ee0-481e-a1ec-badfb27f5a1d"
+    }
+  },
+  "workflows/splunk-soar/account-management/alert-escalation-for-attacked-executives.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "835774b4-66ec-421d-bd86-dfcb2f885dd7"
+    }
+  },
+  "workflows/splunk-soar/account-management/aws-disable-user-accounts.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "998cc071-c9de-4319-b5cf-19490aae055d"
+    }
+  },
+  "workflows/splunk-soar/account-management/aws-find-inactive-users.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "2ab8f6e4-669e-4c14-a891-db27fb664682"
+    }
+  },
+  "workflows/splunk-soar/account-management/aws-iam-account-locking.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "c37bdd5c-dc79-4754-ad8d-e9945ca11e39"
+    }
+  },
+  "workflows/splunk-soar/account-management/aws-iam-account-unlocking.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "b204b532-1a17-4a50-83e8-bfac21b66982"
+    }
+  },
+  "workflows/splunk-soar/account-management/azure-ad-account-locking.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "1429bcf5-ce4d-4b88-8581-2a5a4717eb7c"
+    }
+  },
+  "workflows/splunk-soar/account-management/azure-ad-account-unlocking.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "c6915579-f5ec-4823-85cc-aa8479520eca"
+    }
+  },
+  "workflows/splunk-soar/account-management/azure-new-user-census.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "51e06640-75d7-44cf-9623-93e6af00532f"
+    }
+  },
+  "workflows/splunk-soar/account-management/excessive-account-lockouts-enrichment-and-response.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "7195f6cd-a2bb-4b4a-a706-8449b8b8ee43"
+    }
+  },
+  "workflows/splunk-soar/email-triage/email-notification-for-malware.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "2c808f1c-bbfa-4ff9-aa35-462b02742057"
+    }
+  },
+  "workflows/splunk-soar/email-triage/g-suite-for-gmail-message-eviction.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "6731fcbc-d857-425e-b072-d0adbf3e796e"
+    }
+  },
+  "workflows/splunk-soar/email-triage/g-suite-for-gmail-search-and-purge.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "f8a887b0-c043-400d-b36c-9abb6365ec30"
+    }
+  },
+  "workflows/splunk-soar/email-triage/ms-graph-for-office-365-message-eviction.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "9671ea5f-e45f-4dd2-9903-d3b3b9e9ce99"
+    }
+  },
+  "workflows/splunk-soar/email-triage/ms-graph-for-office-365-message-restore.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "ee54dc7b-c837-4e78-9fcf-3cf948506655"
+    }
+  },
+  "workflows/splunk-soar/email-triage/ms-graph-for-office-365-search-and-purge.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "00913d73-bd52-447c-b68c-6cbcb47fb099"
+    }
+  },
+  "workflows/splunk-soar/email-triage/ms-graph-for-office-365-search-and-restore.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "bb83c8f5-f760-4b62-83f9-b42d4d62a0e8"
+    }
+  },
+  "workflows/splunk-soar/email-triage/phishme-email-investigate-and-respond.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "15d03325-313c-4363-9cc0-5561ea8bafd1"
+    }
+  },
+  "workflows/splunk-soar/email-triage/reversinglabs-reported-email-triage.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "2ba8a7b3-7596-4510-8f5e-e2a9c6f10328"
+    }
+  },
+  "workflows/splunk-soar/email-triage/splunk-automated-email-investigation.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "7709ec21-7933-4ef4-8bab-40838c40e926"
+    }
+  },
+  "workflows/splunk-soar/email-triage/zscaler-patient-0-parse-email.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "6fc5f2f3-26cc-4efc-8827-86afad6c1bfd"
+    }
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-endpoint-ioc-enrichment.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "a3548b2f-ee88-41c8-94a9-e46b36f7b03e"
+    }
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-endpoint-quarantine-response.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "82b3b1d1-5774-4577-8519-4f8420aada20"
+    }
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-malware-triage.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "581ff356-595c-413f-b080-1a6cf8f661f9"
+    }
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-device-attribute-lookup.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "91cc4b06-0bb2-4b69-b5c9-50f05e5df277"
+    }
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-dynamic-analysis.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "d6a91c9b-98ca-4ab1-ab87-0b68be39a597"
+    }
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-endpoint-analysis.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "3834f109-b129-4700-9e2a-87a278f01dcc"
+    }
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-executable-denylisting.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "7ca0b35e-a119-4183-8400-87df765cdbf2"
+    }
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-file-collection.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "e4507648-7891-49c2-a243-3f188bbe7f87"
+    }
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-file-eviction.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "9186b393-f53e-4579-9309-a5809fcf0632"
+    }
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-file-restore.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "91a53345-15b1-49d5-baea-136f19e04f2f"
+    }
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-get-device-info.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "93faa15d-4835-41a6-8ff5-362f6f3d3601"
+    }
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-identifier-activity-analysis.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "c2e85617-4eca-4cc0-a9ed-9113ae2c1578"
+    }
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-network-isolation.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "56b6e414-7562-4e68-861e-27b2af2d7253"
+    }
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-network-restore.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "6c8af580-1132-41b9-b195-e1bfccb161cb"
+    }
+  },
+  "workflows/splunk-soar/endpoint-response/crowdstrike-oauth-api-process-termination.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "5d11cd3a-020c-4efc-bd30-094fd1c7bdd8"
+    }
+  },
+  "workflows/splunk-soar/endpoint-response/ec2-instance-isolation.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "e66df243-373f-4509-9eb3-0fd35192c17a"
+    }
+  },
+  "workflows/splunk-soar/endpoint-response/host-quarantine-crowdstrike.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "14a2f8d1-188d-43f9-80c7-b684a0de1e58"
+    }
+  },
+  "workflows/splunk-soar/endpoint-response/microsoft-defender-for-endpoint-network-isolation.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "88c1b36d-04cf-4d1a-b895-5823aca2f5dd"
+    }
+  },
+  "workflows/splunk-soar/endpoint-response/microsoft-defender-for-endpoint-network-restore.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "5da1db8b-bcea-41af-8fac-6884e7b5e0aa"
+    }
+  },
+  "workflows/splunk-soar/endpoint-response/windows-defender-atp-identifier-activity-analysis.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "ea912cad-4ce5-4217-9ba5-c35d0a2b8421"
+    }
+  },
+  "workflows/splunk-soar/enrichment/acmecorp-phishing-full-triage.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "65351f00-1487-4624-97ea-96bc2be93358"
+    }
+  },
+  "workflows/splunk-soar/enrichment/ad-ldap-entity-attribute-lookup.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "b3f12d10-0976-4458-9bba-21da4d569966"
+    }
+  },
+  "workflows/splunk-soar/enrichment/attribute-lookup-dispatch.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "851d66cc-d6e6-4c24-af6e-5d28cfe740a3"
+    }
+  },
+  "workflows/splunk-soar/enrichment/automated-enrichment.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "a5cef910-8e58-459b-9861-bb5b9108e873"
+    }
+  },
+  "workflows/splunk-soar/enrichment/azure-ad-graph-user-attribute-lookup.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "bb2c72f1-eba5-4943-84e3-78695448a257"
+    }
+  },
+  "workflows/splunk-soar/enrichment/dynamic-analysis-dispatch.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "39ff4b0c-35a9-4eb0-8d40-ca5e065ed66d"
+    }
+  },
+  "workflows/splunk-soar/enrichment/g-suite-for-gmail-message-identifier-activity-analysis.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "baa9da22-ead7-486d-8551-4dd9bd78d8d1"
+    }
+  },
+  "workflows/splunk-soar/enrichment/identifier-activity-analysis-dispatch.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "d272d5c3-f07c-405a-b26d-62a311636112"
+    }
+  },
+  "workflows/splunk-soar/enrichment/mission-control-attribute-lookup.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "5e3936d5-3009-46ce-952c-b422cb157438"
+    }
+  },
+  "workflows/splunk-soar/enrichment/mission-control-automated-enrichment.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "d1f7e9b2-98f7-4485-a076-f59457edb665"
+    }
+  },
+  "workflows/splunk-soar/enrichment/ms-graph-for-office-365-message-identifier-activity-analysis.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "ed20bd6c-2ce2-43b6-af25-0a6d4e7e7338"
+    }
+  },
+  "workflows/splunk-soar/enrichment/splunk-attack-analyzer-dynamic-analysis.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "942de08a-f8d4-46c5-9374-5dcffad47c7d"
+    }
+  },
+  "workflows/splunk-soar/enrichment/splunk-identifier-activity-analysis.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "560f12bb-ac7d-49df-b4bd-32c3a37eee02"
+    }
+  },
+  "workflows/splunk-soar/enrichment/splunk-message-identifier-activity-analysis.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "eb395a90-b650-4451-a155-59a08c101b1b"
+    }
+  },
+  "workflows/splunk-soar/investigation/corelight-investigate-dns-alert.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "e2108828-eaa3-41cf-9b49-53a3db100f59"
+    }
+  },
+  "workflows/splunk-soar/investigation/dispatch-input-playbooks.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "1b349dd8-14c6-4962-8705-610de6ee1ccf"
+    }
+  },
+  "workflows/splunk-soar/investigation/dns-hijack-enrichment.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "def297e7-f067-4579-a869-7ea87d40c11d"
+    }
+  },
+  "workflows/splunk-soar/investigation/domain-investigate.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "275ae286-7d66-4bc6-8cf7-b19db785d540"
+    }
+  },
+  "workflows/splunk-soar/investigation/ec2-instance-investigation-and-notification.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "7035522c-2d33-4d6f-95ff-5c57e309de7f"
+    }
+  },
+  "workflows/splunk-soar/investigation/extrahop-detect-data-exfiltration.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "49cbaeb7-58de-446b-89b9-31a8a49e74f9"
+    }
+  },
+  "workflows/splunk-soar/investigation/extrahop-externally-accessible-databases.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "20b24b3e-f59b-4b5e-9de9-6d35bfacca88"
+    }
+  },
+  "workflows/splunk-soar/investigation/extrahop-new-dns-servers.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "4d0dc08d-dc14-4939-991b-feac59e6c631"
+    }
+  },
+  "workflows/splunk-soar/investigation/internal-host-splunk-investigate-log4j.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "9e48bdb0-c571-47a9-9456-42360c197f88"
+    }
+  },
+  "workflows/splunk-soar/investigation/internal-host-ssh-investigate.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "c4c32ac3-7292-408e-9a44-91161578e624"
+    }
+  },
+  "workflows/splunk-soar/investigation/internal-host-ssh-log4j-investigate.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "048fd083-e253-4288-9568-53b915cac681"
+    }
+  },
+  "workflows/splunk-soar/investigation/internal-host-winrm-investigate.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "cb7f2561-b2dd-432d-9da2-d861f0b44f5e"
+    }
+  },
+  "workflows/splunk-soar/investigation/internal-host-winrm-log4j-investigate.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "dca0b2c6-cdb2-4268-ab5e-3831ee44bb3f"
+    }
+  },
+  "workflows/splunk-soar/investigation/lets-encrypt-domain-investigate.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "bde4fe8e-d5a4-43fc-ac43-0c33ce40c27c"
+    }
+  },
+  "workflows/splunk-soar/investigation/log4j-investigate.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "8063a34e-0e73-42c1-ba58-857b2272dc6f"
+    }
+  },
+  "workflows/splunk-soar/investigation/mcafee-phishing-attachment-investigate.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "16564b95-233c-4526-89e0-0e1f0ab04229"
+    }
+  },
+  "workflows/splunk-soar/investigation/nagios-service-monitor.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "44623efe-4bd4-444c-9896-547828796bea"
+    }
+  },
+  "workflows/splunk-soar/investigation/protectwise-investigate-and-respond.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "449bfc71-7433-4a36-8b4b-4a73c57648a9"
+    }
+  },
+  "workflows/splunk-soar/investigation/ransomware-investigate-and-contain.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "212e4ed1-3d1e-4aa5-a27d-d74d6c73892d"
+    }
+  },
+  "workflows/splunk-soar/investigation/reinfected-endpoint-check.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "ea1ceee1-2753-47cf-b0f9-2dfaa3c709c7"
+    }
+  },
+  "workflows/splunk-soar/investigation/risk-notable-auto-investigate.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "97a44cd9-c9da-483c-97ed-e52b87265df2"
+    }
+  },
+  "workflows/splunk-soar/investigation/risk-notable-auto-merge.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "e26e503d-6403-4a1c-a2ec-f324afafb328"
+    }
+  },
+  "workflows/splunk-soar/investigation/risk-notable-import-data.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "f8d5135d-bfbe-4a50-bef1-f87ce0fcafff"
+    }
+  },
+  "workflows/splunk-soar/investigation/risk-notable-investigate.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "bbac66c8-a564-40ca-ad5c-7b45dcb9ff62"
+    }
+  },
+  "workflows/splunk-soar/investigation/risk-notable-merge-events.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "b9ac8a84-6313-4d02-96e8-bfbcb81d273d"
+    }
+  },
+  "workflows/splunk-soar/investigation/risk-notable-preprocess.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "af2fdcb6-ad90-4958-be35-e3d7493ffe23"
+    }
+  },
+  "workflows/splunk-soar/investigation/splunk-enterprise-security-close-investigation.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "e89088d9-36ba-4432-a76c-a75e3d35cc72"
+    }
+  },
+  "workflows/splunk-soar/investigation/ssh-endpoint-investigate.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "47178b15-3bba-46bc-87c6-4c54cfcc174f"
+    }
+  },
+  "workflows/splunk-soar/investigation/start-investigation.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "cd196666-bcc5-40b9-b774-511993e7e3d2"
+    }
+  },
+  "workflows/splunk-soar/investigation/threat-intel-investigate.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "1650ec9e-7e04-4c4c-84e5-7ba18582e823"
+    }
+  },
+  "workflows/splunk-soar/investigation/threatquotient-investigate-and-respond.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "0b3c6d14-e848-4619-9d33-0812c4646c37"
+    }
+  },
+  "workflows/splunk-soar/investigation/url-investigate.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "dfa63924-6eca-4458-9111-7089e4630226"
+    }
+  },
+  "workflows/splunk-soar/misc/advanced-playbook-tutorial.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "dda3599c-d6f8-410c-95ee-7d69f850a1ac"
+    }
+  },
+  "workflows/splunk-soar/misc/commvault-cloud-disable-data-aging.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "2810ac27-9e12-4c61-b4be-cc45b8a5d5f5"
+    }
+  },
+  "workflows/splunk-soar/misc/create-ticket.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "7b202d56-a5e0-4857-9d2d-ef4a786b8dcb"
+    }
+  },
+  "workflows/splunk-soar/misc/customer-firewall-request-handle-artifact.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "491aa1d7-4660-46bc-93c7-419566255401"
+    }
+  },
+  "workflows/splunk-soar/misc/customer-firewall-request-parse-csv.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "da410940-5cac-429d-8186-ba07a474a510"
+    }
+  },
+  "workflows/splunk-soar/misc/endace-splunk-search-download-pcap.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "08c6cfdb-96e3-4dc0-be9e-8957b7f8b534"
+    }
+  },
+  "workflows/splunk-soar/misc/gcp-unusual-serviceaccount-usage.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "9177d0df-5b78-4e2a-bd73-b585a57b96b1"
+    }
+  },
+  "workflows/splunk-soar/misc/onboarding-demonstration.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "8129cf46-c1c8-447b-ab07-fc6189a87b58"
+    }
+  },
+  "workflows/splunk-soar/misc/pin-to-hud-sample.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "b575c7b6-c829-4629-a832-882a30585010"
+    }
+  },
+  "workflows/splunk-soar/misc/reversinglabs-titaniumscale-file-analysis.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "8af59541-b15c-4c99-84bf-eb03213cfe4f"
+    }
+  },
+  "workflows/splunk-soar/misc/test-connectivity.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "9d0285b8-e230-40cd-bf7d-cd7ff9a55c23"
+    }
+  },
+  "workflows/splunk-soar/misc/track-active-directory-admin-users.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "dca647e4-7e68-4b6b-88cf-27ceaa708ac0"
+    }
+  },
+  "workflows/splunk-soar/misc/user-approved-ticket-creation.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "6f225a2c-adda-42ac-b923-82520d345bed"
+    }
+  },
+  "workflows/splunk-soar/misc/user-prompt-and-block-domain.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "1b685f7d-ad8e-4eb2-9182-6aca7a8734a7"
+    }
+  },
+  "workflows/splunk-soar/misc/vectra-detection-notification.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "8b15aaff-0381-4199-b562-39b853a5c244"
+    }
+  },
+  "workflows/splunk-soar/network-control/cisco-umbrella-dns-denylisting.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "5fe485cb-aacb-4f40-be22-44cffd9de6a7"
+    }
+  },
+  "workflows/splunk-soar/network-control/dns-denylisting-dispatch.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "790163eb-7ad9-4f15-acfd-5e6cea713ce6"
+    }
+  },
+  "workflows/splunk-soar/network-control/domain-block-umbrella.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "edbad548-f5a0-47cf-abb7-5a89640095dd"
+    }
+  },
+  "workflows/splunk-soar/network-control/panorama-outbound-traffic-filtering.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "bcdc1da5-b24b-4d15-b2f8-c63640ec691d"
+    }
+  },
+  "workflows/splunk-soar/network-control/url-outbound-traffic-filtering-dispatch.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "d64f4259-815b-489a-bb9b-56d8e6d1838e"
+    }
+  },
+  "workflows/splunk-soar/network-control/zscaler-hunt-and-block-url.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "4bdacc7d-8a89-4a61-91be-2dbe8880d89f"
+    }
+  },
+  "workflows/splunk-soar/network-control/zscaler-malicious-file-response.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "f8a07903-5803-44fc-818d-4c5b58a538bc"
+    }
+  },
+  "workflows/splunk-soar/network-control/zscaler-outbound-traffic-filtering.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "a32570d6-a48a-4068-bd47-7f9d3792c851"
+    }
+  },
+  "workflows/splunk-soar/remediation/delete-detected-files.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "c5aaa32e-a092-41d3-9e6b-b252f4102446"
+    }
+  },
+  "workflows/splunk-soar/remediation/internal-host-ssh-log4j-respond.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "7651adb1-7459-424a-8cc9-c96af6cb2ec5"
+    }
+  },
+  "workflows/splunk-soar/remediation/internal-host-winrm-log4j-respond.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "919428c4-c377-4114-b889-f93b0b6ff811"
+    }
+  },
+  "workflows/splunk-soar/remediation/log4j-respond.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "d32ac902-b5ca-41a2-8315-8aa5c537a079"
+    }
+  },
+  "workflows/splunk-soar/remediation/recorded-future-correlation-response.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "83a42b87-4836-4ffb-a107-3de043aa22d1"
+    }
+  },
+  "workflows/splunk-soar/remediation/reset-entity-risk.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "12af0812-a46b-449d-9cf8-188a19801ad7"
+    }
+  },
+  "workflows/splunk-soar/remediation/risk-notable-auto-containment.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "d6e4f37b-5db3-403b-b065-bd7ffff819f5"
+    }
+  },
+  "workflows/splunk-soar/remediation/risk-notable-auto-undo-containment.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "8914eca6-d966-4437-bd19-29915205259d"
+    }
+  },
+  "workflows/splunk-soar/remediation/risk-notable-block-indicators.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "878a0e99-3b84-4f6e-a18e-c01f69def6c7"
+    }
+  },
+  "workflows/splunk-soar/remediation/risk-notable-mitigate.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "83e49469-dc2b-4c08-afb1-4096ae421b95"
+    }
+  },
+  "workflows/splunk-soar/remediation/risk-notable-protect-assets-and-users.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "03a72175-6178-4f4a-9199-dafd9c0c7d86"
+    }
+  },
+  "workflows/splunk-soar/remediation/rogue-wireless-access-point-remediate.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "2c20cd63-a510-4a44-b21c-d8f597a1c2b0"
+    }
+  },
+  "workflows/splunk-soar/remediation/splunk-enterprise-security-tag-assets-and-identities.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "4034f0be-2421-4d5f-8b0a-302225a0ba7e"
+    }
+  },
+  "workflows/splunk-soar/remediation/symantec-proxysg-unblock-request.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "86b52aab-0368-41cc-a8a4-85dd6b68013a"
+    }
+  },
+  "workflows/splunk-soar/remediation/terminate-spawned-processes.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "a7ea04c9-4f90-4970-9f68-db788dbcb937"
+    }
+  },
+  "workflows/splunk-soar/remediation/vectra-advanced-block-host.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "89b976da-2ef3-4411-a696-b156eb31f3a6"
+    }
+  },
+  "workflows/splunk-soar/remediation/vectra-basic-block-host.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "9d8e2eda-8b79-4348-8fce-0f6231066f1b"
+    }
+  },
+  "workflows/splunk-soar/remediation/vmworld-c2-response.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "aca0c74e-6122-4a86-9c1e-e71ce0550d96"
+    }
+  },
+  "workflows/splunk-soar/remediation/vmworld-wannacry-response.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "2e95092f-ea86-4032-bd19-32bf65aa29b6"
+    }
+  },
+  "workflows/splunk-soar/reputation-analysis/cisco-talos-intelligence-identifier-reputation-analysis.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "8a860e11-70ee-4681-8a2d-eb5dd1759754"
+    }
+  },
+  "workflows/splunk-soar/reputation-analysis/identifier-reputation-analysis-dispatch.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "5efab457-b438-476d-afcf-591a1289bdc6"
+    }
+  },
+  "workflows/splunk-soar/reputation-analysis/mission-control-identifier-reputation-analysis.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "562c6944-71dd-4054-ac60-de4faf28c183"
+    }
+  },
+  "workflows/splunk-soar/reputation-analysis/phishtank-url-reputation-analysis.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "d8b397e9-96f2-439e-8390-cf81c539dca1"
+    }
+  },
+  "workflows/splunk-soar/reputation-analysis/reversinglabs-titaniumcloud-file-reputation.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "8d55d768-c4fe-40b8-8e1a-2a0dce75689c"
+    }
+  },
+  "workflows/splunk-soar/reputation-analysis/reversinglabs-titaniumcloud-url-reputation.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "4e47abe0-eed4-49ed-8e97-4fb8186b2663"
+    }
+  },
+  "workflows/splunk-soar/reputation-analysis/urlscan-io-dynamic-analysis.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "a47c68bd-8d14-48f4-9cc6-91bd30fbd35e"
+    }
+  },
+  "workflows/splunk-soar/reputation-analysis/virustotal-v3-dynamic-analysis.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "3bdcf008-5bce-4dcf-a5b1-af268f3badd9"
+    }
+  },
+  "workflows/splunk-soar/reputation-analysis/virustotal-v3-identifier-reputation-analysis.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "bb378591-fbaa-4084-a1e4-f84e0259232e"
+    }
+  },
+  "workflows/splunk-soar/threat-intel/greynoise-gnql-enrichment.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "aef30364-9ce1-4a13-b98d-aff382a3ac35"
+    }
+  },
+  "workflows/splunk-soar/threat-intel/greynoise-ip-enrichment.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "54d5d0b2-9888-453f-809f-e0f93038deb7"
+    }
+  },
+  "workflows/splunk-soar/threat-intel/greynoise-on-poll-set-severity.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "b44bfd06-8466-47f5-a47e-f3d61110c676"
+    }
+  },
+  "workflows/splunk-soar/threat-intel/greynoise-update-severity-from-ip-reputation.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "ba16e7f8-57e4-4de4-9f7f-3671def164ec"
+    }
+  },
+  "workflows/splunk-soar/threat-intel/intelligence-management-enrich-indicators.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "2a87c3e4-6c8f-458f-b286-aa184492311d"
+    }
+  },
+  "workflows/splunk-soar/threat-intel/recorded-future-handle-leaked-credentials.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "2b7bc957-a8d3-47c1-9193-ced7d3d67543"
+    }
+  },
+  "workflows/splunk-soar/threat-intel/recorded-future-indicator-enrichment.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "afe92e51-7c61-4b5d-b43f-bb2e9c155567"
+    }
+  },
+  "workflows/splunk-soar/threat-intel/recorded-future-threat-hunting.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "d0963e1d-1c17-43ba-94d1-6f1cc0b0bef5"
+    }
+  },
+  "workflows/splunk-soar/threat-intel/risk-notable-enrich.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "ba13db1e-8f8f-4f0c-808e-8f0b959a7cc5"
+    }
+  },
+  "workflows/splunk-soar/threat-intel/risk-notable-review-indicators.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "1d87cdf5-716c-4e09-9425-0afd381f57e8"
+    }
+  },
+  "workflows/splunk-soar/threat-intel/risk-notable-verdict.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "8844f5b7-9ddc-471c-adf8-16c0d5abee4d"
+    }
+  },
+  "workflows/splunk-soar/threat-intel/symantec-ioc-data-enhancement.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "4d880989-c9de-4120-90be-17c665d78b8c"
+    }
+  },
+  "workflows/splunk-soar/threat-intel/trustar-network-enrichment.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "a0b90975-02ec-4801-a2c3-24872da181bb"
+    }
+  },
+  "workflows/splunk-soar/ticketing/jira-related-tickets-search.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "efccc346-d5b7-4acc-a0ca-db51c8e2e025"
+    }
+  },
+  "workflows/splunk-soar/ticketing/mission-control-related-tickets-search.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "3300df15-2d82-4c40-a93e-3d08b9db5544"
+    }
+  },
+  "workflows/splunk-soar/ticketing/related-tickets-search-dispatch.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "b399ed7e-b93b-483a-bc19-b953e5c97b99"
+    }
+  },
+  "workflows/splunk-soar/ticketing/servicenow-create-incident-es.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "013e22eb-e792-4960-908f-59bae3b56169"
+    }
+  },
+  "workflows/splunk-soar/ticketing/servicenow-create-incident.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "ca51a7ba-b0e6-4a1b-b2b4-285a23290e4f"
+    }
+  },
+  "workflows/splunk-soar/ticketing/servicenow-query-incidents.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "1ed0920e-ac25-40e0-8839-f7f541e3689f"
+    }
+  },
+  "workflows/splunk-soar/ticketing/servicenow-related-tickets-search.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "44077d82-bd40-47a4-9eeb-e197b17c5bc3"
+    }
+  },
+  "workflows/splunk-soar/ticketing/servicenow-update-incident-notes.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "74abf364-a13c-417d-af26-a6f692a875ce"
+    }
+  },
+  "workflows/splunk-soar/ticketing/servicenow-update-incident.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "6c8ac488-76ea-465a-8af0-a63183cfc1d0"
+    }
+  },
+  "workflows/splunk-soar/ticketing/splunk-notable-related-tickets-search.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "34a8ff71-c166-42e4-bbc9-bcfd2110fe59"
+    }
+  },
+  "workflows/threat-intel/elastic-security-labs-feed.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "1a038cf6-b7e8-4e74-9b3c-a0da16a8472c"
+    }
+  },
+  "workflows/threat-intel/threat-intel-feed-monitor.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "ee4a26b4-56f0-4027-bb5d-7b48cd60620f"
+    }
+  },
+  "workflows/triage/alert-fp-triage-activity-summary.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "1f868380-d580-4fc3-b964-883a49087a49"
+    }
+  },
+  "workflows/triage/mfa-bombing-triage.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "40386c77-bdaf-4c08-945f-d36fb26e5dcc"
+    }
+  },
+  "workflows/triage/risky-user-signin-investigation.yaml": {
+    "status": 200,
+    "result": {
+      "workflowExecutionId": "5aee5061-c2fc-4139-a961-f894f44ab504"
+    }
+  }
+}

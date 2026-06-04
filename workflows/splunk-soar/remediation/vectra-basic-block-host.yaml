@@ -111,3 +111,27 @@ steps:
     type: console
     with:
       message: "Vectra basic block dispatched ip={{ inputs.dvc_ip }} sdi={{ inputs.source_data_identifier }}"
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Vectra — Basic Block Host"
+        description: |
+          Automated case created by the **Vectra — Basic Block Host** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

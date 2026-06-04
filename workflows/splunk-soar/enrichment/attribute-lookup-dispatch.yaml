@@ -94,3 +94,27 @@ steps:
         type: console
         with:
           message: "No new artifacts found to dispatch."
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Attribute Lookup — Dispatch"
+        description: |
+          Automated case created by the **Attribute Lookup — Dispatch** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

@@ -131,3 +131,27 @@ steps:
         type: console
         with:
           message: "Searched {{ steps.list_mailboxes.output.users | size | default: 0 }} mailboxes for internet message id {{ inputs.message_id }}."
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: GSuite Gmail — Message Identifier Activity Analysis"
+        description: |
+          Automated case created by the **GSuite Gmail — Message Identifier Activity Analysis** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

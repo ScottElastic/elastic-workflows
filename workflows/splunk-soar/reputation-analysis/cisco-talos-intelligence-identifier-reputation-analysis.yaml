@@ -171,3 +171,27 @@ steps:
               message: |
                 Talos IP lookup for {{ item }}:
                 threat_level={{ steps.talos_ip_lookup.output.Threat_Level | default: 'unknown' }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Cisco Talos Intelligence — Identifier Reputation Analysis"
+        description: |
+          Automated case created by the **Cisco Talos Intelligence — Identifier Reputation Analysis** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

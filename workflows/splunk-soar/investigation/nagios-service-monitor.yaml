@@ -109,3 +109,27 @@ steps:
                 Restart of {{ steps.parse_host_and_service.output.service }} on
                 {{ steps.parse_host_and_service.output.host }} requested:
                 status={{ steps.ssh_restart_service.output.status | default: 'unknown' }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Nagios — Service Monitor Auto-Restart"
+        description: |
+          Automated case created by the **Nagios — Service Monitor Auto-Restart** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

@@ -179,3 +179,27 @@ steps:
         AD LDAP entity attribute lookup complete.
         user_query={{ inputs.user | default: '(none)' }}
         device_query={{ inputs.device | default: '(none)' }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: AD LDAP — Entity Attribute Lookup"
+        description: |
+          Automated case created by the **AD LDAP — Entity Attribute Lookup** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

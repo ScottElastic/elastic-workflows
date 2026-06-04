@@ -110,3 +110,27 @@ steps:
         Defender ATP identifier-activity analysis complete.
         file_hash={{ inputs.file_hash | default: '(none)' }} hits={{ steps.get_file_devices.output.value | size | default: 0 }}
         domain={{ inputs.domain | default: '(none)' }} hits={{ steps.get_domain_devices.output.value | size | default: 0 }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Windows Defender ATP — Identifier Activity Analysis"
+        description: |
+          Automated case created by the **Windows Defender ATP — Identifier Activity Analysis** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

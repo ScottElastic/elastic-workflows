@@ -125,3 +125,27 @@ steps:
       message: |
         Auto-merge complete. risk_object={{ inputs.risk_object }}
         related_count={{ steps.find_related_events.output.hits.total.value | default: 0 }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Splunk Risk Notable — Auto-Merge"
+        description: |
+          Automated case created by the **Splunk Risk Notable — Auto-Merge** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

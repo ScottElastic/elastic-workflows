@@ -92,3 +92,27 @@ steps:
         log4j SSH sweep done for {{ inputs.ip_or_hostname }}.
         Output zip: {{ steps.fetch_log4j_output.output.path | default: 'not retrieved' }}
         Outputs include java_environment.csv, jars_with_jndi.csv, wars_with_jars.csv.
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Linux Host — SSH-based log4j Sweep (CVE-2021-44228)"
+        description: |
+          Automated case created by the **Linux Host — SSH-based log4j Sweep (CVE-2021-44228)** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

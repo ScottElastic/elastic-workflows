@@ -170,3 +170,27 @@ steps:
       message: |
         File collection for {{ inputs.path }} from {{ inputs.device }} complete.
         sha256={{ steps.list_session_files.output.resources[0].sha256 | default: '(unknown)' }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: CrowdStrike — File Collection (RTR get / put)"
+        description: |
+          Automated case created by the **CrowdStrike — File Collection (RTR get / put)** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

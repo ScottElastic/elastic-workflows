@@ -146,3 +146,26 @@ steps:
             comment: "Account disable dispatch completed for {{ inputs.user }}. ad_ldap={{ steps.dispatch_ad_ldap_lock.output.status | default: 'unknown' }}, azure_ad={{ steps.dispatch_azure_ad_lock.output.status | default: 'unknown' }}, aws_iam={{ steps.dispatch_aws_iam_lock.output.status | default: 'unknown' }}"
             owner: "cases"
 
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Active Directory — Disable Account Dispatch"
+        description: |
+          Automated case created by the **Active Directory — Disable Account Dispatch** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

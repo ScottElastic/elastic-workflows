@@ -72,3 +72,27 @@ steps:
         with:
           message: |
             File {{ item }} TitaniumScale verdict: {{ steps.record_classification.output.observable.classification }} threat={{ steps.record_classification.output.observable.threat_name }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: ReversingLabs TitaniumScale — File Detonation"
+        description: |
+          Automated case created by the **ReversingLabs TitaniumScale — File Detonation** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

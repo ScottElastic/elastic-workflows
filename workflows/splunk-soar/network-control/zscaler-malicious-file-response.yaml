@@ -218,3 +218,27 @@ steps:
         type: console
         with:
           message: "Artifact name {{ inputs.artifact_name }} did not match the Zscaler alert filter; skipping response."
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Zscaler — Malicious File Response (Patient Zero)"
+        description: |
+          Automated case created by the **Zscaler — Malicious File Response (Patient Zero)** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

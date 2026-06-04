@@ -147,3 +147,27 @@ steps:
             type: console
             with:
               message: "No matching message found in mailbox for the reported alert."
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: ReversingLabs — Reported Email Triage"
+        description: |
+          Automated case created by the **ReversingLabs — Reported Email Triage** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

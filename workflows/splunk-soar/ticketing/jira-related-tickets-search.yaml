@@ -131,3 +131,27 @@ steps:
     type: console
     with:
       message: "Jira related-tickets search complete. Total issues considered: {{ steps.run_ticket_query.output.issues | size | default: 0 }}."
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Jira — Related Tickets Search"
+        description: |
+          Automated case created by the **Jira — Related Tickets Search** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

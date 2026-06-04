@@ -217,3 +217,27 @@ steps:
             type: console
             with:
               message: "Splunk network activity for {{ inputs.ip }}: {{ steps.run_ip_query.output.results | size | default: 0 }} hits"
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Splunk — Identifier Activity Analysis"
+        description: |
+          Automated case created by the **Splunk — Identifier Activity Analysis** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

@@ -153,3 +153,27 @@ steps:
         destination_address={{ inputs.destination_address }}
         destination_dns_domain={{ inputs.destination_dns_domain }}
         request_url={{ inputs.request_url }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Onboarding Demonstration — Enrichment and Severity"
+        description: |
+          Automated case created by the **Onboarding Demonstration — Enrichment and Severity** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

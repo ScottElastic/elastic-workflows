@@ -80,3 +80,27 @@ steps:
         Disable result for {{ inputs.user }}:
         status={{ steps.build_observable.output.observable.status }}
         message={{ steps.build_observable.output.observable.message }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: AWS IAM — Account Locking"
+        description: |
+          Automated case created by the **AWS IAM — Account Locking** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

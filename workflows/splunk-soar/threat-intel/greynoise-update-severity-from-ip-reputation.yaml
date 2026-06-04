@@ -79,3 +79,27 @@ steps:
         IP={{ steps.derive_ip.output.ip }}
         classification={{ steps.ip_reputation.output.classification | default: 'unavailable' }}
         new_severity={{ steps.set_high_malicious.output.severity | default: steps.set_high_unknown.output.severity | default: steps.set_low_benign.output.severity }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: GreyNoise — Severity From IP Reputation"
+        description: |
+          Automated case created by the **GreyNoise — Severity From IP Reputation** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

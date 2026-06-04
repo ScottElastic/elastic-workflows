@@ -139,6 +139,10 @@ CANNED_INPUTS = {
     "close_time": "2026-06-02T18:00:00Z",
     "lookback_days": 7,
     "max_results": 50,
+    # Free-text search terms used by jira/snow/splunk relatedness queries.
+    # Pin them to scenario indicators so the mock's anchor logic kicks in.
+    "search_terms": [_MALICIOUS_IP, _USER, _HOSTNAME],
+    "freetext_query": f"{_MALICIOUS_IP} OR {_USER} OR {_HOSTNAME}",
     # ServiceNow / workflow fields
     "isolation_type": "full",
     "nessus_policy_name": "Host Discovery",

@@ -100,3 +100,27 @@ steps:
           message: |
             Processed parent host={{ item.host }} pid={{ item.pid }}
             children_terminated={{ steps.find_children.output.results | default: [] | size }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Endpoint — Terminate Spawned Processes"
+        description: |
+          Automated case created by the **Endpoint — Terminate Spawned Processes** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

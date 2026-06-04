@@ -181,3 +181,27 @@ steps:
                 type: console
                 with:
                   message: "Nessus scan launched against newly seen DNS server {{ item.ipaddr4 }} (scan id {{ steps.launch_nessus_scan.output.scan.id | default: 'n/a' }})."
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: ExtraHop — New DNS Server Discovery & Scan"
+        description: |
+          Automated case created by the **ExtraHop — New DNS Server Discovery & Scan** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

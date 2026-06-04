@@ -185,3 +185,27 @@ steps:
     type: console
     with:
       message: "Related-tickets orchestrator finished. Merged report length: {{ steps.merge_reports.output.merged_report | size }}."
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Mission Control — Related Tickets Search Orchestrator"
+        description: |
+          Automated case created by the **Mission Control — Related Tickets Search Orchestrator** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

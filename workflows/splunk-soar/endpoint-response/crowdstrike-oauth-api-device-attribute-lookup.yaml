@@ -165,3 +165,27 @@ steps:
       message: |
         CrowdStrike device lookup completed for {{ inputs.device }}.
         Branch taken: {{ steps.detect_ipv4.output.is_ip | default: false }} (ip-based)
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: CrowdStrike — Device Attribute Lookup"
+        description: |
+          Automated case created by the **CrowdStrike — Device Attribute Lookup** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

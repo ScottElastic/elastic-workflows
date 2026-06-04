@@ -127,3 +127,26 @@ steps:
             comment: "Undo-containment dispatched. Assets={{ steps.partition_indicators.output.asset_indicators | size }}, Identities={{ steps.partition_indicators.output.identity_indicators | size }}"
             owner: "cases"
 
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Risk Notable — Auto Undo Containment"
+        description: |
+          Automated case created by the **Risk Notable — Auto Undo Containment** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

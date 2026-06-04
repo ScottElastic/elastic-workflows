@@ -107,3 +107,27 @@ steps:
         Log4j respond dispatched.
         unix_targets={{ steps.build_unix_targets.output.unix_entries | size }}
         windows_targets={{ steps.build_windows_targets.output.windows_entries | size }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Log4j — Respond (Dispatch)"
+        description: |
+          Automated case created by the **Log4j — Respond (Dispatch)** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

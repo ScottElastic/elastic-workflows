@@ -99,3 +99,27 @@ steps:
         threat={{ steps.extract_zscaler_fields.output.threatName | default: 'unknown' }}
         md5={{ steps.extract_zscaler_fields.output.fileHashMd5 | default: 'unknown' }}
         category={{ steps.extract_zscaler_fields.output.threatCategory | default: 'unknown' }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Zscaler Patient 0 — Parse Email"
+        description: |
+          Automated case created by the **Zscaler Patient 0 — Parse Email** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

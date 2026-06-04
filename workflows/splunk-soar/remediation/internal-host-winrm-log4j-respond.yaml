@@ -160,3 +160,27 @@ steps:
         WinRM Log4j respond complete.
         hosts={{ steps.dedup_hosts.output.hosts | size }}
         containment={{ inputs.containment_action }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Log4j — WinRM Host Respond"
+        description: |
+          Automated case created by the **Log4j — WinRM Host Respond** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

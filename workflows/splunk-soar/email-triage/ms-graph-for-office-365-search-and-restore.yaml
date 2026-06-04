@@ -112,3 +112,27 @@ steps:
     with:
       message: |
         Search and Restore finished against {{ inputs.targets | size }} target(s).
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: MS Graph O365 — Search and Restore"
+        description: |
+          Automated case created by the **MS Graph O365 — Search and Restore** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

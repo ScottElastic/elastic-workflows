@@ -154,3 +154,27 @@ steps:
         Sandbox submission complete.
         url={{ inputs.url | default: '(none)' }}
         vault_id={{ inputs.vault_id | default: '(none)' }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: CrowdStrike — Dynamic Analysis (URL / File Detonation)"
+        description: |
+          Automated case created by the **CrowdStrike — Dynamic Analysis (URL / File Detonation)** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

@@ -247,3 +247,27 @@ steps:
                     SSL rows: {{ steps.run_ssl_query.output.results | size | default: 0 }}
                     Suricata rows: {{ steps.run_suricata_query.output.results | size | default: 0 }}
                     File rows: {{ steps.run_file_query.output.results | size | default: 0 }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Corelight — DNS Alert Investigation"
+        description: |
+          Automated case created by the **Corelight — DNS Alert Investigation** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

@@ -97,3 +97,27 @@ steps:
               message: |
                 Umbrella enforcement did not confirm a block for {{ item }}.
                 response={{ steps.block_domain.output | json }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Cisco Umbrella — DNS Denylisting"
+        description: |
+          Automated case created by the **Cisco Umbrella — DNS Denylisting** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

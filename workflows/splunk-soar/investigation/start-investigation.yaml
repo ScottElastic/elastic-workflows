@@ -123,3 +123,27 @@ steps:
     type: console
     with:
       message: "start_investigation finished. case={{ inputs.container_id }} user={{ inputs.effective_user | default: 'n/a' }} type={{ inputs.effective_user_type }}"
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Workbook — Start Investigation"
+        description: |
+          Automated case created by the **Workbook — Start Investigation** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

@@ -251,3 +251,27 @@ steps:
         ProtectWise investigation complete.
         hash={{ inputs.file_hash }} positives={{ steps.file_reputation.output.positives | default: 'n/a' }}
         ip={{ inputs.destination_address }} hunt_summary={{ steps.hunt_ip.output | json | truncate: 200 }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: ProtectWise — Investigate and Respond"
+        description: |
+          Automated case created by the **ProtectWise — Investigate and Respond** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

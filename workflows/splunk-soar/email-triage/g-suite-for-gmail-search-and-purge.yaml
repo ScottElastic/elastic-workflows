@@ -181,3 +181,27 @@ steps:
             type: console
             with:
               message: "auto_approve is false — analyst confirmation required before purge."
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: GSuite Gmail — Search and Purge"
+        description: |
+          Automated case created by the **GSuite Gmail — Search and Purge** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

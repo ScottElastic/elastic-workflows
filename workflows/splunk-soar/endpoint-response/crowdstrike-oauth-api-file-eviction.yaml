@@ -138,3 +138,27 @@ steps:
       message: |
         File eviction attempted for {{ inputs.path }} on device {{ steps.capture_device_id.output.device_id }}.
         complete={{ steps.run_rm_command.output.resources[0].complete | default: false }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: CrowdStrike — File Eviction (RTR rm)"
+        description: |
+          Automated case created by the **CrowdStrike — File Eviction (RTR rm)** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

@@ -171,3 +171,27 @@ steps:
         dvc_ip={{ inputs.dvc_ip }}
         is_virtual={{ inputs.is_virtual }}
         threat_category={{ inputs.threat_category }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Vectra — Advanced Block Host"
+        description: |
+          Automated case created by the **Vectra — Advanced Block Host** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

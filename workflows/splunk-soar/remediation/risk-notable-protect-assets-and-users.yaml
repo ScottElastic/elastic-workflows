@@ -162,3 +162,27 @@ steps:
         Protect dispatched.
         users_selected={{ steps.parse_selection.output.selection.users_to_contain | size | default: 0 }}
         hosts_selected={{ steps.parse_selection.output.selection.hosts_to_contain | size | default: 0 }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Risk Notable — Protect Assets and Users"
+        description: |
+          Automated case created by the **Risk Notable — Protect Assets and Users** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

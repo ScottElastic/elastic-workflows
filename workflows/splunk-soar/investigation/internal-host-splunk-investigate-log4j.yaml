@@ -122,3 +122,27 @@ steps:
         Java processes: {{ steps.run_process_info.output.results | size | default: 0 }}
         Java children: {{ steps.run_children_of_java.output.results | size | default: 0 }}
         Asset lookup rows: {{ steps.run_es_assets.output.results | size | default: 0 }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: Splunk — Internal Host log4j Investigation (CVE-2021-44228)"
+        description: |
+          Automated case created by the **Splunk — Internal Host log4j Investigation (CVE-2021-44228)** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

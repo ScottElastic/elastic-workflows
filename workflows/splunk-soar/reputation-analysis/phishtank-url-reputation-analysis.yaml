@@ -86,3 +86,27 @@ steps:
             verified={{ steps.url_reputation.output.results.verified | default: false }}
             valid={{ steps.url_reputation.output.results.valid | default: false }}
             phish_detail_page={{ steps.url_reputation.output.results.phish_detail_page | default: '' }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: PhishTank — URL Reputation Analysis"
+        description: |
+          Automated case created by the **PhishTank — URL Reputation Analysis** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

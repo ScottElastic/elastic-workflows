@@ -221,3 +221,27 @@ steps:
                 VT file reputation for {{ item }}:
                 malicious={{ steps.vt_file_lookup.output.data.attributes.last_analysis_stats.malicious | default: 0 }}
                 suspicious={{ steps.vt_file_lookup.output.data.attributes.last_analysis_stats.suspicious | default: 0 }}
+
+  - name: create_security_case
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases"
+      body:
+        title: "Workflow: VirusTotal v3 — Identifier Reputation Analysis"
+        description: |
+          Automated case created by the **VirusTotal v3 — Identifier Reputation Analysis** workflow.
+
+          Review the workflow execution and attached comments for full investigation details.
+        connector:
+          id: "none"
+          name: "none"
+          type: ".none"
+          fields: null
+        severity: "medium"
+        settings:
+          syncAlerts: false
+        owner: "securitySolution"
+        tags: ["automated", "workflow"]
+    on-failure:
+      continue: true

@@ -58,6 +58,7 @@ steps:
           url: "{{ consts.maxmind_endpoint }}/{{ inputs.destination_address }}"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.maxmind_token }}"
         on-failure:
           retry:
@@ -70,6 +71,8 @@ steps:
         with:
           url: "{{ consts.whois_endpoint }}/{{ inputs.destination_address }}"
           method: GET
+          headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
         on-failure:
           retry:
             max-attempts: 2
@@ -81,6 +84,8 @@ steps:
         with:
           url: "{{ consts.google_dns_endpoint }}?name={{ inputs.destination_address }}&type=PTR"
           method: GET
+          headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
         on-failure:
           retry:
             max-attempts: 2
@@ -96,6 +101,8 @@ steps:
         with:
           url: "{{ consts.google_dns_endpoint }}?name={{ inputs.destination_dns_domain }}&type=A"
           method: GET
+          headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
         on-failure:
           retry:
             max-attempts: 2
@@ -114,6 +121,7 @@ steps:
           url: "{{ consts.phishtank_endpoint }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Content-Type: "application/x-www-form-urlencoded"
             User-Agent: "phishtank/elastic-workflows"
           body: "url={{ inputs.request_url | url_encode }}&format=json&app_key={{ consts.phishtank_app_key }}"

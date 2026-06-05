@@ -82,6 +82,7 @@ steps:
           url: "{{ consts.aws_ec2_endpoint }}/"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.aws_auth_header }}"
           query:
             Action: "DescribeInstances"
@@ -99,6 +100,7 @@ steps:
           url: "{{ consts.aws_ec2_endpoint }}/"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.aws_auth_header }}"
           query:
             Action: "DescribeSecurityGroups"
@@ -117,6 +119,7 @@ steps:
           url: "{{ consts.ssh_proxy_endpoint }}/iptables-list"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.ssh_proxy_auth }}"
             Content-Type: "application/json"
           body:
@@ -133,6 +136,7 @@ steps:
           url: "{{ consts.ssh_proxy_endpoint }}/ps"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.ssh_proxy_auth }}"
             Content-Type: "application/json"
           body:
@@ -149,6 +153,7 @@ steps:
           url: "{{ consts.ssh_proxy_endpoint }}/netstat"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.ssh_proxy_auth }}"
             Content-Type: "application/json"
           body:
@@ -180,6 +185,7 @@ steps:
               url: "{{ consts.maxmind_endpoint }}/{{ item }}"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.maxmind_auth }}"
                 Accept: "application/json"
             on-failure:
@@ -196,6 +202,7 @@ steps:
               url: "{{ consts.passivetotal_endpoint }}"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.passivetotal_auth }}"
                 Accept: "application/json"
               query:
@@ -225,6 +232,7 @@ steps:
           url: "{{ consts.jira_base | default: 'https://jira.example.com' }}/rest/api/3/issue"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Content-Type: "application/json"
           body:
             fields:
@@ -244,6 +252,7 @@ steps:
           url: "{{ consts.slack_webhook | default: 'https://hooks.slack.com/services/CHANGEME' }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Content-Type: "application/json"
           body:
             channel: "#security-alerts"
@@ -265,6 +274,7 @@ steps:
           url: "{{ consts.aws_securityhub_endpoint }}/findings/batchupdate"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.aws_auth_header }}"
             Content-Type: "application/x-amz-json-1.1"
             X-Amz-Target: "SecurityHub.BatchUpdateFindings"

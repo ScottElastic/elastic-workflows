@@ -42,6 +42,7 @@ steps:
       query:
         key: "{{ consts.safe_browsing_api_key }}"
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Content-Type: "application/json"
       body:
         client:
@@ -71,6 +72,7 @@ steps:
       url: "{{ consts.umbrella_endpoint }}/{{ inputs.domain }}"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.umbrella_auth }}"
         Accept: "application/json"
     on-failure:
@@ -87,6 +89,7 @@ steps:
       url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/domains/{{ inputs.domain }}"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
     on-failure:
       continue: true

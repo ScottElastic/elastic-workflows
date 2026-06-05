@@ -70,6 +70,7 @@ steps:
           url: "{{ consts.recorded_future_base }}/ip/{{ steps.derive_indicators.output.source_ip }}"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             X-RFToken: "{{ consts.recorded_future_token }}"
             Accept: "application/json"
           query:
@@ -90,6 +91,7 @@ steps:
           url: "{{ consts.recorded_future_base }}/ip/{{ steps.derive_indicators.output.destination_ip }}"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             X-RFToken: "{{ consts.recorded_future_token }}"
             Accept: "application/json"
           query:
@@ -110,6 +112,7 @@ steps:
           url: "{{ consts.recorded_future_base }}/hash/{{ steps.derive_indicators.output.file_hash }}"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             X-RFToken: "{{ consts.recorded_future_token }}"
             Accept: "application/json"
           query:
@@ -130,6 +133,7 @@ steps:
           url: "{{ consts.recorded_future_base }}/domain/{{ steps.derive_indicators.output.source_domain }}"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             X-RFToken: "{{ consts.recorded_future_token }}"
             Accept: "application/json"
           query:
@@ -150,6 +154,7 @@ steps:
           url: "{{ consts.recorded_future_base }}/domain/{{ steps.derive_indicators.output.destination_domain }}"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             X-RFToken: "{{ consts.recorded_future_token }}"
             Accept: "application/json"
           query:
@@ -170,6 +175,7 @@ steps:
           url: "{{ consts.recorded_future_base }}/url/{{ steps.derive_indicators.output.request_url | url_encode }}"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             X-RFToken: "{{ consts.recorded_future_token }}"
             Accept: "application/json"
           query:

@@ -56,6 +56,7 @@ steps:
       url: "{{ consts.splunk_search_endpoint }}"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.splunk_auth_header }}"
         Content-Type: "application/x-www-form-urlencoded"
       body: "search={{ steps.build_dns_alert_query.output.query }}&output_mode=json"
@@ -83,6 +84,7 @@ steps:
           url: "{{ consts.splunk_search_endpoint }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
           body: "search={{ steps.build_source_dest_query.output.query }}&output_mode=json"
@@ -112,6 +114,7 @@ steps:
               url: "{{ consts.splunk_search_endpoint }}"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.splunk_auth_header }}"
                 Content-Type: "application/x-www-form-urlencoded"
               body: "search={{ steps.build_connection_query.output.query }}&output_mode=json"
@@ -136,6 +139,7 @@ steps:
                   url: "{{ consts.splunk_search_endpoint }}"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.splunk_auth_header }}"
                     Content-Type: "application/x-www-form-urlencoded"
                   body: "search={{ steps.build_http_query.output.query }}&output_mode=json"
@@ -156,6 +160,7 @@ steps:
                   url: "{{ consts.splunk_search_endpoint }}"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.splunk_auth_header }}"
                     Content-Type: "application/x-www-form-urlencoded"
                   body: "search={{ steps.build_ssl_query.output.query }}&output_mode=json"
@@ -176,6 +181,7 @@ steps:
                   url: "{{ consts.splunk_search_endpoint }}"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.splunk_auth_header }}"
                     Content-Type: "application/x-www-form-urlencoded"
                   body: "search={{ steps.build_suricata_query.output.query }}&output_mode=json"
@@ -196,6 +202,7 @@ steps:
                   url: "{{ consts.splunk_search_endpoint }}"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.splunk_auth_header }}"
                     Content-Type: "application/x-www-form-urlencoded"
                   body: "search={{ steps.build_file_query.output.query }}&output_mode=json"
@@ -219,6 +226,7 @@ steps:
                           url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/files/{{ item.sha1 }}"
                           method: GET
                           headers:
+                            X-Api-Key: "{{ consts.mock_api_key }}"
                             x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
                         on-failure:
                           retry:

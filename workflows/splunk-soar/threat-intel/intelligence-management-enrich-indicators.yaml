@@ -39,6 +39,7 @@ steps:
           url: "{{ consts.trustar_endpoint }}/indicators/metadata"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.trustar_auth_header }}"
             Accept: "application/json"
           query:
@@ -70,6 +71,7 @@ steps:
               url: "{{ consts.trustar_endpoint }}/tags"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.trustar_auth_header }}"
                 Content-Type: "application/json"
               body:

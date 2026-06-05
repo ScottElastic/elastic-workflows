@@ -46,6 +46,7 @@ steps:
           url: "{{ consts.panw_endpoint }}/"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Content-Type: "application/x-www-form-urlencoded"
           query:
             type: "config"
@@ -64,6 +65,8 @@ steps:
         with:
           url: "{{ consts.panw_endpoint }}/"
           method: POST
+          headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
           query:
             type: "commit"
             cmd: "<commit></commit>"
@@ -84,6 +87,7 @@ steps:
           url: "{{ consts.panw_endpoint }}/"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Content-Type: "application/x-www-form-urlencoded"
           query:
             type: "config"
@@ -101,6 +105,8 @@ steps:
         with:
           url: "{{ consts.panw_endpoint }}/"
           method: POST
+          headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
           query:
             type: "commit"
             cmd: "<commit></commit>"

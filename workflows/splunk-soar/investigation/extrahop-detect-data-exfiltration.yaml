@@ -53,6 +53,7 @@ steps:
           url: "{{ consts.extrahop_endpoint }}/devices/search"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.extrahop_auth }}"
             Content-Type: "application/json"
           body:
@@ -73,6 +74,7 @@ steps:
           url: "{{ consts.extrahop_endpoint }}/activitymaps/query"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.extrahop_auth }}"
             Content-Type: "application/json"
           body:
@@ -100,6 +102,7 @@ steps:
           url: "{{ consts.extrahop_endpoint }}/activitymaps/query"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.extrahop_auth }}"
             Content-Type: "application/json"
           body:
@@ -136,6 +139,7 @@ steps:
                   url: "{{ consts.threatstream_endpoint }}/intelligence/"
                   method: GET
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.threatstream_auth }}"
                   query:
                     value: "{{ item.ipaddr4 }}"
@@ -159,6 +163,7 @@ steps:
                       url: "{{ consts.extrahop_endpoint }}/devices/{{ item.id }}/tags"
                       method: POST
                       headers:
+                        X-Api-Key: "{{ consts.mock_api_key }}"
                         Authorization: "{{ consts.extrahop_auth }}"
                         Content-Type: "application/json"
                       body:

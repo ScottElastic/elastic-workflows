@@ -51,6 +51,7 @@ steps:
       url: "{{ consts.soar_endpoint }}/rest/container_attachment"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         ph-auth-token: "{{ consts.soar_auth_header }}"
       query:
         vault_id: "{{ inputs.vault_id | default: '' }}"
@@ -77,6 +78,7 @@ steps:
       url: "{{ consts.splunk_attack_analyzer_endpoint }}/v1/jobs"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.splunk_attack_analyzer_token }}"
         Content-Type: "application/json"
       body:
@@ -117,6 +119,7 @@ steps:
                   url: "{{ consts.splunk_search_endpoint }}/services/search/jobs/export"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.splunk_search_token }}"
                     Content-Type: "application/x-www-form-urlencoded"
                   body: "search=search+index%3Dproxy+url%3D%22{{ item.value }}%22+%7C+stats+count+by+user%2C+src_ip&output_mode=json"
@@ -151,6 +154,7 @@ steps:
                   url: "{{ consts.splunk_search_endpoint }}/services/search/jobs/export"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.splunk_search_token }}"
                     Content-Type: "application/x-www-form-urlencoded"
                   body: "search=search+index%3Dedr+sha256%3D%22{{ item.attributes.sha256 }}%22+%7C+stats+count+by+user%2C+host&output_mode=json"
@@ -176,6 +180,7 @@ steps:
           url: "{{ consts.splunk_search_endpoint }}/services/search/jobs/export"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.splunk_search_token }}"
             Content-Type: "application/x-www-form-urlencoded"
           body: "search=search+index%3Demail+message_id%3D%22{{ steps.detonate_in_attack_analyzer.output.observable.message_id | default: '' }}%22+%7C+stats+count+by+recipient&output_mode=json"

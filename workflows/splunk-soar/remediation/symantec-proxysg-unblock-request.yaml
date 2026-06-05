@@ -65,6 +65,7 @@ steps:
       url: "{{ consts.virustotal_endpoint }}"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         x-apikey: "{{ consts.virustotal_api_key }}"
         Content-Type: "application/x-www-form-urlencoded"
       body: "url={{ inputs.request_url }}"
@@ -84,6 +85,7 @@ steps:
           url: "{{ consts.webpulse_endpoint }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Content-Type: "application/x-www-form-urlencoded"
           body: "url={{ inputs.request_url }}"
         on-failure:
@@ -104,6 +106,7 @@ steps:
               url: "{{ consts.screenshot_endpoint }}"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.screenshot_auth_header }}"
               body:
                 url: "{{ inputs.request_url }}"
@@ -116,6 +119,7 @@ steps:
               url: "{{ consts.urlscan_endpoint }}"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 API-Key: "{{ consts.urlscan_api_key }}"
                 Content-Type: "application/json"
               body:
@@ -158,6 +162,7 @@ steps:
                   url: "{{ consts.bluecoat_allow_endpoint }}"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.bluecoat_auth_header }}"
                     Content-Type: "application/json"
                   body:
@@ -183,6 +188,7 @@ steps:
                       url: "{{ consts.jira_base | default: 'https://jira.example.com' }}/rest/api/3/issue"
                       method: POST
                       headers:
+                        X-Api-Key: "{{ consts.mock_api_key }}"
                         Content-Type: "application/json"
                       body:
                         fields:
@@ -212,6 +218,7 @@ steps:
                       url: "{{ consts.jira_base | default: 'https://jira.example.com' }}/rest/api/3/issue"
                       method: POST
                       headers:
+                        X-Api-Key: "{{ consts.mock_api_key }}"
                         Content-Type: "application/json"
                       body:
                         fields:
@@ -242,6 +249,7 @@ steps:
                   url: "{{ consts.jira_base | default: 'https://jira.example.com' }}/rest/api/3/issue"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Content-Type: "application/json"
                   body:
                     fields:
@@ -272,6 +280,7 @@ steps:
               url: "{{ consts.jira_base | default: 'https://jira.example.com' }}/rest/api/3/issue"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Content-Type: "application/json"
               body:
                 fields:

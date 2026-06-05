@@ -54,6 +54,7 @@ steps:
       url: "{{ consts.graph_base }}/users"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.graph_auth_header }}"
         ConsistencyLevel: "eventual"
         Accept: "application/json"
@@ -84,6 +85,7 @@ steps:
           url: "{{ consts.graph_base }}/users/{{ item.userPrincipalName }}/messages"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.graph_auth_header }}"
             Accept: "application/json"
           query:
@@ -143,6 +145,7 @@ steps:
                   url: "{{ consts.graph_base }}/users/{{ item.target.recipient }}/messages/{{ item.target.graph_message_id }}"
                   method: DELETE
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.graph_auth_header }}"
                 on-failure:
                   continue: true

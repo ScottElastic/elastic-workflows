@@ -80,6 +80,7 @@ steps:
               url: "{{ consts.phishme_endpoint }}/threat/search"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.phishme_auth }}"
                 Accept: "application/json"
               query:
@@ -96,6 +97,7 @@ steps:
               url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/ip_addresses/{{ item }}"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
             on-failure:
               continue: true
@@ -112,6 +114,7 @@ steps:
                   url: "{{ consts.nsx_endpoint }}/policy/api/v1/infra/domains/default/groups/{{ consts.nsx_block_group }}"
                   method: PATCH
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.nsx_auth_header }}"
                     Content-Type: "application/json"
                   body:
@@ -140,6 +143,7 @@ steps:
               url: "{{ consts.phishme_endpoint }}/threat/search"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.phishme_auth }}"
                 Accept: "application/json"
               query:
@@ -156,6 +160,7 @@ steps:
               url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/files/{{ item }}"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
             on-failure:
               retry:
@@ -174,6 +179,7 @@ steps:
                   url: "{{ consts.carbonblack_endpoint }}/api/v1/banning/blacklist"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     X-Auth-Token: "{{ consts.carbonblack_token }}"
                     Content-Type: "application/json"
                   body:
@@ -201,6 +207,7 @@ steps:
               url: "{{ consts.protectwise_endpoint }}/observations/by-hash"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.protectwise_token }}"
                 Accept: "application/json"
               query:
@@ -223,6 +230,7 @@ steps:
           url: "{{ consts.vsphere_endpoint }}/api/vcenter/vm"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             vmware-api-session-id: "{{ consts.vsphere_session_token }}"
             Accept: "application/json"
         on-failure:
@@ -248,6 +256,7 @@ steps:
               url: "{{ consts.vsphere_endpoint }}/api/vcenter/vm/{{ item.vm }}/snapshot"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 vmware-api-session-id: "{{ consts.vsphere_session_token }}"
                 Content-Type: "application/json"
               body:

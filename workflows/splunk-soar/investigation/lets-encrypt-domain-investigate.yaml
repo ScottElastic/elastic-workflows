@@ -50,6 +50,8 @@ steps:
     with:
       url: "{{ consts.crtsh_endpoint }}/"
       method: GET
+      headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
       query:
         q: "{{ inputs.domain }}"
         output: "json"
@@ -74,6 +76,8 @@ steps:
         with:
           url: "{{ consts.screenshot_endpoint }}"
           method: GET
+          headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
           query:
             key: "{{ consts.screenshot_api_key }}"
             url: "{{ inputs.url }}"
@@ -90,6 +94,7 @@ steps:
           url: "{{ consts.urlscan_endpoint }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             API-Key: "{{ consts.urlscan_api_key }}"
             Content-Type: "application/json"
           body:
@@ -107,6 +112,7 @@ steps:
           url: "{{ consts.passivetotal_endpoint }}"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.passivetotal_auth }}"
           query:
             query: "{{ inputs.domain }}"

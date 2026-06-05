@@ -57,6 +57,7 @@ steps:
           url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/files/{{ inputs.file_hash_md5 }}"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
         on-failure:
           retry:
@@ -70,6 +71,7 @@ steps:
           url: "{{ consts.carbonblack_endpoint }}/banning/blacklist"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.carbonblack_auth_header }}"
             Content-Type: "application/json"
           body:
@@ -89,6 +91,7 @@ steps:
           url: "{{ consts.carbonblack_endpoint }}/binary"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.carbonblack_auth_header }}"
           body:
             md5: "{{ inputs.file_hash_md5 }}"
@@ -108,6 +111,7 @@ steps:
           url: "{{ consts.splunk_search_endpoint }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
           body: "search=search host=\"{{ consts.splunk_host }}\" index=\"{{ consts.splunk_index }}\" sourcetype=\"csv\" MD5=\"{{ inputs.file_hash_md5 }}\" | rename \"Client IP\" as client_ip \"Policy Action\" as policy_action | fields client_ip, policy_action, MD5, User&output_mode=json"
@@ -131,6 +135,7 @@ steps:
               url: "{{ consts.carbonblack_endpoint }}/device_actions"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.carbonblack_auth_header }}"
                 Content-Type: "application/json"
               body:
@@ -149,6 +154,7 @@ steps:
               url: "{{ consts.carbonblack_endpoint }}/binary/{{ inputs.file_hash_md5 }}/file"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.carbonblack_auth_header }}"
             on-failure:
               retry:
@@ -162,6 +168,7 @@ steps:
               url: "{{ consts.carbonblack_endpoint }}/device"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.carbonblack_auth_header }}"
               body:
                 ip: "{{ item.endpoint | split: '|' | first | default: item.endpoint }}"
@@ -179,6 +186,7 @@ steps:
               url: "{{ consts.ldap_endpoint }}"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.ldap_auth_header }}"
                 Content-Type: "application/json"
               body:
@@ -198,6 +206,7 @@ steps:
           url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Content-Type: "application/json"
             Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
           body:

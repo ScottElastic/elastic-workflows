@@ -52,6 +52,7 @@ steps:
           url: "{{ consts.graph_endpoint }}/me/mailFolders/Inbox/messages"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.graph_auth_header }}"
           query:
             $filter: "contains(subject, {{ inputs.network_message_id }})"
@@ -74,6 +75,7 @@ steps:
               url: "{{ consts.graph_endpoint }}/me/messages/{{ steps.query_reported_email.output.value[0].id }}/attachments"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.graph_auth_header }}"
             on-failure:
               retry:
@@ -96,6 +98,7 @@ steps:
                   url: "{{ consts.reversinglabs_a1000_endpoint }}/api/uploads/v2/upload-file"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.reversinglabs_a1000_token }}"
                     Content-Type: "application/json"
                   body:
@@ -115,6 +118,7 @@ steps:
                   url: "{{ consts.reversinglabs_a1000_endpoint }}/api/samples/v2/{{ steps.submit_to_a1000.output.detail.sha1 | default: steps.submit_to_a1000.output.sha1 | default: item.contentSha1 }}/"
                   method: GET
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.reversinglabs_a1000_token }}"
                     Accept: "application/json"
                   query:

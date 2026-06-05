@@ -58,6 +58,7 @@ steps:
       url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/urls"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
         Content-Type: "application/x-www-form-urlencoded"
       body: "url={{ inputs.request_url }}"
@@ -79,6 +80,7 @@ steps:
           url: "{{ consts.zscaler_base_url }}/api/v1/authenticatedSession"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Content-Type: "application/json"
             Accept: "application/json"
           body:
@@ -106,6 +108,7 @@ steps:
           url: "{{ consts.splunk_search_endpoint }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
             Accept: "application/json"
@@ -124,6 +127,7 @@ steps:
           url: "{{ consts.zscaler_base_url }}/api/v1/urlLookup"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Content-Type: "application/json"
             Accept: "application/json"
             Cookie: "{{ steps.zscaler_session.output.jsessionid }}"
@@ -147,6 +151,7 @@ steps:
               url: "{{ consts.ldap_endpoint }}"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.ldap_auth_header }}"
                 Content-Type: "application/json"
                 Accept: "application/json"
@@ -203,6 +208,7 @@ steps:
                       url: "{{ consts.carbonblack_endpoint }}/orgs/{{ consts.carbonblack_org_key }}/device_actions"
                       method: POST
                       headers:
+                        X-Api-Key: "{{ consts.mock_api_key }}"
                         X-Auth-Token: "{{ consts.carbonblack_auth_header }}"
                         Content-Type: "application/json"
                         Accept: "application/json"
@@ -224,6 +230,7 @@ steps:
                   url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Content-Type: "application/json"
                     Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
                   body:
@@ -239,6 +246,7 @@ steps:
                   url: "{{ consts.carbonblack_endpoint }}/orgs/{{ consts.carbonblack_org_key }}/device_actions"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     X-Auth-Token: "{{ consts.carbonblack_auth_header }}"
                     Content-Type: "application/json"
                     Accept: "application/json"
@@ -260,6 +268,7 @@ steps:
                   url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Content-Type: "application/json"
                     Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
                   body:
@@ -278,6 +287,7 @@ steps:
               url: "{{ consts.zscaler_base_url }}/api/v1/urlCategories/{{ consts.zscaler_block_category_id }}?action=ADD_TO_LIST"
               method: PUT
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Content-Type: "application/json"
                 Accept: "application/json"
                 Cookie: "{{ steps.zscaler_session.output.jsessionid }}"
@@ -297,6 +307,7 @@ steps:
               url: "{{ consts.zscaler_base_url }}/api/v1/status/activate"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Content-Type: "application/json"
                 Cookie: "{{ steps.zscaler_session.output.jsessionid }}"
             on-failure:
@@ -317,6 +328,7 @@ steps:
           url: "{{ consts.zscaler_base_url }}/api/v1/authenticatedSession"
           method: DELETE
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Cookie: "{{ steps.zscaler_session.output.jsessionid }}"
         on-failure:
           continue: true

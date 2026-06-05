@@ -61,6 +61,7 @@ steps:
           url: "{{ consts.panorama_base_url }}/api/"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Content-Type: "application/x-www-form-urlencoded"
           query:
             type: "config"
@@ -111,6 +112,7 @@ steps:
       url: "{{ consts.panorama_base_url }}/api/"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Content-Type: "application/x-www-form-urlencoded"
       query:
         type: "commit"
@@ -128,6 +130,7 @@ steps:
       url: "{{ consts.panorama_base_url }}/api/"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Content-Type: "application/x-www-form-urlencoded"
       query:
         type: "commit"

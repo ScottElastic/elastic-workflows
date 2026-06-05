@@ -82,6 +82,7 @@ steps:
           url: "{{ consts.phishme_endpoint }}/apiv1/threat/malware/{{ inputs.phishme_threat_id }}"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.phishme_token }}"
             Accept: "application/json"
         on-failure:
@@ -97,6 +98,7 @@ steps:
           url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Content-Type: "application/json"
             Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
           body:
@@ -115,6 +117,7 @@ steps:
               url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/ip_addresses/{{ inputs.destination_ip }}"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
             on-failure:
               continue: true
@@ -129,6 +132,8 @@ steps:
                 with:
                   url: "{{ consts.pan_endpoint }}/"
                   method: POST
+                  headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                   query:
                     type: "config"
                     action: "set"
@@ -147,6 +152,7 @@ steps:
                   url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Content-Type: "application/json"
                     Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
                   body:
@@ -164,6 +170,7 @@ steps:
               url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/domains/{{ inputs.destination_domain }}"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
             on-failure:
               continue: true
@@ -183,6 +190,7 @@ steps:
                   query:
                     customerKey: "{{ consts.opendns_umbrella_customer_key }}"
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Content-Type: "application/json"
                   body:
                     alertTime: "{{ 'now' | date: '%Y-%m-%dT%H:%M:%S.0Z' }}"
@@ -205,6 +213,7 @@ steps:
                   url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Content-Type: "application/json"
                     Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
                   body:
@@ -222,6 +231,7 @@ steps:
               url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/urls"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
                 Content-Type: "application/x-www-form-urlencoded"
               body: "url={{ inputs.destination_url }}"
@@ -242,6 +252,8 @@ steps:
                 with:
                   url: "{{ consts.pan_endpoint }}/"
                   method: POST
+                  headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                   query:
                     type: "config"
                     action: "set"
@@ -260,6 +272,7 @@ steps:
                   url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Content-Type: "application/json"
                     Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
                   body:
@@ -277,6 +290,7 @@ steps:
               url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/files/{{ inputs.file_hash_md5 }}"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
             on-failure:
               retry:
@@ -295,6 +309,7 @@ steps:
                   url: "{{ consts.carbonblack_endpoint }}/api/v1/banning/blacklist"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     X-Auth-Token: "{{ consts.carbonblack_token }}"
                     Content-Type: "application/json"
                   body:
@@ -314,6 +329,7 @@ steps:
                   url: "{{ consts.carbonblack_endpoint }}/api/investigate/v2/orgs/{{ consts.carbonblack_org_key }}/processes/search_jobs"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     X-Auth-Token: "{{ consts.carbonblack_token }}"
                     Content-Type: "application/json"
                   body:
@@ -330,6 +346,7 @@ steps:
                   url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Content-Type: "application/json"
                     Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
                   body:
@@ -366,6 +383,7 @@ steps:
               url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/ip_addresses/{{ inputs.destination_ip }}"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
             on-failure:
               continue: true
@@ -380,6 +398,7 @@ steps:
               url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/domains/{{ inputs.destination_domain }}"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
             on-failure:
               continue: true
@@ -394,6 +413,7 @@ steps:
               url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/urls"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
                 Content-Type: "application/x-www-form-urlencoded"
               body: "url={{ inputs.destination_url }}"
@@ -413,6 +433,7 @@ steps:
               url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/files/{{ inputs.file_hash_md5 }}"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
             on-failure:
               retry:

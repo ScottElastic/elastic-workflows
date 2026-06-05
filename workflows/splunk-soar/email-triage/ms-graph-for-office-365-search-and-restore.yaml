@@ -52,6 +52,7 @@ steps:
           url: "{{ consts.graph_base }}/users/{{ item.email }}/mailFolders/recoverableitemsdeletions/messages"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.graph_auth_header }}"
             Accept: "application/json"
           query:
@@ -76,6 +77,7 @@ steps:
               url: "{{ consts.graph_base }}/users/{{ item.email }}/messages/{{ steps.find_deleted_message.output.value[0].id }}/move"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.graph_auth_header }}"
                 Content-Type: "application/json"
               body:

@@ -51,6 +51,7 @@ steps:
           url: "{{ consts.ad_ldap_endpoint }}/get-attributes"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.ad_ldap_auth_header }}"
             Content-Type: "application/json"
           body:
@@ -73,6 +74,7 @@ steps:
               url: "{{ consts.ad_ldap_endpoint }}/run-query"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.ad_ldap_auth_header }}"
                 Content-Type: "application/json"
               body:
@@ -123,6 +125,7 @@ steps:
           url: "{{ consts.ad_ldap_endpoint }}/run-query"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.ad_ldap_auth_header }}"
             Content-Type: "application/json"
           body:
@@ -144,6 +147,7 @@ steps:
               url: "{{ consts.ad_ldap_endpoint }}/run-query"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.ad_ldap_auth_header }}"
                 Content-Type: "application/json"
               body:

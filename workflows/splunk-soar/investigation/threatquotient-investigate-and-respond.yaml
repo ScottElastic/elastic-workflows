@@ -61,6 +61,7 @@ steps:
       url: "{{ consts.threatq_endpoint }}/events"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.threatq_auth_header }}"
         Content-Type: "application/json"
       body:
@@ -84,6 +85,7 @@ steps:
           url: "{{ consts.threatq_endpoint }}/attachments"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.threatq_auth_header }}"
           body:
             vault_id: "{{ inputs.vault_id }}"
@@ -105,6 +107,7 @@ steps:
           url: "{{ consts.threatq_endpoint }}/indicators/search"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.threatq_auth_header }}"
           body:
             query: "{{ inputs.destination_address }}"
@@ -124,6 +127,7 @@ steps:
               url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/ip_addresses/{{ inputs.destination_address }}"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
             on-failure:
               continue: true
@@ -140,6 +144,7 @@ steps:
                   url: "{{ consts.panorama_endpoint }}/api/"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Content-Type: "application/x-www-form-urlencoded"
                   query:
                     type: "config"
@@ -163,6 +168,7 @@ steps:
                   url: "{{ consts.threatq_endpoint }}/indicators"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.threatq_auth_header }}"
                   body:
                     indicator: "${{ steps.dst_ip_reputation_vt.output.detected_urls | map: 'url' }}"
@@ -182,6 +188,7 @@ steps:
                   url: "{{ consts.panorama_endpoint }}/api/"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Content-Type: "application/x-www-form-urlencoded"
                   query:
                     type: "config"
@@ -202,6 +209,7 @@ steps:
               url: "{{ consts.threatq_endpoint }}/indicators"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.threatq_auth_header }}"
               body:
                 indicator: "{{ inputs.destination_address }}"
@@ -224,6 +232,7 @@ steps:
           url: "{{ consts.threatq_endpoint }}/indicators/search"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.threatq_auth_header }}"
           body:
             query: "{{ inputs.source_address }}"
@@ -243,6 +252,7 @@ steps:
               url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/ip_addresses/{{ inputs.source_address }}"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
             on-failure:
               continue: true
@@ -257,6 +267,7 @@ steps:
                   url: "{{ consts.panorama_endpoint }}/api/"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Content-Type: "application/x-www-form-urlencoded"
                   query:
                     type: "config"
@@ -280,6 +291,7 @@ steps:
                   url: "{{ consts.threatq_endpoint }}/indicators"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.threatq_auth_header }}"
                   body:
                     indicator: "${{ steps.src_ip_reputation_vt.output.detected_urls | map: 'url' }}"
@@ -297,6 +309,7 @@ steps:
                   url: "{{ consts.panorama_endpoint }}/api/"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Content-Type: "application/x-www-form-urlencoded"
                   query:
                     type: "config"
@@ -316,6 +329,7 @@ steps:
               url: "{{ consts.threatq_endpoint }}/indicators"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.threatq_auth_header }}"
               body:
                 indicator: "{{ inputs.source_address }}"

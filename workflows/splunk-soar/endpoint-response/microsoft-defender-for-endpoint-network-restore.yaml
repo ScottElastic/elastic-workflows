@@ -51,6 +51,7 @@ steps:
       url: "{{ consts.defender_base_url }}/api/machines/{{ inputs.uid }}/unisolate"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.defender_bearer }}"
         Content-Type: "application/json"
       body:

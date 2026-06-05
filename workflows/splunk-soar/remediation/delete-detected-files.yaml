@@ -41,6 +41,7 @@ steps:
           url: "{{ consts.winrm_endpoint }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.winrm_auth_header }}"
             Content-Type: "application/json"
           body:
@@ -61,6 +62,7 @@ steps:
           url: "{{ consts.winrm_endpoint }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.winrm_auth_header }}"
             Content-Type: "application/json"
           body:

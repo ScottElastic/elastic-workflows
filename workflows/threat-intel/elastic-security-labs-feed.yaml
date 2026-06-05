@@ -68,6 +68,8 @@ steps:
     with:
       url: "https://www.elastic.co/security-labs/rss/feed.xml"
       method: GET
+      headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
     on-failure:
       continue: true
       retry:
@@ -265,6 +267,7 @@ steps:
       url: "{{ consts.es_url }}/threat-intel-findings/_bulk?refresh=true"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Content-Type: "application/x-ndjson"
         Authorization: "{{ consts.es_auth }}"
       body: "{{ steps.ai_structured_findings.output.response.message }}\n"
@@ -375,6 +378,7 @@ steps:
       url: "{{ consts.es_url }}/threat-intel-findings/_update_by_query"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Content-Type: "application/json"
         Authorization: "{{ consts.es_auth }}"
       body:

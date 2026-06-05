@@ -101,6 +101,7 @@ steps:
               url: "{{ consts.splunk_collector_endpoint }}?index={{ consts.splunk_index }}&source={{ consts.splunk_source }}&sourcetype={{ consts.splunk_sourcetype }}"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.splunk_auth_header }}"
                 Content-Type: "text/plain"
               body: "{{ steps.build_log_line.output.line }}"

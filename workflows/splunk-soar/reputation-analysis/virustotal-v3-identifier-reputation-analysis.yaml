@@ -54,6 +54,7 @@ steps:
               url: "{{ consts.vt_api_base }}/urls"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 x-apikey: "{{ consts.vt_api_key }}"
                 Content-Type: "application/x-www-form-urlencoded"
               body: "url={{ item }}"
@@ -100,6 +101,7 @@ steps:
               url: "{{ consts.vt_api_base }}/domains/{{ item }}"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 x-apikey: "{{ consts.vt_api_key }}"
             on-failure:
               retry:
@@ -143,6 +145,7 @@ steps:
               url: "{{ consts.vt_api_base }}/ip_addresses/{{ item }}"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 x-apikey: "{{ consts.vt_api_key }}"
             on-failure:
               retry:
@@ -190,6 +193,7 @@ steps:
               url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/files/{{ item }}"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
             on-failure:
               retry:

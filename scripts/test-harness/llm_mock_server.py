@@ -997,6 +997,35 @@ If the path doesn't match any vendor above: infer from URL structure and HTTP me
 return a plausible vendor-shaped JSON response. Never return {"data":[], "status":"ok"}.
 """
 
+# ── AI assistant prompt (free-form text, not vendor JSON) ─────────────────────
+# Used by POST /ai/invoke — returns {"output": "<markdown text>"}
+
+AI_ASSIST_PROMPT = f"""You are a senior SOC analyst and incident responder writing a detailed security investigation report.
+You are NOT acting as a vendor API. Write professional security analysis in markdown.
+
+RULES:
+1. Write in professional security analyst voice. Be specific and actionable.
+2. Use the EXACT indicator values from the input — never write [IP], [hash], or any placeholder.
+3. Use markdown: ## headers, markdown tables (| col | col |), and - bullet lists.
+4. Base MITRE ATT&CK mappings on the actual techniques described in the input.
+5. Attribution must name real threat actor/malware families when the evidence supports it.
+6. Response playbook actions must reference the specific systems and accounts from the input.
+7. ES|QL queries must be syntactically valid and embed the actual indicator values.
+8. Dates must fall between 2025-01-01 and {TODAY}.
+
+CANONICAL INCIDENT (use these facts when the request mentions jdoe@acmecorp.com,
+185.220.101.47, DESKTOP-A4K9B2Z, invoice_march.exe, or evil.example.com):
+- Phishing email arrived: {SCENARIO_START}
+- CrowdStrike first detection: {SCENARIO_DETECTION}
+- Malware name: invoice_march.exe  |  Family: TrickBot.Loader.Gen
+- Threat actor: TA505 (Evil Corp affiliate) — confidence HIGH based on TrickBot + TOR C2 TTPs
+- Kill chain: Spearphishing Attachment (T1566.001) → User Execution (T1204.002)
+  → C2 over TOR (T1090.003) → Credential Dumping risk (T1003) → Exfiltration risk (T1041)
+- C2 IP 185.220.101.47 is a TOR exit node in Berlin, AS208294 Zwiebelfreunde e.V.
+- jdoe is an Accounts Payable Specialist — Finance dept — high-value target for BEC/fraud
+- DESKTOP-A4K9B2Z had {SCENARIO_DETECTION} CrowdStrike detection, account still enabled as of triage
+"""
+
 
 # ── Cache ────────────────────────────────────────────────────────────────────
 
@@ -1026,7 +1055,34 @@ def cache_save(key: str, payload, meta: dict):
 
 # ── LLM synthesis ────────────────────────────────────────────────────────────
 
+def _ai_assist_synth(method: str, path: str, query: str, body: bytes) -> dict:
+    """Handle POST /ai/invoke — free-form markdown response wrapped in {"output": "..."}."""
+    body_str = body.decode("utf-8", "replace") if body else ""
+    try:
+        message = json.loads(body_str).get("message", body_str)
+    except Exception:
+        message = body_str
+
+    anchored = _request_touches_scenario(path, query, body_str)
+    system_blocks = [{"text": AI_ASSIST_PROMPT}]
+    if anchored:
+        system_blocks.append({"text": SCENARIO_BLOCK})
+
+    resp = bedrock.converse(
+        modelId=MODEL_ID,
+        system=system_blocks,
+        messages=[{"role": "user", "content": [{"text": message}]}],
+        inferenceConfig={"maxTokens": 4096},
+    )
+    text = resp["output"]["message"]["content"][0]["text"].strip()
+    return {"output": text}
+
+
 def synth(method: str, path: str, query: str, body: bytes) -> dict:
+    # AI assistant proxy — free-form markdown, not vendor JSON
+    if path.startswith("/ai/"):
+        return _ai_assist_synth(method, path, query, body)
+
     body_str = body.decode("utf-8", "replace") if body else ""
 
     # For opaque async-style endpoints (Splunk jobs/{sid}/results, urlscan

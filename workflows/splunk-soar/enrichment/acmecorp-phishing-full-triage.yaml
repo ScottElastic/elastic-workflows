@@ -3,13 +3,13 @@ description: >
   End-to-end automated triage for the AcmeCorp phishing incident targeting
   jdoe@acmecorp.com / DESKTOP-A4K9B2Z. Enriches the C2 IP (185.220.101.47),
   dropped malware hash, phishing domain (evil.example.com), and user identity
-  across 16+ threat-intel, identity, and endpoint vendors via the ngrok mock,
-  then creates an Elastic Security case with consolidated findings and a
-  per-vendor detail comment.
+  across 16+ threat-intel, identity, and endpoint vendors, then creates a rich
+  Elastic Security case with an AI triage analysis, AI-generated threat
+  intelligence dashboard, prioritized response playbook, and full vendor detail.
   NOTE: `type: http` step responses are accessible at output.data.* (body wrapper).
   `type: kibana.request` and `type: data.set` expose output fields directly.
 enabled: true
-tags: ["demo", "phishing", "acmecorp", "full-triage", "enrichment"]
+tags: ["demo", "phishing", "acmecorp", "full-triage", "enrichment", "ai-powered"]
 
 triggers:
   - type: manual
@@ -41,7 +41,9 @@ inputs:
     description: "Malicious URL observed. Defaults to the stage2 dropper URL."
 
 consts:
-  # All vendor calls route through ngrok tunnel → localhost:8080 (llm_mock_server).
+  kibana_base_url: "https://scotth-9-8e23db.kb.us-west2.gcp.elastic-cloud.com"
+  # All vendor and AI calls route through ngrok tunnel → localhost:8080 (llm_mock_server).
+  # AI analysis endpoint: POST /ai/invoke {message:"..."} → {output:"<markdown>"}
   ngrok_base: "https://reserveless-augusta-nonaccordantly.ngrok-free.dev"
   # Demo auth tokens — mock ignores auth values.
   greynoise_api_key: "demo-greynoise-key-acmecorp"
@@ -74,13 +76,13 @@ steps:
       url: "{{ inputs.url | default: 'https://185.220.101.47/dropper/stage2.ps1' }}"
 
   # ── 1. GreyNoise Community ────────────────────────────────────────────────
-  # output.data.* = JSON body
   - name: gn_community
     type: http
     with:
       url: "{{ consts.ngrok_base }}/v3/community/{{ steps.derive_indicators.output.ip }}"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         key: "{{ consts.greynoise_api_key }}"
         Accept: "application/json"
     on-failure:
@@ -93,6 +95,7 @@ steps:
       url: "{{ consts.ngrok_base }}/v3/noise/context/{{ steps.derive_indicators.output.ip }}"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         key: "{{ consts.greynoise_api_key }}"
         Accept: "application/json"
     on-failure:
@@ -105,6 +108,7 @@ steps:
       url: "{{ consts.ngrok_base }}/v3/experimental/gnql"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         key: "{{ consts.greynoise_api_key }}"
         Accept: "application/json"
       query:
@@ -114,13 +118,13 @@ steps:
       continue: true
 
   # ── 4. Recorded Future — IP risk ─────────────────────────────────────────
-  # RF returns {"data": {"risk": {...}}} → full path: output.data.data.risk.score
   - name: rf_ip
     type: http
     with:
       url: "{{ consts.ngrok_base }}/v2/ip/{{ steps.derive_indicators.output.ip }}"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         X-RFToken: "{{ consts.recorded_future_token }}"
         Accept: "application/json"
       query:
@@ -135,6 +139,7 @@ steps:
       url: "{{ consts.ngrok_base }}/v2/hash/{{ steps.derive_indicators.output.sha256 }}"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         X-RFToken: "{{ consts.recorded_future_token }}"
         Accept: "application/json"
       query:
@@ -149,6 +154,7 @@ steps:
       url: "{{ consts.ngrok_base }}/v2/domain/{{ steps.derive_indicators.output.domain }}"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         X-RFToken: "{{ consts.recorded_future_token }}"
         Accept: "application/json"
       query:
@@ -157,13 +163,13 @@ steps:
       continue: true
 
   # ── 7. Anomali ThreatStream ───────────────────────────────────────────────
-  # Returns {"objects": [...], "meta": {"total_count": N}} → output.data.meta.total_count
   - name: anomali_ip
     type: http
     with:
       url: "{{ consts.ngrok_base }}/api/v2/intelligence/"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "apikey {{ consts.anomali_username }}:{{ consts.anomali_apikey }}"
         Accept: "application/json"
       query:
@@ -174,13 +180,13 @@ steps:
       continue: true
 
   # ── 8. TruSTAR ────────────────────────────────────────────────────────────
-  # Returns {"priorityScore": "CRITICAL", "reportId": "..."} → output.data.priorityScore
   - name: trustar_ip
     type: http
     with:
       url: "{{ consts.ngrok_base }}/api/1.3/indicators/search"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "Bearer {{ consts.trustar_token }}"
         Content-Type: "application/json"
       body:
@@ -190,13 +196,13 @@ steps:
       continue: true
 
   # ── 9. VirusTotal — IP ────────────────────────────────────────────────────
-  # VT returns {"data": {"attributes": {...}}} → output.data.data.attributes.*
   - name: vt_ip
     type: http
     with:
       url: "{{ consts.ngrok_base }}/api/v3/ip_addresses/{{ steps.derive_indicators.output.ip }}"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         x-apikey: "{{ consts.virustotal_api_key }}"
         Accept: "application/json"
     on-failure:
@@ -209,6 +215,7 @@ steps:
       url: "{{ consts.ngrok_base }}/api/v3/files/{{ steps.derive_indicators.output.sha256 }}"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         x-apikey: "{{ consts.virustotal_api_key }}"
         Accept: "application/json"
     on-failure:
@@ -221,6 +228,7 @@ steps:
       url: "{{ consts.ngrok_base }}/api/v3/domains/{{ steps.derive_indicators.output.domain }}"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         x-apikey: "{{ consts.virustotal_api_key }}"
         Accept: "application/json"
     on-failure:
@@ -233,19 +241,20 @@ steps:
       url: "{{ consts.ngrok_base }}/geoip/v2.1/insights/{{ steps.derive_indicators.output.ip }}"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "Basic {{ consts.maxmind_account_id }}:{{ consts.maxmind_license_key }}"
         Accept: "application/json"
     on-failure:
       continue: true
 
   # ── 13. URLScan.io — submit ───────────────────────────────────────────────
-  # Returns {"uuid": "..."} → output.data.uuid (used in next step URL)
   - name: urlscan_submit
     type: http
     with:
       url: "{{ consts.ngrok_base }}/api/v1/scan/"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         API-Key: "{{ consts.urlscan_api_key }}"
         Content-Type: "application/json"
       body:
@@ -261,6 +270,7 @@ steps:
       url: "{{ consts.ngrok_base }}/api/v1/result/{{ steps.urlscan_submit.output.data.uuid | default: '00000000-0000-0000-0000-000000000000' }}"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         API-Key: "{{ consts.urlscan_api_key }}"
         Accept: "application/json"
     on-failure:
@@ -273,6 +283,7 @@ steps:
       url: "{{ consts.ngrok_base }}/checkurl/"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Content-Type: "application/x-www-form-urlencoded"
       body:
         url: "{{ steps.derive_indicators.output.url }}"
@@ -288,6 +299,7 @@ steps:
       url: "{{ consts.ngrok_base }}/v2/whois"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "Basic {{ consts.passivetotal_username }}:{{ consts.passivetotal_api_key }}"
         Accept: "application/json"
       query:
@@ -302,6 +314,7 @@ steps:
       url: "{{ consts.ngrok_base }}/v4/threatMatches:find"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Content-Type: "application/json"
       query:
         key: "{{ consts.safebrowsing_api_key }}"
@@ -319,13 +332,13 @@ steps:
       continue: true
 
   # ── 18. Cisco Umbrella ────────────────────────────────────────────────────
-  # Returns JSON array → output.data is the array; | size gives event count
   - name: umbrella_events
     type: http
     with:
       url: "{{ consts.ngrok_base }}/1.0/events"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Accept: "application/json"
       query:
         customerKey: "{{ consts.umbrella_customer_key }}"
@@ -342,6 +355,7 @@ steps:
       url: "{{ consts.ngrok_base }}/v1.0/users/{{ steps.derive_indicators.output.username }}"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "Bearer {{ consts.graph_token }}"
         Accept: "application/json"
     on-failure:
@@ -354,6 +368,7 @@ steps:
       url: "{{ consts.ngrok_base }}/v1.0/auditLogs/signIns"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "Bearer {{ consts.graph_token }}"
         Accept: "application/json"
       query:
@@ -364,13 +379,13 @@ steps:
       continue: true
 
   # ── 21. CrowdStrike — OAuth2 token ───────────────────────────────────────
-  # Returns {"access_token": "..."} → output.data.access_token (used below)
   - name: cs_token
     type: http
     with:
       url: "{{ consts.ngrok_base }}/oauth2/token"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Content-Type: "application/x-www-form-urlencoded"
       body:
         client_id: "{{ consts.crowdstrike_client_id }}"
@@ -385,6 +400,7 @@ steps:
       url: "{{ consts.ngrok_base }}/devices/queries/devices/v1"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "Bearer {{ steps.cs_token.output.data.access_token | default: 'no-token' }}"
         Accept: "application/json"
       query:
@@ -399,6 +415,7 @@ steps:
       url: "{{ consts.ngrok_base }}/detects/queries/detects/v1"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "Bearer {{ steps.cs_token.output.data.access_token | default: 'no-token' }}"
         Accept: "application/json"
       query:
@@ -409,13 +426,13 @@ steps:
       continue: true
 
   # ── 24. Splunk — submit search job ───────────────────────────────────────
-  # Returns {"sid": "..."} → output.data.sid (used in results step URL)
   - name: splunk_search
     type: http
     with:
       url: "{{ consts.ngrok_base }}/services/search/v2/jobs"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "Splunk demo-splunk-token-acmecorp"
         Content-Type: "application/x-www-form-urlencoded"
         Accept: "application/json"
@@ -432,6 +449,7 @@ steps:
       url: "{{ consts.ngrok_base }}/services/search/v2/jobs/{{ steps.splunk_search.output.data.sid | default: 'pending' }}/results"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "Splunk demo-splunk-token-acmecorp"
         Accept: "application/json"
       query:
@@ -441,8 +459,6 @@ steps:
       continue: true
 
   # ── 26. Compile triage summary scalars ────────────────────────────────────
-  # All HTTP step fields accessed via output.data.* (body wrapper)
-  # data.set outputs are direct (no wrapper)
   - name: build_summary
     type: data.set
     with:
@@ -488,7 +504,219 @@ steps:
       cs_device_count: "{{ steps.cs_device.output.data.meta.pagination.total | default: 0 }}"
       splunk_sid: "{{ steps.splunk_search.output.data.sid | default: 'N/A' }}"
 
-  # ── 27. Create Elastic Security case ──────────────────────────────────────
+  # ================================================================
+  # AI ANALYSIS PHASE
+  # ================================================================
+
+  # ── 27. AI Phishing Triage & Attribution ──────────────────────────────────
+  - name: ai_phishing_triage
+    type: http
+    with:
+      url: "{{ consts.ngrok_base }}/ai/invoke"
+      method: POST
+      headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
+        Content-Type: "application/json"
+      body:
+        message: |
+          You are a senior SOC analyst investigating a confirmed phishing incident at AcmeCorp.
+          Analyze the threat intelligence enrichment data below and produce a comprehensive incident analysis.
+
+          INCIDENT CONTEXT:
+          - Email Subject: "ACTION REQUIRED: March Invoice"
+          - Phishing Sender: hr-noreply@acmecorp-invoices.com
+          - Attachment Executed: invoice_march.exe
+          - Victim: {{ steps.build_summary.output.graph_display_name }} ({{ steps.build_summary.output.graph_job_title }}, {{ steps.build_summary.output.graph_dept }})
+          - Endpoint: {{ steps.derive_indicators.output.hostname }}
+          - Account Currently Enabled: {{ steps.build_summary.output.graph_enabled }}
+
+          NETWORK THREAT INTELLIGENCE — C2 IP: {{ steps.derive_indicators.output.ip }}
+          - GreyNoise: classification={{ steps.build_summary.output.gn_classification }}, actor={{ steps.build_summary.output.gn_context_actor }}, country={{ steps.build_summary.output.gn_context_country }}, org={{ steps.build_summary.output.gn_context_org }}, last_seen={{ steps.build_summary.output.gn_last_seen }}
+          - GreyNoise TOR query matches: {{ steps.build_summary.output.gn_gnql_count }}
+          - Recorded Future: score={{ steps.build_summary.output.rf_ip_score }}/100 ({{ steps.build_summary.output.rf_ip_label }}), {{ steps.build_summary.output.rf_ip_summary }}
+          - VirusTotal: {{ steps.build_summary.output.vt_ip_malicious }} malicious detection engines
+          - MaxMind GeoIP: {{ steps.build_summary.output.geoip_city }}, {{ steps.build_summary.output.geoip_country }}, AS{{ steps.build_summary.output.geoip_asn }} ({{ steps.build_summary.output.geoip_asn_org }})
+          - Anomali ThreatStream: {{ steps.build_summary.output.anomali_total }} intel records
+          - TruSTAR: priority={{ steps.build_summary.output.trustar_priority }}, report={{ steps.build_summary.output.trustar_report_id }}
+
+          MALWARE INTELLIGENCE — SHA-256: {{ steps.derive_indicators.output.sha256 }}
+          - Recorded Future: score={{ steps.build_summary.output.rf_hash_score }}/100 ({{ steps.build_summary.output.rf_hash_label }})
+          - VirusTotal: {{ steps.build_summary.output.vt_hash_malicious }} malicious detection engines
+
+          DOMAIN & URL INTELLIGENCE — {{ steps.derive_indicators.output.domain }}
+          - PassiveTotal WHOIS: registrar={{ steps.build_summary.output.whois_registrar }}, org={{ steps.build_summary.output.whois_org }}, registered={{ steps.build_summary.output.whois_registered }}, country={{ steps.build_summary.output.whois_country }}
+          - Recorded Future Domain: score={{ steps.build_summary.output.rf_domain_score }}/100 ({{ steps.build_summary.output.rf_domain_label }})
+          - VirusTotal Domain: {{ steps.build_summary.output.vt_domain_malicious }} malicious detection engines
+          - URLScan.io: malicious={{ steps.build_summary.output.urlscan_malicious }}, threat_score={{ steps.build_summary.output.urlscan_score }}
+          - PhishTank: in_database={{ steps.build_summary.output.phishtank_in_db }}, verified_phish={{ steps.build_summary.output.phishtank_verified }}
+
+          ENDPOINT & IDENTITY:
+          - CrowdStrike Falcon: {{ steps.build_summary.output.cs_device_count }} devices found, {{ steps.build_summary.output.cs_detection_total }} active detections
+          - Microsoft Graph sign-ins: 5 recent sign-ins retrieved for {{ steps.derive_indicators.output.username }}
+
+          Produce exactly these sections:
+
+          ## Executive Summary
+          [3 sentences. Plain English. Suitable for a CISO briefing. What happened, who was impacted, and what the immediate risk is.]
+
+          ## Kill Chain Reconstruction
+          [Number each stage. For each: MITRE ATT&CK tactic + technique ID + what evidence from the data supports it.]
+
+          ## Threat Actor / Malware Attribution
+          [Identify malware family or threat actor based on the IOCs. State confidence: High/Medium/Low with specific reasoning.]
+
+          ## Blast Radius Assessment
+          [Scope of compromise. Lateral movement indicators. Other accounts or systems at risk. Data exfiltration likelihood.]
+
+          ## Immediate Containment — Next 30 Minutes
+          [Bulleted checklist. Specific and actionable. Name exact systems and accounts.]
+    on-failure:
+      continue: true
+      retry:
+        max-attempts: 2
+
+  # ── 28. AI Threat Intelligence Dashboard ──────────────────────────────────
+  - name: ai_threat_intel_dashboard
+    type: http
+    with:
+      url: "{{ consts.ngrok_base }}/ai/invoke"
+      method: POST
+      headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
+        Content-Type: "application/json"
+      body:
+        message: |
+          Build a threat intelligence investigation dashboard using only markdown tables.
+          Return ONLY the formatted markdown sections below. No prose outside the tables.
+
+          RAW THREAT INTELLIGENCE DATA:
+          IP: {{ steps.derive_indicators.output.ip }}
+          SHA256: {{ steps.derive_indicators.output.sha256 }}
+          Domain: {{ steps.derive_indicators.output.domain }}
+          URL: {{ steps.derive_indicators.output.url }}
+          User: {{ steps.derive_indicators.output.username }} ({{ steps.build_summary.output.graph_display_name }}, {{ steps.build_summary.output.graph_job_title }}, {{ steps.build_summary.output.graph_dept }})
+          Endpoint: {{ steps.derive_indicators.output.hostname }}
+
+          Scores and verdicts:
+          - GreyNoise IP: classification={{ steps.build_summary.output.gn_classification }}, actor={{ steps.build_summary.output.gn_context_actor }}, last_seen={{ steps.build_summary.output.gn_last_seen }}
+          - RF IP: {{ steps.build_summary.output.rf_ip_score }}/100 ({{ steps.build_summary.output.rf_ip_label }})
+          - RF Hash: {{ steps.build_summary.output.rf_hash_score }}/100 ({{ steps.build_summary.output.rf_hash_label }})
+          - RF Domain: {{ steps.build_summary.output.rf_domain_score }}/100 ({{ steps.build_summary.output.rf_domain_label }})
+          - VT IP malicious engines: {{ steps.build_summary.output.vt_ip_malicious }}
+          - VT Hash malicious engines: {{ steps.build_summary.output.vt_hash_malicious }}
+          - VT Domain malicious engines: {{ steps.build_summary.output.vt_domain_malicious }}
+          - Anomali intel records: {{ steps.build_summary.output.anomali_total }}
+          - TruSTAR priority: {{ steps.build_summary.output.trustar_priority }}
+          - URLScan malicious: {{ steps.build_summary.output.urlscan_malicious }}, score={{ steps.build_summary.output.urlscan_score }}
+          - PhishTank in_db: {{ steps.build_summary.output.phishtank_in_db }}, verified={{ steps.build_summary.output.phishtank_verified }}
+          - GeoIP: {{ steps.build_summary.output.geoip_city }}, {{ steps.build_summary.output.geoip_country }}, AS{{ steps.build_summary.output.geoip_asn }} {{ steps.build_summary.output.geoip_asn_org }}
+          - WHOIS: registrar={{ steps.build_summary.output.whois_registrar }}, org={{ steps.build_summary.output.whois_org }}, registered={{ steps.build_summary.output.whois_registered }}
+          - CrowdStrike: {{ steps.build_summary.output.cs_device_count }} devices, {{ steps.build_summary.output.cs_detection_total }} active detections
+          - Account enabled: {{ steps.build_summary.output.graph_enabled }}
+
+          Build these exact sections:
+
+          ## IOC Threat Intelligence Matrix
+          | IOC | Type | GreyNoise | Recorded Future | VirusTotal | Anomali / TruSTAR | Overall Verdict |
+          [One row per IOC: IP, SHA256, Domain, URL. Use 🔴 CRITICAL / 🟠 HIGH / 🟡 MEDIUM / 🟢 LOW verdicts in the last column.]
+
+          ## Identity & Account Risk
+          | Field | Value | Risk Assessment |
+          [Include: display name, job title, department, account state, sign-in anomaly risk, why Finance is a high-value target]
+
+          ## Endpoint Detection Status
+          | Source | Metric | Value | Recommended Action |
+          [CrowdStrike devices found, active detection count, endpoint isolation status]
+
+          ## Domain & URL Intelligence
+          | Source | Indicator | Finding | Verdict |
+          [URLScan, PhishTank, Google Safe Browsing, WHOIS, RF Domain, VT Domain — one row each]
+
+          ## Geolocation & Network Infrastructure
+          | Attribute | Value |
+          [IP, city, country, ASN, ASN org, TOR classification, last seen, GreyNoise actor]
+    on-failure:
+      continue: true
+      retry:
+        max-attempts: 2
+
+  # ── 29. AI Response Playbook ───────────────────────────────────────────────
+  - name: ai_response_playbook
+    type: http
+    with:
+      url: "{{ consts.ngrok_base }}/ai/invoke"
+      method: POST
+      headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
+        Content-Type: "application/json"
+      body:
+        message: |
+          You are a senior incident responder. Based on this phishing investigation, produce a prioritized response playbook and hunting queries.
+
+          Triage Summary:
+          {{ steps.ai_phishing_triage.output.data.output }}
+
+          Key operational data:
+          - Victim: {{ steps.build_summary.output.graph_display_name }} ({{ steps.build_summary.output.graph_job_title }}, {{ steps.build_summary.output.graph_dept }})
+          - Account Enabled: {{ steps.build_summary.output.graph_enabled }}
+          - Endpoint: {{ steps.derive_indicators.output.hostname }}, CrowdStrike detections={{ steps.build_summary.output.cs_detection_total }}
+          - C2 IP: {{ steps.derive_indicators.output.ip }} (RF={{ steps.build_summary.output.rf_ip_score }}/100, GN={{ steps.build_summary.output.gn_classification }}, actor={{ steps.build_summary.output.gn_context_actor }})
+          - Malware hash: {{ steps.derive_indicators.output.sha256 }} (VT={{ steps.build_summary.output.vt_hash_malicious }} engines, RF={{ steps.build_summary.output.rf_hash_score }}/100)
+          - Phishing domain: {{ steps.derive_indicators.output.domain }} (WHOIS org={{ steps.build_summary.output.whois_org }})
+          - Dropper URL: {{ steps.derive_indicators.output.url }}
+
+          Produce exactly these sections:
+
+          ## Response Playbook
+
+          ### 🔴 Immediate Actions (0-30 min)
+          - [ ] [Specific action — who does it, on which system]
+          [5-7 items. Must name {{ steps.derive_indicators.output.hostname }}, {{ steps.derive_indicators.output.username }}, {{ steps.derive_indicators.output.ip }} specifically where relevant.]
+
+          ### 🟡 Short-term Actions (30 min - 4 hrs)
+          - [ ] [Scoping, hunting, evidence preservation actions]
+          [5-7 items.]
+
+          ### 🟢 Long-term Actions (4 hrs+)
+          - [ ] [Hardening, detection improvements, process changes]
+          [4-5 items.]
+
+          ## ES|QL Hunting Queries
+
+          Provide 3 copy-paste-ready ES|QL queries:
+
+          **1. Fleet-wide C2 connections to {{ steps.derive_indicators.output.ip }}**
+          ```esql
+          FROM logs-* | WHERE destination.ip == "{{ steps.derive_indicators.output.ip }}"
+          ```
+          What this finds: all hosts communicating with the C2 IP
+
+          **2. SHA-256 execution history across endpoints**
+          ```esql
+          FROM logs-* | WHERE process.hash.sha256 == "{{ steps.derive_indicators.output.sha256 }}"
+          ```
+          What this finds: every host that executed this malware hash
+
+          **3. Phishing email delivery timeline**
+          ```esql
+          FROM logs-* | WHERE email.from.address == "hr-noreply@acmecorp-invoices.com"
+          ```
+          What this finds: all recipients of the phishing campaign
+
+          ## Suggested Follow-on Workflows
+          - Active Directory password reset for jdoe (activedirectory-reset-password workflow)
+          - CrowdStrike endpoint isolation for DESKTOP-A4K9B2Z
+          - IOC block-list push to firewall for 185.220.101.47 and evil.example.com
+    on-failure:
+      continue: true
+      retry:
+        max-attempts: 2
+
+  # ================================================================
+  # CASE CREATION & COMMENTS
+  # ================================================================
+
+  # ── 30. Create Elastic Security case ──────────────────────────────────────
   - name: create_case
     type: kibana.request
     with:
@@ -497,20 +725,26 @@ steps:
       body:
         title: "AcmeCorp Phishing — {{ steps.derive_indicators.output.username }} → {{ steps.derive_indicators.output.ip }}"
         description: |
-          ## Phishing Triage Report — Automated Enrichment
+          # Phishing Incident Response
 
-          **Analyst**: Kibana Workflows (automated)
-          **Severity**: Critical
-          **Affected User**: {{ steps.build_summary.output.graph_display_name }} (`{{ steps.derive_indicators.output.username }}`)
-          **Job Title**: {{ steps.build_summary.output.graph_job_title }} — {{ steps.build_summary.output.graph_dept }}
-          **Endpoint**: `{{ steps.derive_indicators.output.hostname }}`
-          **Account Enabled**: {{ steps.build_summary.output.graph_enabled }}
-
-          User received a phishing email with subject "ACTION REQUIRED: March Invoice" from `hr-noreply@acmecorp-invoices.com`. The attachment `invoice_march.exe` was executed, establishing an outbound C2 connection and dropping a secondary payload.
+          > **Severity: CRITICAL** — Automated triage by Kibana Workflows. Human analyst sign-off required before containment.
 
           ---
 
-          ### Indicators of Compromise
+          ## Victim Profile
+
+          | Field | Value |
+          |-------|-------|
+          | Name | {{ steps.build_summary.output.graph_display_name }} |
+          | Email | `{{ steps.derive_indicators.output.username }}` |
+          | Job Title | {{ steps.build_summary.output.graph_job_title }} |
+          | Department | {{ steps.build_summary.output.graph_dept }} |
+          | Endpoint | `{{ steps.derive_indicators.output.hostname }}` |
+          | Account Enabled | **{{ steps.build_summary.output.graph_enabled }}** |
+
+          ---
+
+          ## Indicators of Compromise
 
           | Type | Value |
           |------|-------|
@@ -518,100 +752,25 @@ steps:
           | Phishing Domain | `{{ steps.derive_indicators.output.domain }}` |
           | Dropper URL | `{{ steps.derive_indicators.output.url }}` |
           | Malware SHA-256 | `{{ steps.derive_indicators.output.sha256 }}` |
+          | Email Subject | ACTION REQUIRED: March Invoice |
+          | Phishing Sender | `hr-noreply@acmecorp-invoices.com` |
 
           ---
 
-          ### Network — IP: {{ steps.derive_indicators.output.ip }}
+          ## What's in This Case
 
-          **GreyNoise**
-          - Classification: **{{ steps.build_summary.output.gn_classification }}**
-          - Internet Noise: {{ steps.build_summary.output.gn_noise }}
-          - Last Seen: {{ steps.build_summary.output.gn_last_seen }}
-          - Actor: {{ steps.build_summary.output.gn_context_actor }}
-          - Location: {{ steps.build_summary.output.gn_context_country }} / {{ steps.build_summary.output.gn_context_org }}
+          Four automated analysis comments have been posted below:
 
-          **Recorded Future**
-          - Risk Score: **{{ steps.build_summary.output.rf_ip_score }} / 100** ({{ steps.build_summary.output.rf_ip_label }})
-          - Summary: {{ steps.build_summary.output.rf_ip_summary }}
-
-          **VirusTotal**
-          - Malicious Engines: {{ steps.build_summary.output.vt_ip_malicious }}
-
-          **MaxMind GeoIP**
-          - Location: {{ steps.build_summary.output.geoip_city }}, {{ steps.build_summary.output.geoip_country }}
-          - ASN: AS{{ steps.build_summary.output.geoip_asn }} — {{ steps.build_summary.output.geoip_asn_org }}
-
-          **Anomali ThreatStream**
-          - Intel Records Matched: {{ steps.build_summary.output.anomali_total }}
-
-          **TruSTAR**
-          - Priority Score: **{{ steps.build_summary.output.trustar_priority }}**
-          - Report ID: {{ steps.build_summary.output.trustar_report_id }}
+          1. **AI Phishing Analysis** — Kill chain reconstruction, threat actor attribution, blast radius, and immediate containment checklist
+          2. **Threat Intel Dashboard** — IOC matrix comparing all vendor scores, identity risk assessment, endpoint status
+          3. **Response Playbook** — Prioritized 🔴🟡🟢 actions and ready-to-run ES|QL hunting queries
+          4. **Raw Vendor Enrichment** — Full data from 16+ threat intelligence sources for analyst reference
 
           ---
 
-          ### Malware — SHA-256
+          *Enriched by: GreyNoise · Recorded Future · VirusTotal · MaxMind · URLScan.io · PhishTank · PassiveTotal · Google Safe Browsing · Cisco Umbrella · Anomali ThreatStream · TruSTAR · Microsoft Graph · CrowdStrike Falcon · Splunk SIEM*
 
-          **Recorded Future**
-          - Risk Score: **{{ steps.build_summary.output.rf_hash_score }} / 100** ({{ steps.build_summary.output.rf_hash_label }})
-
-          **VirusTotal**
-          - Malicious Engines: {{ steps.build_summary.output.vt_hash_malicious }}
-
-          ---
-
-          ### Domain — {{ steps.derive_indicators.output.domain }}
-
-          **PassiveTotal WHOIS**
-          - Organization: {{ steps.build_summary.output.whois_org }}
-          - Registrar: {{ steps.build_summary.output.whois_registrar }}
-          - Registered: {{ steps.build_summary.output.whois_registered }}
-          - Country: {{ steps.build_summary.output.whois_country }}
-
-          **Recorded Future**
-          - Risk Score: {{ steps.build_summary.output.rf_domain_score }} / 100 ({{ steps.build_summary.output.rf_domain_label }})
-
-          **VirusTotal**
-          - Malicious Engines: {{ steps.build_summary.output.vt_domain_malicious }}
-
-          ---
-
-          ### URL Analysis
-
-          **URLScan.io** (scan {{ steps.build_summary.output.urlscan_uuid }})
-          - Malicious: **{{ steps.build_summary.output.urlscan_malicious }}**
-          - Threat Score: {{ steps.build_summary.output.urlscan_score }}
-
-          **PhishTank**
-          - In Database: {{ steps.build_summary.output.phishtank_in_db }}
-          - Verified Phish: {{ steps.build_summary.output.phishtank_verified }}
-
-          ---
-
-          ### Identity — {{ steps.derive_indicators.output.username }}
-
-          **Microsoft Graph / Azure AD**
-          - Display Name: {{ steps.build_summary.output.graph_display_name }}
-          - Job Title: {{ steps.build_summary.output.graph_job_title }}
-          - Department: {{ steps.build_summary.output.graph_dept }}
-          - Office: {{ steps.build_summary.output.graph_office }}
-          - Account Enabled: {{ steps.build_summary.output.graph_enabled }}
-
-          ---
-
-          ### Endpoint — {{ steps.derive_indicators.output.hostname }}
-
-          **CrowdStrike Falcon**
-          - Devices Found: {{ steps.build_summary.output.cs_device_count }}
-          - Active Detections: {{ steps.build_summary.output.cs_detection_total }}
-
-          **Splunk SIEM**
-          - Search Job SID: `{{ steps.build_summary.output.splunk_sid }}`
-
-          ---
-
-          *Automated triage by Elastic Kibana Workflows — AcmeCorp Phishing Full Triage*
-          *16+ vendor enrichment sources queried*
+          [Open AI Assistant]({{ consts.kibana_base_url }}/app/security/ai-assistant) to continue this investigation interactively.
         connector:
           id: "none"
           name: "none"
@@ -627,26 +786,89 @@ steps:
           - "acmecorp"
           - "jdoe"
           - "critical"
+          - "ai-enriched"
     on-failure:
       continue: true
 
-  # ── 28. Capture case ID and post vendor detail comment ────────────────────
-  # create_case is kibana.request → output.id is direct (no .data. wrapper).
-  # Avoid wrapping in `if` — just let the comment 404 gracefully if case failed.
+  # ── 31. Capture case ID ────────────────────────────────────────────────────
   - name: capture_case_id
     type: data.set
     with:
       case_id: "{{ steps.create_case.output.id | default: '' }}"
 
-  - name: add_enrichment_comment
+  # ── 32. Comment 1 — AI Phishing Analysis ──────────────────────────────────
+  - name: post_ai_triage
     type: kibana.request
     with:
       method: POST
       path: "/api/cases/{{ steps.capture_case_id.output.case_id | default: 'no-case' }}/comments"
       body:
         type: "user"
+        owner: "securitySolution"
         comment: |
-          **Vendor Enrichment Summary** (16 sources, all graceful)
+          # AI Phishing Analysis & Attribution
+
+          {{ steps.ai_phishing_triage.output.data.output }}
+
+          ---
+
+          [Continue in AI Assistant]({{ consts.kibana_base_url }}/app/security/ai-assistant)
+    on-failure:
+      continue: true
+
+  # ── 33. Comment 2 — Threat Intelligence Dashboard ─────────────────────────
+  - name: post_dashboard
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.capture_case_id.output.case_id | default: 'no-case' }}/comments"
+      body:
+        type: "user"
+        owner: "securitySolution"
+        comment: |
+          # Threat Intelligence Dashboard
+
+          {{ steps.ai_threat_intel_dashboard.output.data.output }}
+
+          ---
+
+          [Discover]({{ consts.kibana_base_url }}/app/discover) · [Security Alerts]({{ consts.kibana_base_url }}/app/security/alerts) · [Cases]({{ consts.kibana_base_url }}/app/security/cases)
+    on-failure:
+      continue: true
+
+  # ── 34. Comment 3 — Response Playbook ─────────────────────────────────────
+  - name: post_playbook
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.capture_case_id.output.case_id | default: 'no-case' }}/comments"
+      body:
+        type: "user"
+        owner: "securitySolution"
+        comment: |
+          # Response Playbook
+
+          {{ steps.ai_response_playbook.output.data.output }}
+
+          ---
+
+          [AI Assistant]({{ consts.kibana_base_url }}/app/security/ai-assistant) · [Security Cases]({{ consts.kibana_base_url }}/app/security/cases)
+    on-failure:
+      continue: true
+
+  # ── 35. Comment 4 — Raw Vendor Enrichment ─────────────────────────────────
+  - name: post_vendor_table
+    type: kibana.request
+    with:
+      method: POST
+      path: "/api/cases/{{ steps.capture_case_id.output.case_id | default: 'no-case' }}/comments"
+      body:
+        type: "user"
+        owner: "securitySolution"
+        comment: |
+          # Raw Vendor Enrichment Data
+
+          *16+ sources queried — full data for analyst reference*
 
           | Source | Indicator | Finding |
           |--------|-----------|---------|
@@ -671,11 +893,10 @@ steps:
           | MS Graph Sign-ins | {{ steps.derive_indicators.output.username }} | {{ steps.graph_signins.output.data.value | size | default: 0 }} recent sign-ins |
           | CrowdStrike | {{ steps.derive_indicators.output.hostname }} | {{ steps.cs_device.output.data.resources | size | default: 0 }} devices, {{ steps.cs_detections.output.data.meta.pagination.total | default: 0 }} detections |
           | Splunk | IOC search | SID={{ steps.splunk_search.output.data.sid | default: '-' }} |
-        owner: "securitySolution"
     on-failure:
       continue: true
 
-  # ── 29. Log completion ────────────────────────────────────────────────────
+  # ── 36. Log completion ────────────────────────────────────────────────────
   - name: log_complete
     type: console
     with:

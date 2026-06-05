@@ -47,6 +47,7 @@ steps:
           url: "{{ consts.admin_base }}/users"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.gsuite_auth_header }}"
             Accept: "application/json"
           query:
@@ -72,6 +73,7 @@ steps:
               url: "{{ consts.gmail_base }}/{{ item.primaryEmail }}/messages"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.gsuite_auth_header }}"
                 Accept: "application/json"
               query:
@@ -97,6 +99,7 @@ steps:
                   url: "{{ consts.gmail_base }}/{{ item.primaryEmail }}/messages/{{ steps.search_mailbox.output.messages[0].id }}"
                   method: GET
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.gsuite_auth_header }}"
                     Accept: "application/json"
                   query:

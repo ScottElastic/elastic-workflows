@@ -64,6 +64,7 @@ steps:
           url: "{{ consts.recorded_future_endpoint }}/ip/{{ inputs.ip }}"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             X-RFToken: "{{ consts.recorded_future_token }}"
             Accept: "application/json"
           query:
@@ -80,6 +81,7 @@ steps:
           url: "{{ consts.recorded_future_endpoint }}/domain/{{ inputs.domain }}"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             X-RFToken: "{{ consts.recorded_future_token }}"
             Accept: "application/json"
           query:
@@ -140,6 +142,7 @@ steps:
               url: "{{ consts.firewall_block_endpoint }}"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.firewall_auth_header }}"
                 Content-Type: "application/json"
               body:
@@ -161,6 +164,7 @@ steps:
               url: "{{ consts.dns_block_endpoint }}"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Content-Type: "application/json"
               body:
                 - alertTime: "{{ now }}"

@@ -55,6 +55,7 @@ steps:
       url: "{{ consts.content_analysis_base }}/detonate"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.content_analysis_token }}"
         Content-Type: "application/json"
         Accept: "application/json"
@@ -75,6 +76,7 @@ steps:
       url: "{{ consts.content_analysis_base }}/report/{{ steps.content_analysis_detonate.output.task_id }}"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.content_analysis_token }}"
         Accept: "application/json"
     on-failure:
@@ -97,6 +99,7 @@ steps:
       url: "{{ consts.virustotal_base | default: 'https://www.virustotal.com' }}/api/v3/files/{{ steps.extract_iocs.output.file_hash }}"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         x-apikey: "{{ consts.virustotal_api_key | default: 'CHANGEME_VT_KEY' }}"
     on-failure:
       retry:
@@ -110,6 +113,7 @@ steps:
       url: "{{ consts.reversinglabs_endpoint }}"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Content-Type: "application/json"
       body:
         hash: "{{ steps.extract_iocs.output.file_hash }}"
@@ -130,6 +134,7 @@ steps:
           url: "{{ consts.google_safebrowsing_endpoint }}?key={{ consts.google_safebrowsing_key }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Content-Type: "application/json"
           body:
             threatInfo:
@@ -147,6 +152,7 @@ steps:
           url: "{{ consts.deepsight_endpoint }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Content-Type: "application/json"
           body:
             url: "{{ item }}"
@@ -158,6 +164,8 @@ steps:
         with:
           url: "{{ consts.alexa_endpoint }}"
           method: GET
+          headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
           query:
             url: "{{ item }}"
         on-failure:
@@ -183,6 +191,7 @@ steps:
               url: "{{ consts.threatstream_endpoint }}"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "apikey {{ consts.threatstream_token }}"
                 Accept: "application/json"
               query:
@@ -197,6 +206,7 @@ steps:
               url: "{{ consts.opendns_endpoint }}/{{ item }}"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.opendns_token }}"
                 Accept: "application/json"
             on-failure:
@@ -220,6 +230,7 @@ steps:
       url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Content-Type: "application/json"
         Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
       body:

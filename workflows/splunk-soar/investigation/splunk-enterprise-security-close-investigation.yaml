@@ -81,6 +81,7 @@ steps:
           url: "{{ consts.splunk_endpoint }}/services/notable_update"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
           body: "ruleUIDs={{ inputs.event_id }}&status=5&comment={{ steps.build_close_comment.output.comment | url_encode }}&output_mode=json"

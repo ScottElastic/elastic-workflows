@@ -51,6 +51,7 @@ steps:
       url: "{{ consts.recorded_future_base }}/ip/{{ steps.derive_ip.output.ip }}"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         X-RFToken: "{{ consts.recorded_future_token }}"
         Accept: "application/json"
       query:
@@ -71,6 +72,7 @@ steps:
           url: "{{ consts.recorded_future_base }}/ip/{{ steps.derive_ip.output.ip }}"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             X-RFToken: "{{ consts.recorded_future_token }}"
             Accept: "application/json"
           query:
@@ -97,6 +99,7 @@ steps:
           url: "{{ consts.splunk_base }}/services/search/jobs"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
           body: "search=search sourcetype=pan:t* earliest=-1d latest=now [| inputlookup huntip.csv | fields IP] | stats count by dest_ip&output_mode=json"
@@ -112,6 +115,7 @@ steps:
           url: "{{ consts.splunk_base }}/services/search/jobs"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
           body: "search=search sourcetype=pan:threat earliest=-1d latest=now [| inputlookup huntdomain.csv | fields domain] | stats count by dest_hostname&output_mode=json"
@@ -127,6 +131,7 @@ steps:
           url: "{{ consts.splunk_base }}/services/search/jobs"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
           body: "search=search index=main sourcetype=symantec:ep:risk:file earliest=-1d latest=now [| inputlookup hunthash.csv | fields hash] | stats count by file_hash&output_mode=json"
@@ -142,6 +147,7 @@ steps:
           url: "{{ consts.splunk_base }}/services/search/jobs"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
           body: "search=search index=main sourcetype=\"tenable:sc:vuln\" earliest=-7d latest=now [| inputlookup huntvuln.csv | fields vuln] | stats count by cve&output_mode=json"

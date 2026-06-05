@@ -45,6 +45,7 @@ steps:
       url: "{{ consts.workflows_api_base }}/ad-ldap-account-unlocking/_execute"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.workflows_api_auth_header }}"
         kbn-xsrf: "true"
         Content-Type: "application/json"
@@ -66,6 +67,7 @@ steps:
       url: "{{ consts.workflows_api_base }}/azure-ad-account-unlocking/_execute"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.workflows_api_auth_header }}"
         kbn-xsrf: "true"
         Content-Type: "application/json"
@@ -87,6 +89,7 @@ steps:
       url: "{{ consts.workflows_api_base }}/aws-iam-account-unlocking/_execute"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.workflows_api_auth_header }}"
         kbn-xsrf: "true"
         Content-Type: "application/json"

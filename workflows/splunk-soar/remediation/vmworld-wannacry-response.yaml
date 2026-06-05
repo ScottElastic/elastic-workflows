@@ -46,6 +46,7 @@ steps:
           url: "{{ consts.nsx_endpoint }}/firewall/block-ip"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.nsx_auth_header }}"
             Content-Type: "application/json"
           body:
@@ -62,6 +63,7 @@ steps:
       url: "{{ consts.vsphere_endpoint }}/vms"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.vsphere_auth_header }}"
     on-failure:
       continue: true
@@ -81,6 +83,7 @@ steps:
           url: "{{ consts.vsphere_endpoint }}/snapshot"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.vsphere_auth_header }}"
             Content-Type: "application/json"
           body:
@@ -123,6 +126,7 @@ steps:
               url: "{{ consts.carbonblack_endpoint }}/sensor/quarantine"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 X-Auth-Token: "{{ consts.carbonblack_token }}"
                 Content-Type: "application/json"
               body:
@@ -137,6 +141,7 @@ steps:
           url: "{{ consts.servicenow_base | default: 'https://CHANGEME-servicenow.service-now.com' }}/api/now/table/incident"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Content-Type: "application/json"
             Authorization: "{{ consts.servicenow_auth | default: 'Basic CHANGEME_SN_AUTH' }}"
           body:

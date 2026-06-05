@@ -56,6 +56,7 @@ steps:
       url: "{{ consts.zscaler_base_url }}/api/v1/authenticatedSession"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Content-Type: "application/json"
         Accept: "application/json"
       body:
@@ -87,6 +88,7 @@ steps:
           url: "{{ consts.zscaler_base_url }}/api/v1/urlCategories/{{ consts.zscaler_block_category_id }}?action=ADD_TO_LIST"
           method: PUT
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Content-Type: "application/json"
             Accept: "application/json"
             Cookie: "{{ steps.capture_session.output.jsessionid }}"
@@ -150,6 +152,7 @@ steps:
       url: "{{ consts.zscaler_base_url }}/api/v1/status/activate"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Content-Type: "application/json"
         Cookie: "{{ steps.capture_session.output.jsessionid }}"
     on-failure:
@@ -165,6 +168,7 @@ steps:
       url: "{{ consts.zscaler_base_url }}/api/v1/authenticatedSession"
       method: DELETE
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Cookie: "{{ steps.capture_session.output.jsessionid }}"
     on-failure:
       continue: true

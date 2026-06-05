@@ -56,6 +56,7 @@ steps:
       url: "{{ consts.splunk_endpoint }}/services/search/jobs"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.splunk_auth_header }}"
         Content-Type: "application/x-www-form-urlencoded"
       body: "search={{ steps.build_query.output.spl | url_encode }}&earliest_time={{ inputs.lookback | default: '-24h' }}&latest_time=now&exec_mode=oneshot&output_mode=json&adhoc_search_level=smart"

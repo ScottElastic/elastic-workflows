@@ -60,6 +60,7 @@ steps:
               url: "{{ consts.elasticsearch_base | default: 'https://CHANGEME-es.elastic-cloud.com' }}/{{ consts.allowlist_index }}/_doc"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Content-Type: "application/json"
                 Authorization: "{{ consts.elasticsearch_auth | default: 'ApiKey CHANGEME_ES_KEY' }}"
               body: "{{ item | json }}"
@@ -83,6 +84,7 @@ steps:
                   url: "{{ consts.aws_iam_endpoint }}"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.aws_iam_auth_header }}"
                     Content-Type: "application/json"
                   body:

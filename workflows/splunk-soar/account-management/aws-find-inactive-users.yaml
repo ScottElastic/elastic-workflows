@@ -49,6 +49,7 @@ steps:
       url: "{{ consts.aws_iam_list_users_endpoint }}"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.aws_iam_auth_header }}"
     # Listing is read-only — continue on failure with an empty user list
     # so the rest of the run is a no-op rather than hard-failing the cron.
@@ -94,6 +95,7 @@ steps:
               url: "{{ consts.aws_iam_get_user_endpoint }}"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.aws_iam_auth_header }}"
                 Content-Type: "application/json"
               body:
@@ -114,6 +116,7 @@ steps:
               url: "{{ consts.elasticsearch_base | default: 'https://CHANGEME-es.elastic-cloud.com' }}/{{ consts.inactive_users_index }}/_doc"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Content-Type: "application/json"
                 Authorization: "{{ consts.elasticsearch_auth | default: 'ApiKey CHANGEME_ES_KEY' }}"
               body: "{{ item | json }}"
@@ -126,6 +129,7 @@ steps:
       url: "{{ consts.workflows_api_base }}/aws-disable-user-accounts/_execute"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.workflows_api_auth_header }}"
         kbn-xsrf: "true"
         Content-Type: "application/json"

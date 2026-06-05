@@ -42,6 +42,7 @@ steps:
           url: "{{ consts.winrm_endpoint }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.winrm_auth_header }}"
             Content-Type: "application/json"
           body:
@@ -63,6 +64,7 @@ steps:
           url: "{{ consts.splunk_search_endpoint }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
           body: "search=search+index%3D*+dest%3D{{ item.host }}+parent_process_id%3D{{ item.pid }}+%7C+fields+ProcessId&exec_mode=oneshot&output_mode=json"
@@ -84,6 +86,7 @@ steps:
               url: "{{ consts.winrm_endpoint }}"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.winrm_auth_header }}"
                 Content-Type: "application/json"
               body:

@@ -58,6 +58,7 @@ steps:
           url: "{{ consts.graph_base }}/users/{{ inputs.email[loop.index0] }}/messages"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.graph_auth_header }}"
             Accept: "application/json"
           query:
@@ -84,6 +85,7 @@ steps:
               url: "{{ consts.graph_base }}/users/{{ inputs.email[loop.index0] }}/messages/{{ steps.search_for_message.output.value[0].id }}"
               method: DELETE
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.graph_auth_header }}"
             on-failure:
               continue: true

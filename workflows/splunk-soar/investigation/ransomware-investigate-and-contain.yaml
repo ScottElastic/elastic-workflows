@@ -56,6 +56,7 @@ steps:
       url: "{{ consts.cylance_endpoint }}/threats/v2/download/{{ inputs.file_hash }}"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.cylance_auth_header }}"
         Accept: "application/octet-stream"
     on-failure:
@@ -72,6 +73,7 @@ steps:
       url: "{{ consts.wildfire_endpoint }}/get/verdict"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Content-Type: "application/x-www-form-urlencoded"
         Accept: "application/xml"
       query:
@@ -90,6 +92,7 @@ steps:
       url: "{{ consts.wildfire_endpoint }}/get/report"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Content-Type: "application/x-www-form-urlencoded"
         Accept: "application/xml"
       query:
@@ -118,6 +121,7 @@ steps:
           url: "{{ consts.carbonblack_endpoint }}/api/v1/process"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             X-Auth-Token: "{{ consts.carbonblack_auth_header }}"
             Accept: "application/json"
           query:
@@ -141,6 +145,7 @@ steps:
               url: "{{ consts.panorama_endpoint }}/api/"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Content-Type: "application/x-www-form-urlencoded"
               query:
                 type: "config"
@@ -161,6 +166,7 @@ steps:
           url: "{{ consts.carbonblack_endpoint }}/api/v1/banning/blacklist"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             X-Auth-Token: "{{ consts.carbonblack_auth_header }}"
             Content-Type: "application/json"
             Accept: "application/json"
@@ -185,6 +191,7 @@ steps:
               url: "{{ consts.carbonblack_endpoint }}/api/v1/banning/blacklist"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 X-Auth-Token: "{{ consts.carbonblack_auth_header }}"
                 Content-Type: "application/json"
                 Accept: "application/json"
@@ -209,6 +216,7 @@ steps:
           url: "{{ consts.carbonblack_endpoint }}/api/v1/process/{{ steps.hunt_file.output.results[0].id | default: '' }}/terminate"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             X-Auth-Token: "{{ consts.carbonblack_auth_header }}"
             Content-Type: "application/json"
           body:
@@ -226,6 +234,7 @@ steps:
           url: "{{ consts.carbonblack_endpoint }}/api/v1/sensor/{{ steps.hunt_file.output.results[0].sensor_id | default: '' }}"
           method: PUT
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             X-Auth-Token: "{{ consts.carbonblack_auth_header }}"
             Content-Type: "application/json"
           body:
@@ -243,6 +252,7 @@ steps:
           url: "{{ consts.ad_ldap_endpoint }}/disable-user"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.ad_ldap_auth_header }}"
             Content-Type: "application/json"
           body:
@@ -262,6 +272,7 @@ steps:
           url: "{{ consts.carbonblack_endpoint }}/api/v1/process/{{ steps.hunt_file.output.results[0].id | default: '' }}/event"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             X-Auth-Token: "{{ consts.carbonblack_auth_header }}"
             Accept: "application/json"
         on-failure:
@@ -282,6 +293,7 @@ steps:
               url: "{{ consts.panorama_endpoint }}/api/"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Content-Type: "application/x-www-form-urlencoded"
               query:
                 type: "config"
@@ -302,6 +314,7 @@ steps:
           url: "{{ consts.panorama_endpoint }}/api/"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Content-Type: "application/x-www-form-urlencoded"
           query:
             type: "commit"

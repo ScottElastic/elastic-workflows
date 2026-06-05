@@ -56,6 +56,8 @@ steps:
         with:
           url: "https://{{ consts.kibana_host }}/api/workflows"
           method: GET
+          headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
           query:
             tags: "investigate,threat_intel"
         on-failure:
@@ -87,6 +89,8 @@ steps:
             with:
               url: "https://{{ consts.kibana_host }}/api/workflows/{{ item }}/run"
               method: POST
+              headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
               body:
                 inputs:
                   indicators: ["{{ item.value }}"]

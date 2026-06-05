@@ -42,6 +42,7 @@ steps:
           url: "{{ consts.urlscan_endpoint }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             API-Key: "{{ consts.urlscan_api_key }}"
             Content-Type: "application/json"
           body:
@@ -85,6 +86,7 @@ steps:
               url: "{{ consts.urlscan_result_endpoint }}{{ steps.submit_scan.output.uuid }}/"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 API-Key: "{{ consts.urlscan_api_key }}"
             on-failure:
               retry:

@@ -43,6 +43,7 @@ steps:
       url: "{{ consts.extrahop_endpoint }}/devices/search"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.extrahop_auth }}"
         Content-Type: "application/json"
       body:
@@ -64,6 +65,7 @@ steps:
       url: "{{ consts.nessus_endpoint }}/policies"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         X-ApiKeys: "{{ consts.nessus_auth }}"
         Accept: "application/json"
     on-failure:
@@ -90,6 +92,7 @@ steps:
                   url: "{{ consts.extrahop_endpoint }}/devices/{{ item.id }}"
                   method: GET
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.extrahop_auth }}"
                 on-failure:
                   retry:
@@ -103,6 +106,7 @@ steps:
                   url: "{{ consts.extrahop_endpoint }}/activitymaps/query"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.extrahop_auth }}"
                     Content-Type: "application/json"
                   body:
@@ -128,6 +132,7 @@ steps:
                   url: "{{ consts.extrahop_endpoint }}/activitymaps/query"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.extrahop_auth }}"
                     Content-Type: "application/json"
                   body:
@@ -161,6 +166,7 @@ steps:
                   url: "{{ consts.nessus_endpoint }}/scans"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     X-ApiKeys: "{{ consts.nessus_auth }}"
                     Content-Type: "application/json"
                   body:

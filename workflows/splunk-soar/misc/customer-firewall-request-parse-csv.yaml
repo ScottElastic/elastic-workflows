@@ -49,6 +49,7 @@ steps:
           url: "{{ inputs.csv_url }}"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.csv_auth_header }}"
         on-failure:
           retry:

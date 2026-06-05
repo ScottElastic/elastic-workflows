@@ -80,6 +80,7 @@ steps:
           url: "{{ consts.splunk_search_endpoint }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
           body: "search=%7C+tstats+count+from+datamodel%3DAuthentication+where+Authentication.dest%3D{{ steps.derive_destination.output.dest }}+earliest%3D-15m+by+_time%2C+Authentication.dest%2C+Authentication.user%2C+Authentication.app%2C+Authentication.action&exec_mode=oneshot&output_mode=json"
@@ -96,6 +97,7 @@ steps:
           url: "{{ consts.splunk_search_endpoint }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
           body: "search=search+%60notable%60+dest%3D{{ steps.derive_destination.output.dest }}+%7C+table+_time%2C+rule_name%2C+owner%2C+priority%2C+severity%2C+status_description%2C+event_id&exec_mode=oneshot&output_mode=json"
@@ -112,6 +114,7 @@ steps:
           url: "{{ consts.splunk_search_endpoint }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
           body: "search=search+%60notable_by_id({{ steps.query_notable_history.output.results[0].event_id | default: '' }})%60+%7C+table+time%2C+rule_name%2C+dest%2C+dest_asset_id%2C+dest_owner%2C+priority%2C+severity%2C+owner%2C+status_description&exec_mode=oneshot&output_mode=json"
@@ -128,6 +131,7 @@ steps:
           url: "{{ consts.splunk_search_endpoint }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
           body: "search=%7C+from+datamodel%3ARisk.All_Risk+%7C+search+risk_object_type%3Dsystem+risk_object%3D{{ steps.derive_destination.output.dest }}+%7C+stats+count+sum(risk_score)+as+risk_score+values(search_name)+min(_time)+as+firstTime+max(_time)+as+lastTime+by+risk_object&exec_mode=oneshot&output_mode=json"
@@ -144,6 +148,7 @@ steps:
           url: "{{ consts.splunk_search_endpoint }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
           body: "search=%7C+%60identities%60+%7C+search+identity+IN+({{ steps.query_endpoint_auth_logs.output.results | map: 'user' | join: ',' }})+%7C+table+_time%2C+identity%2C+first%2C+last%2C+email%2C+category%2C+watchlist&exec_mode=oneshot&output_mode=json"
@@ -160,6 +165,7 @@ steps:
           url: "{{ consts.splunk_search_endpoint }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
           body: "search=%7C+from+datamodel%3ARisk.All_Risk+%7C+search+risk_object_type%3Duser+risk_object+IN+({{ steps.query_endpoint_auth_logs.output.results | map: 'user' | join: ',' }})+earliest%3D-15m+%7C+stats+count+sum(risk_score)+as+risk_score+by+risk_object&exec_mode=oneshot&output_mode=json"
@@ -176,6 +182,7 @@ steps:
           url: "{{ consts.splunk_search_endpoint }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
           body: "search=search+index%3Dwineventlog+(EventCode%3D4718+OR+EventCode%3D4717)+dest%3D{{ steps.derive_destination.output.dest }}+%7C+rename+user+as+Account_Modified+%7C+table+_time%2C+dest%2C+Account_Modified%2C+Access_Right%2C+signature&exec_mode=oneshot&output_mode=json"
@@ -192,6 +199,7 @@ steps:
           url: "{{ consts.splunk_search_endpoint }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
           body: "search=search+index%3Dwineventlog+(EventCode%3D4718+OR+EventCode%3D4717)+user%3D*+%7C+rename+user+as+Account_Modified+%7C+table+_time%2C+dest%2C+Account_Modified%2C+Access_Right%2C+signature&exec_mode=oneshot&output_mode=json"
@@ -215,6 +223,7 @@ steps:
           url: "{{ consts.winrm_endpoint }}/list-sessions"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.winrm_auth_header }}"
             Content-Type: "application/json"
           body:
@@ -231,6 +240,7 @@ steps:
           url: "{{ consts.winrm_endpoint }}/list-connections"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.winrm_auth_header }}"
             Content-Type: "application/json"
           body:
@@ -247,6 +257,7 @@ steps:
           url: "{{ consts.winrm_endpoint }}/run-script"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.winrm_auth_header }}"
             Content-Type: "application/json"
           body:
@@ -264,6 +275,7 @@ steps:
           url: "{{ consts.winrm_endpoint }}/list-processes"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.winrm_auth_header }}"
             Content-Type: "application/json"
           body:
@@ -290,6 +302,7 @@ steps:
               url: "{{ consts.winrm_endpoint }}/shutdown-system"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.winrm_auth_header }}"
                 Content-Type: "application/json"
               body:
@@ -307,6 +320,7 @@ steps:
               url: "{{ consts.splunk_event_endpoint }}"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.splunk_auth_header }}"
                 Content-Type: "application/x-www-form-urlencoded"
               body: "ruleUIDs={{ inputs.splunk_event_id | default: steps.query_notable_history.output.results[0].event_id | default: '' }}&comment=Elastic+workflow+shut+down+the+affected+Windows+machine+with+analyst+approval.&status=in_progress&output_mode=json"
@@ -328,6 +342,7 @@ steps:
               url: "{{ consts.splunk_event_endpoint }}"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.splunk_auth_header }}"
                 Content-Type: "application/x-www-form-urlencoded"
               body: "ruleUIDs={{ inputs.splunk_event_id | default: steps.query_notable_history.output.results[0].event_id | default: '' }}&comment=Analyst+declined+shutdown+%E2%80%94+no+action+taken.&output_mode=json"

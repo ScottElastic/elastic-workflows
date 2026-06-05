@@ -36,6 +36,7 @@ steps:
       url: "{{ consts.ssh_proxy_endpoint }}/put-file"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.ssh_proxy_auth }}"
       body:
         host: "{{ inputs.ip_or_hostname }}"
@@ -55,6 +56,7 @@ steps:
       url: "{{ consts.ssh_proxy_endpoint }}/execute"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.ssh_proxy_auth }}"
       body:
         host: "{{ inputs.ip_or_hostname }}"
@@ -73,6 +75,7 @@ steps:
       url: "{{ consts.ssh_proxy_endpoint }}/get-file"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.ssh_proxy_auth }}"
       body:
         host: "{{ inputs.ip_or_hostname }}"

@@ -60,6 +60,7 @@ steps:
           url: "{{ consts.workflows_api_base }}/{{ consts.vt_workflow_id }}/run"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "ApiKey {{ consts.workflows_api_key }}"
             kbn-xsrf: "true"
             Content-Type: "application/json"
@@ -81,6 +82,7 @@ steps:
               url: "{{ consts.workflows_api_base }}/{{ consts.phishtank_workflow_id }}/run"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "ApiKey {{ consts.workflows_api_key }}"
                 kbn-xsrf: "true"
                 Content-Type: "application/json"

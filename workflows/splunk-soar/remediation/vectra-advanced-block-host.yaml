@@ -67,6 +67,7 @@ steps:
               url: "{{ consts.vsphere_endpoint }}/api/vcenter/vm/{{ inputs.vmx_path }}/snapshot"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 vmware-api-session-id: "{{ consts.vsphere_session_token }}"
                 Content-Type: "application/json"
               body:
@@ -91,6 +92,7 @@ steps:
                   url: "{{ consts.vsphere_endpoint }}/api/vcenter/vm/{{ inputs.vmx_path }}/power"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     vmware-api-session-id: "{{ consts.vsphere_session_token }}"
                   query:
                     action: "suspend"
@@ -106,6 +108,8 @@ steps:
         with:
           url: "{{ consts.panw_endpoint }}/"
           method: POST
+          headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
           query:
             type: "config"
             action: "set"
@@ -123,6 +127,8 @@ steps:
         with:
           url: "{{ consts.panw_endpoint }}/"
           method: POST
+          headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
           query:
             type: "commit"
             cmd: "<commit></commit>"
@@ -142,6 +148,8 @@ steps:
         with:
           url: "{{ consts.panw_endpoint }}/"
           method: POST
+          headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
           query:
             type: "config"
             action: "delete"
@@ -158,6 +166,8 @@ steps:
         with:
           url: "{{ consts.panw_endpoint }}/"
           method: POST
+          headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
           query:
             type: "commit"
             cmd: "<commit></commit>"

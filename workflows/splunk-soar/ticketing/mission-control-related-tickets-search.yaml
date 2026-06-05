@@ -98,6 +98,7 @@ steps:
           url: "{{ consts.mission_control_endpoint }}/tasks"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.mission_control_auth_header }}"
           query:
             id: "{{ inputs.external_id }}"
@@ -119,6 +120,7 @@ steps:
               url: "{{ consts.mission_control_endpoint }}/tasks/note"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.mission_control_auth_header }}"
                 Content-Type: "application/json"
               body:
@@ -144,6 +146,7 @@ steps:
                   url: "{{ consts.mission_control_endpoint }}/tasks/update"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.mission_control_auth_header }}"
                     Content-Type: "application/json"
                   body:
@@ -162,6 +165,7 @@ steps:
               url: "{{ consts.mission_control_endpoint }}/tasks/update"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.mission_control_auth_header }}"
                 Content-Type: "application/json"
               body:

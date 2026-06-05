@@ -92,6 +92,7 @@ steps:
               url: "{{ consts.ssh_exec_endpoint }}"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.ssh_exec_auth_header }}"
                 Content-Type: "application/json"
               body:

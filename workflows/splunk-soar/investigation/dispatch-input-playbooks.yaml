@@ -78,6 +78,7 @@ steps:
       url: "{{ consts.workflow_registry_endpoint }}"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.workflow_registry_auth }}"
         kbn-xsrf: "true"
       query:
@@ -103,6 +104,7 @@ steps:
           url: "https://CHANGEME-kibana/api/cases/{{ inputs.case_id }}/indicators"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.workflow_registry_auth }}"
             kbn-xsrf: "true"
         # Read-only — retry then continue with empty indicator list.
@@ -139,6 +141,7 @@ steps:
               url: "{{ consts.workflow_registry_endpoint }}/{{ item.id }}/execute"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.workflow_registry_auth }}"
                 kbn-xsrf: "true"
                 Content-Type: "application/json"

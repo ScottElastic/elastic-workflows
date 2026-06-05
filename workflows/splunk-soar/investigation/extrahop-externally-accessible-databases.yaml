@@ -54,6 +54,7 @@ steps:
           url: "{{ consts.extrahop_endpoint }}/devices/search"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.extrahop_auth }}"
             Content-Type: "application/json"
           body:
@@ -70,6 +71,7 @@ steps:
           url: "{{ consts.extrahop_endpoint }}/activitymaps/query"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.extrahop_auth }}"
             Content-Type: "application/json"
           body:
@@ -95,6 +97,7 @@ steps:
           url: "{{ consts.extrahop_endpoint }}/activitymaps/query"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.extrahop_auth }}"
             Content-Type: "application/json"
           body:
@@ -122,6 +125,7 @@ steps:
           url: "{{ consts.extrahop_endpoint }}/devices/search"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.extrahop_auth }}"
             Content-Type: "application/json"
           body:
@@ -138,6 +142,7 @@ steps:
           url: "{{ consts.extrahop_endpoint }}/activitymaps/query"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.extrahop_auth }}"
             Content-Type: "application/json"
           body:
@@ -163,6 +168,7 @@ steps:
           url: "{{ consts.extrahop_endpoint }}/activitymaps/query"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.extrahop_auth }}"
             Content-Type: "application/json"
           body:
@@ -191,6 +197,7 @@ steps:
           url: "{{ consts.pan_endpoint }}/"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Content-Type: "application/x-www-form-urlencoded"
           query:
             type: "config"
@@ -209,6 +216,8 @@ steps:
         with:
           url: "{{ consts.pan_endpoint }}/"
           method: POST
+          headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
           query:
             type: "commit"
             cmd: "<commit></commit>"

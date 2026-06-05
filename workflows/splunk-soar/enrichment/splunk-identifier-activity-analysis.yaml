@@ -57,6 +57,7 @@ steps:
           url: "{{ consts.splunk_endpoint }}/services/search/jobs"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
           body: "search={{ steps.build_url_query.output.query | url_encode }}&earliest_time={{ consts.start_time }}&exec_mode=oneshot&output_mode=json&adhoc_search_level={{ consts.search_mode }}"
@@ -101,6 +102,7 @@ steps:
           url: "{{ consts.splunk_endpoint }}/services/search/jobs"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
           body: "search={{ steps.build_file_query.output.query | url_encode }}&earliest_time={{ consts.start_time }}&exec_mode=oneshot&output_mode=json&adhoc_search_level={{ consts.search_mode }}"
@@ -145,6 +147,7 @@ steps:
           url: "{{ consts.splunk_endpoint }}/services/search/jobs"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
           body: "search={{ steps.build_domain_query.output.query | url_encode }}&earliest_time={{ consts.start_time }}&exec_mode=oneshot&output_mode=json&adhoc_search_level={{ consts.search_mode }}"
@@ -189,6 +192,7 @@ steps:
           url: "{{ consts.splunk_endpoint }}/services/search/jobs"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
           body: "search={{ steps.build_ip_query.output.query | url_encode }}&earliest_time={{ consts.start_time }}&exec_mode=oneshot&output_mode=json&adhoc_search_level={{ consts.search_mode }}"

@@ -67,6 +67,8 @@ steps:
     with:
       url: "https://0dayfans.com/feed.rss"
       method: GET
+      headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
     on-failure:
       continue: true
       retry:

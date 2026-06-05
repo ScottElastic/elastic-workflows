@@ -61,6 +61,7 @@ steps:
               url: "{{ consts.saa_endpoint }}/jobs/url"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.saa_auth_header }}"
                 Content-Type: "application/json"
               body:
@@ -89,6 +90,7 @@ steps:
                   url: "{{ consts.saa_endpoint }}/jobs/{{ steps.detonate_url.output.JobID }}/summary"
                   method: GET
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.saa_auth_header }}"
                 on-failure:
                   retry:
@@ -102,6 +104,7 @@ steps:
                   url: "{{ consts.saa_endpoint }}/jobs/{{ steps.detonate_url.output.JobID }}/screenshots"
                   method: GET
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.saa_auth_header }}"
                 on-failure:
                   continue: true
@@ -139,6 +142,7 @@ steps:
               url: "{{ consts.saa_endpoint }}/jobs/file"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.saa_auth_header }}"
                 Content-Type: "application/json"
               body:
@@ -164,6 +168,7 @@ steps:
                   url: "{{ consts.saa_endpoint }}/jobs/{{ steps.detonate_file.output.JobID }}/summary"
                   method: GET
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.saa_auth_header }}"
                 on-failure:
                   retry:
@@ -177,6 +182,7 @@ steps:
                   url: "{{ consts.saa_endpoint }}/jobs/{{ steps.detonate_file.output.JobID }}/screenshots"
                   method: GET
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.saa_auth_header }}"
                 on-failure:
                   continue: true

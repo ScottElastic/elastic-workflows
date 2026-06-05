@@ -36,6 +36,7 @@ steps:
       url: "{{ consts.winrm_proxy_endpoint }}/processes"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.winrm_proxy_auth }}"
       body:
         host: "{{ inputs.ip_or_hostname }}"
@@ -53,6 +54,7 @@ steps:
       url: "{{ consts.winrm_proxy_endpoint }}/connections"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.winrm_proxy_auth }}"
       body:
         host: "{{ inputs.ip_or_hostname }}"
@@ -70,6 +72,7 @@ steps:
       url: "{{ consts.winrm_proxy_endpoint }}/sessions"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.winrm_proxy_auth }}"
       body:
         host: "{{ inputs.ip_or_hostname }}"
@@ -95,6 +98,7 @@ steps:
       url: "{{ consts.winrm_proxy_endpoint }}/run-script"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.winrm_proxy_auth }}"
       body:
         host: "{{ inputs.ip_or_hostname }}"
@@ -113,6 +117,7 @@ steps:
       url: "{{ consts.winrm_proxy_endpoint }}/get-file"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.winrm_proxy_auth }}"
       body:
         host: "{{ inputs.ip_or_hostname }}"
@@ -131,6 +136,7 @@ steps:
       url: "{{ consts.winrm_proxy_endpoint }}/run-script"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.winrm_proxy_auth }}"
       body:
         host: "{{ inputs.ip_or_hostname }}"

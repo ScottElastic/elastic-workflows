@@ -59,6 +59,7 @@ steps:
           url: "{{ consts.gmail_base }}/{{ inputs.email[loop.index0] }}/messages/{{ item }}"
           method: DELETE
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.gmail_auth_header }}"
         on-failure:
           continue: true

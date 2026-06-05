@@ -45,6 +45,7 @@ steps:
       url: "{{ consts.crowdstrike_base_url }}/oauth2/token"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Content-Type: "application/x-www-form-urlencoded"
         Accept: "application/json"
       body: "client_id={{ consts.crowdstrike_client_id }}&client_secret={{ consts.crowdstrike_client_secret }}"
@@ -72,6 +73,7 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/devices/queries/devices/v1"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
             Accept: "application/json"
           query:
@@ -89,6 +91,7 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices/v2"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
           query:
             ids: "${{ steps.query_device_by_ip.output.resources }}"
@@ -119,6 +122,7 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/devices/queries/devices/v1"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
             Accept: "application/json"
           query:
@@ -136,6 +140,7 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices/v2"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
           query:
             ids: "${{ steps.query_device_by_hostname.output.resources }}"

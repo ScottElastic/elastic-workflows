@@ -63,6 +63,7 @@ steps:
           url: "{{ consts.splunk_endpoint }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
           body: "search={{ '| inputlookup identity_lookup_expanded | search identity IN (' | append: inputs.users | join: ',' | append: ') | eval category=mvjoin(category, \"; \")' | url_encode }}&exec_mode=oneshot&output_mode=json"
@@ -83,6 +84,7 @@ steps:
           url: "{{ consts.splunk_endpoint }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.splunk_auth_header }}"
             Content-Type: "application/x-www-form-urlencoded"
           body: "search={{ '| inputlookup asset_lookup_by_str | search asset IN (' | append: inputs.hosts | join: ',' | append: ') | eval category=mvjoin(category, \"; \")' | url_encode }}&exec_mode=oneshot&output_mode=json"

@@ -65,6 +65,7 @@ steps:
           url: "{{ consts.workflow_registry_endpoint }}"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             kbn-xsrf: "true"
           query:
             tag: "{{ consts.response_tag }}"
@@ -96,6 +97,7 @@ steps:
               url: "{{ consts.workbook_api }}/add"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.workbook_auth_header }}"
                 Content-Type: "application/json"
               body:
@@ -112,6 +114,7 @@ steps:
               url: "{{ consts.workbook_api }}/task"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.workbook_auth_header }}"
                 Content-Type: "application/json"
               body:
@@ -134,6 +137,7 @@ steps:
                   url: "/api/workflows/{{ inputs.response_choice }}/run"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     kbn-xsrf: "true"
                     Content-Type: "application/json"
                   body:
@@ -151,6 +155,7 @@ steps:
                   url: "{{ consts.workbook_api }}/task"
                   method: POST
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.workbook_auth_header }}"
                     Content-Type: "application/json"
                   body:

@@ -657,6 +657,7 @@ steps:
       url: https://slack.com/api/chat.postMessage
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Content-Type: "application/json; charset=utf-8"
         Authorization: "Bearer {{ consts.slack_token }}"
       body:

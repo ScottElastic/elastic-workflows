@@ -72,6 +72,7 @@ steps:
       url: "{{ consts.reversinglabs_endpoint }}/{{ inputs.file_hash }}?format=json"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.reversinglabs_token }}"
         Accept: "application/json"
     on-failure:
@@ -126,6 +127,7 @@ steps:
               url: "{{ consts.tanium_endpoint }}/actions"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 session: "{{ consts.tanium_token }}"
                 Content-Type: "application/json"
               body:
@@ -149,6 +151,7 @@ steps:
               url: "{{ consts.slack_webhook | default: 'https://hooks.slack.com/services/CHANGEME' }}"
               method: POST
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Content-Type: "application/json"
               body:
                 channel: "#security-alerts"
@@ -181,6 +184,8 @@ steps:
                 with:
                   url: "{{ consts.pan_endpoint }}"
                   method: POST
+                  headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                   query:
                     type: "op"
                     cmd: "<request><address-block><ip>{{ inputs.source_address }}</ip></address-block></request>"

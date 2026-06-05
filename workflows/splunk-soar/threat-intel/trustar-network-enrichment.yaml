@@ -53,6 +53,7 @@ steps:
           url: "{{ consts.trustar_base }}/indicators/search"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.trustar_auth_header }}"
             Accept: "application/json"
           query:
@@ -74,6 +75,7 @@ steps:
               url: "{{ consts.trustar_base }}/reports/{{ steps.trustar_hunt_ip.output.report_id }}"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.trustar_auth_header }}"
                 Accept: "application/json"
             on-failure:
@@ -95,6 +97,7 @@ steps:
           url: "{{ consts.trustar_base }}/indicators/search"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.trustar_auth_header }}"
             Accept: "application/json"
           query:
@@ -116,6 +119,7 @@ steps:
               url: "{{ consts.trustar_base }}/reports/{{ steps.trustar_hunt_url.output.report_id }}"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.trustar_auth_header }}"
                 Accept: "application/json"
             on-failure:
@@ -137,6 +141,7 @@ steps:
           url: "{{ consts.google_dns_endpoint }}"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Accept: "application/dns-json"
           query:
             name: "{{ item }}"
@@ -162,6 +167,7 @@ steps:
               url: "{{ consts.trustar_base }}/indicators/search"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "{{ consts.trustar_auth_header }}"
                 Accept: "application/json"
               query:
@@ -180,6 +186,7 @@ steps:
                   url: "{{ consts.trustar_base }}/reports/{{ steps.trustar_hunt_resolved_ip.output.report_id }}"
                   method: GET
                   headers:
+                    X-Api-Key: "{{ consts.mock_api_key }}"
                     Authorization: "{{ consts.trustar_auth_header }}"
                     Accept: "application/json"
                 on-failure:

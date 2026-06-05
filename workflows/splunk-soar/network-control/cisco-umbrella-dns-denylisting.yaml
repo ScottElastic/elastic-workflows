@@ -53,6 +53,7 @@ steps:
           url: "{{ consts.umbrella_enforcement_endpoint }}?customerKey={{ consts.umbrella_customer_key }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Content-Type: "application/json"
             Accept: "application/json"
           body:

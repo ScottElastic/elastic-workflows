@@ -87,6 +87,7 @@ steps:
           url: "{{ consts.servicenow_instance_url }}/api/now/table/{{ steps.capture_table.output.table_name }}"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.servicenow_auth_header }}"
             Accept: "application/json"
           query:

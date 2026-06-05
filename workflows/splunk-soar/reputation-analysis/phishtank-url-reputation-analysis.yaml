@@ -39,6 +39,7 @@ steps:
           url: "{{ consts.phishtank_endpoint }}"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Content-Type: "application/x-www-form-urlencoded"
             User-Agent: "phishtank/elastic-workflows"
           body: "url={{ item | url_encode }}&format=json&app_key={{ consts.phishtank_app_key }}"

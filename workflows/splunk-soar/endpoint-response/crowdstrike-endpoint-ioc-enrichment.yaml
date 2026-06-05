@@ -51,6 +51,7 @@ steps:
       url: "{{ consts.crowdstrike_base_url }}/oauth2/token"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Content-Type: "application/x-www-form-urlencoded"
         Accept: "application/json"
       body: "client_id={{ consts.crowdstrike_client_id }}&client_secret={{ consts.crowdstrike_client_secret }}"
@@ -70,6 +71,7 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/indicators/queries/devices/v1"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
           query:
             type: "sha256"
@@ -86,6 +88,7 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/intel/entities/reports/v1"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
           query:
             ids: "{{ inputs.file_hash }}"
@@ -102,6 +105,7 @@ steps:
               url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices/v2"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
               query:
                 ids: "${{ steps.hunt_file.output.resources }}"
@@ -118,6 +122,7 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/intel/queries/indicators/v1"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
           query:
             filter: "type:'url'+indicator:{{ inputs.url }}"
@@ -134,6 +139,7 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/indicators/queries/devices/v1"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
           query:
             type: "domain"
@@ -151,6 +157,7 @@ steps:
               url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices/v2"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
               query:
                 ids: "${{ steps.hunt_domain.output.resources }}"
@@ -167,6 +174,7 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/indicators/queries/devices/v1"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
           query:
             type: "ipv4"
@@ -184,6 +192,7 @@ steps:
               url: "{{ consts.crowdstrike_base_url }}/devices/entities/devices/v2"
               method: GET
               headers:
+                X-Api-Key: "{{ consts.mock_api_key }}"
                 Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
               query:
                 ids: "${{ steps.hunt_ip.output.resources }}"
@@ -204,6 +213,7 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/devices/queries/devices/v1"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
           query:
             limit: "1"

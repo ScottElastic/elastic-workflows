@@ -55,6 +55,7 @@ steps:
       url: "{{ consts.splunk_search_endpoint }}"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.splunk_auth_header }}"
         Content-Type: "application/x-www-form-urlencoded"
       body: "search={{ steps.build_notable_history_query.output.query | url_encode }}&output_mode=json"
@@ -71,6 +72,7 @@ steps:
       url: "{{ consts.splunk_search_endpoint }}"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.splunk_auth_header }}"
         Content-Type: "application/x-www-form-urlencoded"
       body: "search={{ steps.build_process_info_query.output.query | url_encode }}&output_mode=json"
@@ -87,6 +89,7 @@ steps:
       url: "{{ consts.splunk_search_endpoint }}"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.splunk_auth_header }}"
         Content-Type: "application/x-www-form-urlencoded"
       body: "search={{ steps.build_children_of_java_query.output.query | url_encode }}&output_mode=json"
@@ -103,6 +106,7 @@ steps:
       url: "{{ consts.splunk_search_endpoint }}"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.splunk_auth_header }}"
         Content-Type: "application/x-www-form-urlencoded"
       body: "search={{ steps.build_es_assets_query.output.query | url_encode }}&output_mode=json"

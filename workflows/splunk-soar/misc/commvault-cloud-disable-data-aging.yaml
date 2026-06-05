@@ -43,6 +43,7 @@ steps:
       url: "{{ consts.commvault_endpoint }}/Client/DataAging/Disable"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authtoken: "{{ consts.commvault_auth_header }}"
         Accept: "application/json"
         Content-Type: "application/json"

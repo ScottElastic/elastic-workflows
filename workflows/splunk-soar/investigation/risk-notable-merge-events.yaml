@@ -177,6 +177,7 @@ steps:
           url: "{{ consts.splunk_endpoint }}/services/notable_update"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "Bearer CHANGEME_SPLUNK_TOKEN"
             Content-Type: "application/x-www-form-urlencoded"
           body:

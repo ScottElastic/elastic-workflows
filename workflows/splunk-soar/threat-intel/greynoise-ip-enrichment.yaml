@@ -53,6 +53,7 @@ steps:
           url: "{{ consts.greynoise_base_url }}/noise/context/{{ steps.derive_ip.output.ip }}"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             key: "{{ consts.greynoise_api_key }}"
             Accept: "application/json"
         on-failure:
@@ -78,6 +79,7 @@ steps:
           url: "{{ consts.greynoise_base_url }}/noise/quick/{{ steps.derive_ip.output.ip }}"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             key: "{{ consts.greynoise_api_key }}"
             Accept: "application/json"
         on-failure:

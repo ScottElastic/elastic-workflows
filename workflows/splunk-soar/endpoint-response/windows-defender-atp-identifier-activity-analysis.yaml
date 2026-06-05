@@ -48,6 +48,7 @@ steps:
           url: "{{ consts.defender_base_url }}/api/files/{{ inputs.file_hash }}/machines"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.defender_bearer }}"
             Accept: "application/json"
         on-failure:
@@ -81,6 +82,7 @@ steps:
           url: "{{ consts.defender_base_url }}/api/domains/{{ inputs.domain }}/machines"
           method: GET
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "{{ consts.defender_bearer }}"
             Accept: "application/json"
         on-failure:

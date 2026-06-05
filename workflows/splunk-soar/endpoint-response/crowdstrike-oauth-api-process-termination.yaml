@@ -47,6 +47,7 @@ steps:
       url: "{{ consts.crowdstrike_base_url }}/oauth2/token"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Content-Type: "application/x-www-form-urlencoded"
         Accept: "application/json"
       body: "client_id={{ consts.crowdstrike_client_id }}&client_secret={{ consts.crowdstrike_client_secret }}"
@@ -62,6 +63,7 @@ steps:
       url: "{{ consts.crowdstrike_base_url }}/devices/queries/devices/v1"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
       query:
         limit: "1"
@@ -83,6 +85,7 @@ steps:
       url: "{{ consts.crowdstrike_base_url }}/real-time-response/entities/sessions/v1"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
         Content-Type: "application/json"
       body:
@@ -108,6 +111,7 @@ steps:
           url: "{{ consts.crowdstrike_base_url }}/real-time-response/entities/admin-command/v1"
           method: POST
           headers:
+            X-Api-Key: "{{ consts.mock_api_key }}"
             Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
             Content-Type: "application/json"
           body:
@@ -132,6 +136,7 @@ steps:
       url: "{{ consts.crowdstrike_base_url }}/real-time-response/entities/sessions/v1"
       method: DELETE
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "Bearer {{ steps.get_token.output.body.access_token }}"
       query:
         session_id: "{{ steps.capture_session_id.output.session_id }}"

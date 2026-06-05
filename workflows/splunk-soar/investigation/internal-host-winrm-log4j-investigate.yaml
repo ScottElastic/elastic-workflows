@@ -35,6 +35,7 @@ steps:
       url: "{{ consts.winrm_proxy_endpoint }}/run-script"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.winrm_proxy_auth }}"
       body:
         host: "{{ inputs.ip_or_hostname }}"

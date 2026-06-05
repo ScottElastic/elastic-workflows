@@ -68,6 +68,7 @@ steps:
       url: "{{ consts.sigv4_proxy_base }}/?Action=DescribeInstances&Version=2016-11-15&InstanceId.1={{ inputs.instance_id }}&Region={{ inputs.region }}"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.aws_auth_header }}"
         Accept: "application/json"
     on-failure:
@@ -92,6 +93,7 @@ steps:
       url: "{{ consts.sigv4_proxy_base }}/?Action=ModifyInstanceAttribute&Version=2016-11-15&InstanceId={{ inputs.instance_id }}&GroupId.1={{ inputs.isolation_security_group }}&Region={{ inputs.region }}"
       method: POST
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.aws_auth_header }}"
         Accept: "application/json"
     on-failure:
@@ -118,6 +120,7 @@ steps:
       url: "{{ consts.sigv4_proxy_base }}/?Action=DescribeInstances&Version=2016-11-15&InstanceId.1={{ inputs.instance_id }}&Region={{ inputs.region }}"
       method: GET
       headers:
+        X-Api-Key: "{{ consts.mock_api_key }}"
         Authorization: "{{ consts.aws_auth_header }}"
         Accept: "application/json"
     on-failure:
